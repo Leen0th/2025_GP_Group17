@@ -1,5 +1,3 @@
-# 2025_GP_Group17
-
 # Haddaf
 
 ## Introduction
