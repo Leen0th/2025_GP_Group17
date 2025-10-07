@@ -8,9 +8,8 @@
 import SwiftUI
 
 // MARK: - Main Container View
-// This is now the main view of our app, controlling the navigation.
 struct PlayerProfile: View {
-    // This state now controls which page is visible.
+    // This state controls which page is visible.
     @State private var selectedTab: Tab = .profile
     // This state controls the presentation of the video upload sheet.
     @State private var showVideoUpload = false
@@ -18,8 +17,7 @@ struct PlayerProfile: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             
-            // The main content area now switches between different views
-            // based on the selected tab.
+            // The main content area switches between different views based on the selected tab
             VStack {
                 switch selectedTab {
                 case .discovery:
@@ -29,31 +27,30 @@ struct PlayerProfile: View {
                 case .challenge:
                     ChallengeView()
                 case .profile:
-                    // The original profile content is now in its own view.
                     PlayerProfileContentView()
                 default:
-                    // A default view in case .action is ever selectable.
                     DiscoveryView()
                 }
             }
             
-            // The custom tab bar sits on top of the content.
+            // footer sits on top of the content
             CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
         }
         .ignoresSafeArea(.all, edges: .bottom)
-        // The sheet for uploading a video is presented from here.
+        // The sheet for uploading a video is presented here
         .sheet(isPresented: $showVideoUpload) {
             VideoUploadView()
         }
     }
 }
 
-// MARK: - Page Views
+// MARK: - Profile Page Views
 
 // This view contains all the original content for the profile page.
 struct PlayerProfileContentView: View {
     @State private var selectedContent: ContentType = .posts
 
+    // Mock data
     private let stats: [PlayerStat] = [
         .init(title: "Position", value: "Forwards"),
         .init(title: "Age", value: "34"),
@@ -71,12 +68,12 @@ struct PlayerProfileContentView: View {
         GridItem(.flexible(), spacing: 12)
     ]
     
-    // Mock data for the posts.
+    // Mock data
     private let posts: [Post] = (0..<9).map { _ in Post(imageName: "post_image_placeholder") }
 
 
     var body: some View {
-        // NavigationStack enables navigation to other pages like Settings or Post Details.
+        // navigation to other pages
         NavigationStack {
             Color.white
                 .ignoresSafeArea()
@@ -91,7 +88,7 @@ struct PlayerProfileContentView: View {
                             if selectedContent == .posts {
                                 LazyVGrid(columns: postColumns, spacing: 12) {
                                     ForEach(posts) { post in
-                                        // Each post is now a navigation link to the detail view.
+                                        // Each post is a navigation link to the detail view
                                         NavigationLink(destination: PostDetailView(post: post)) {
                                             Image(post.imageName)
                                                 .resizable()
@@ -161,7 +158,7 @@ struct ChallengeView: View {
     }
 }
 
-// New placeholder pages for navigation.
+// Placeholder pages for Settings
 struct SettingsView: View {
     var body: some View {
         ZStack {
@@ -172,6 +169,7 @@ struct SettingsView: View {
     }
 }
 
+// Placeholder pages for Edit Profile
 struct EditProfileView: View {
     var body: some View {
         ZStack {
@@ -182,6 +180,7 @@ struct EditProfileView: View {
     }
 }
 
+// Placeholder pages for Video Upload
 struct VideoUploadView: View {
     var body: some View {
         ZStack {
@@ -192,6 +191,7 @@ struct VideoUploadView: View {
     }
 }
 
+// Placeholder pages for Post Details
 struct PostDetailView: View {
     let post: Post
     
@@ -217,19 +217,19 @@ struct PostDetailView: View {
 }
 
 
-// MARK: - Reusable Subviews (for Profile Page)
+// MARK: - Header (settings + edit profile)
 
 struct TopNavigationBar: View {
     var body: some View {
         HStack {
-            // This now navigates to the SettingsView
+            // navigates to the SettingsView
             NavigationLink(destination: SettingsView()) {
                 Image(systemName: "gearshape")
             }
             
             Spacer()
             
-            // This now navigates to the EditProfileView
+            // navigates to the EditProfileView
             NavigationLink(destination: EditProfileView()) {
                 Image(systemName: "square.and.pencil")
             }
@@ -240,6 +240,7 @@ struct TopNavigationBar: View {
     }
 }
 
+// profile pic and name
 struct ProfileHeader: View {
     var body: some View {
         VStack(spacing: 12) {
@@ -322,7 +323,7 @@ struct ContentTabButton: View {
     }
 }
 
-// MARK: - Custom Bottom Tab Bar
+// MARK: - Bottom Tab Bar
 struct CustomTabBar: View {
     @Binding var selectedTab: Tab
     @Binding var showVideoUpload: Bool
@@ -348,7 +349,7 @@ struct CustomTabBar: View {
             .frame(height: 80)
             .padding(.top, 5)
             
-            // This is now a button that shows the sheet.
+            // button that shows the sheet
             Button(action: { showVideoUpload = true }) {
                 ZStack {
                     Circle()
@@ -394,7 +395,7 @@ struct PlayerStat: Identifiable {
     let value: String
 }
 
-// Data model for a post in the grid.
+// Data model for a post in the grid
 struct Post: Identifiable {
     let id = UUID()
     let imageName: String
