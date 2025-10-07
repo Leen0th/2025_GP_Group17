@@ -1,5 +1,5 @@
 //
-//  MainView.swift
+//  PlayerProfile.swift
 //  Haddaf_v1
 //
 //  Created by Leen Thamer on 06/10/2025.
@@ -69,7 +69,7 @@ struct PlayerProfileContentView: View {
     ]
     
     // Mock data
-    private let posts: [Post] = (0..<9).map { _ in Post(imageName: "post_image_placeholder") }
+    private let posts: [Post] = (0..<9).map { _ in Post(imageName: "post_placeholder") }
 
 
     var body: some View {

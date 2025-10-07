@@ -1,5 +1,5 @@
 //
-//  SplashVideoView.swift
+//  SplashVideo.swift
 //  Haddaf_v1
 //
 //  Created by Leen Thamer on 06/10/2025.
@@ -9,7 +9,7 @@ import SwiftUI
 import AVKit
 import UIKit
 
-struct SplashVideoView: View {
+struct SplashVideo: View {
     var body: some View {
         CustomVideoPlayerView()
             .ignoresSafeArea()

@@ -19,7 +19,7 @@ struct ContentView: View {
                     .transition(.opacity) // Fades the PlayerProfile in
             } else {
                 // show the splash screen on top of the white background
-                SplashVideoView()
+                SplashVideo()
                     .onAppear {
                         // When the splash screen appears, start the timer
                         DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
