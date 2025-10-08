@@ -1,8 +1,300 @@
-//
-//  SignUpView.swift
-//  Haddaf_v1
-//
-//  Created by Abdullah Alhussan on 16/04/1447 AH.
-//
+import SwiftUI
 
-import Foundation
+enum UserRole: String { case player = "Player", coach = "Coach" }
+
+struct SignUpView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    // Colors
+    private let primary = Color(hexv: "#36796C")
+    private let bg = Color(hexv: "#EFF5EC")
+
+    // Role
+    @State private var role: UserRole = .player
+
+    // Fields
+    @State private var fullName = ""
+    @State private var email = ""
+    @State private var phone = ""
+    @State private var password = ""
+    @State private var isHidden = true   // 👈 نفس SignIn
+
+    // DOB (starts empty)
+    @State private var dob: Date? = nil
+    @State private var showDOBPicker = false
+    @State private var tempDOB = Date()
+
+    // Nav
+    @State private var goToPlayerSetup = false
+
+    // Validation
+    private var isFormValid: Bool {
+        let nameOK = !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let emailOK = !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let phoneOK = !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let passOK  = password.count >= 6
+        let dobOK   = dob != nil
+        return nameOK && emailOK && phoneOK && passOK && dobOK
+    }
+
+    var body: some View {
+        ZStack {
+            bg.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+
+                    // Title
+                    Text("Sign Up")
+                        .font(.custom("Poppins", size: 34))
+                        .fontWeight(.medium)
+                        .foregroundColor(primary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 8)
+
+                    // Role
+                    HStack(spacing: 28) {
+                        rolePill(.player)
+                        rolePill(.coach)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    // Full name
+                    fieldLabel("Full Name")
+                    roundedField {
+                        TextField("", text: $fullName)
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(primary)
+                            .tint(primary)
+                    }
+
+                    // Email
+                    fieldLabel("Email")
+                    roundedField {
+                        TextField("", text: $email)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(primary)
+                            .tint(primary)
+                    }
+
+                    // DOB
+                    fieldLabel("Date of birth")
+                    buttonLikeField(action: { showDOBPicker = true }) {
+                        HStack {
+                            Text(dob.map { formatDate($0) } ?? "Select date")
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(dob == nil ? .gray : primary)
+                            Spacer()
+                            Image(systemName: "calendar")
+                                .foregroundColor(primary.opacity(0.85))
+                        }
+                    }
+                    .sheet(isPresented: $showDOBPicker) {
+                        VStack(spacing: 16) {
+                            Text("Select your birth date")
+                                .font(.custom("Poppins", size: 18))
+                            DatePicker("", selection: $tempDOB, in: ...Date(), displayedComponents: .date)
+                                .datePickerStyle(.wheel)
+                                .labelsHidden()
+                                .tint(primary)
+                                .padding(.horizontal)
+                            Button("Done") {
+                                dob = tempDOB
+                                showDOBPicker = false
+                            }
+                            .font(.custom("Poppins", size: 18))
+                            .padding(.vertical, 8)
+                        }
+                        .presentationDetents([.height(340)])
+                    }
+
+                    // Phone
+                    fieldLabel("Phone Number")
+                    roundedField {
+                        TextField("", text: $phone)
+                            .keyboardType(.phonePad)
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(primary)
+                            .tint(primary)
+                    }
+
+                    // Password  ✅ نفس منطق SignIn
+                    fieldLabel("Password")
+                    roundedField {
+                        ZStack(alignment: .trailing) {
+                            if isHidden {
+                                SecureField("", text: $password)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                                    .font(.custom("Poppins", size: 16))
+                                    .foregroundColor(primary)
+                                    .tint(primary)
+                                    .textContentType(.password)
+                                    .padding(.trailing, 44)
+                            } else {
+                                TextField("", text: $password)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                                    .font(.custom("Poppins", size: 16))
+                                    .foregroundColor(primary)
+                                    .tint(primary)
+                                    .textContentType(.password)
+                                    .padding(.trailing, 44)
+                            }
+
+                            Button { withAnimation { isHidden.toggle() } } label: {
+                                Image(systemName: isHidden ? "eye.slash" : "eye")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+
+                    // Sign Up
+                    Button {
+                        if isFormValid, role == .player {
+                            goToPlayerSetup = true
+                        }
+                    } label: {
+                        Text("Sign Up")
+                            .font(.custom("Poppins", size: 18))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(primary)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.top, 8)
+                    .disabled(!isFormValid)
+                    .opacity(isFormValid ? 1.0 : 0.5)
+
+                    // Footer
+                    HStack(spacing: 6) {
+                        Text("Already have an account?")
+                            .font(.custom("Poppins", size: 15))
+                            .foregroundColor(.gray)
+                        NavigationLink { SignInView() } label: {
+                            Text("Sign in")
+                                .font(.custom("Poppins", size: 15))
+                                .fontWeight(.semibold)
+                                .foregroundColor(primary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 6)
+
+                    Spacer(minLength: 24)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(primary)
+                }
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .navigationDestination(isPresented: $goToPlayerSetup) {
+            PlayerSetupView()
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func rolePill(_ r: UserRole) -> some View {
+        Button { role = r } label: {
+            HStack(spacing: 8) {
+                Image(systemName: role == r ? "circle.inset.filled" : "circle")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(r.rawValue)
+                    .font(.custom("Poppins", size: 16))
+            }
+            .foregroundColor(primary)
+        }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.custom("Poppins", size: 14))
+            .foregroundColor(.gray)
+    }
+
+    private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+            )
+    }
+
+    private func buttonLikeField<Content: View>(
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Button(action: action) {
+            content()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                )
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd/MM/yyyy"
+        return f.string(from: date)
+    }
+}
+
+// Hex color
+extension Color {
+    init(hexv: String) {
+        let hexv = hexv.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hexv).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hexv.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17,
+                                (int >> 4 & 0xF) * 17,
+                                (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16,
+                                int >> 8 & 0xFF,
+                                int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24,
+                                int >> 16 & 0xFF,
+                                int >> 8 & 0xFF,
+                                int & 0xFF)
+        default: (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(.sRGB,
+                  red: Double(r) / 255,
+                  green: Double(g) / 255,
+                  blue: Double(b) / 255,
+                  opacity: Double(a) / 255)
+    }
+}
+
+
+// استخدام:
+#Preview {
+    ContentView() // NavigationStack + SignUpView
+}
+
+
+
