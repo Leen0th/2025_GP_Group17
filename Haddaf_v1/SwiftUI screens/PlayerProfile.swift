@@ -1,10 +1,3 @@
-//
-//  PlayerProfile.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 06/10/2025.
-//
-
 import SwiftUI
 
 // MARK: - Main Container View
@@ -119,6 +112,7 @@ struct PlayerProfileContentView: View {
                     }
                 )
         }
+        .navigationBarBackButtonHidden(true)
     }
 }
 
@@ -159,7 +153,7 @@ struct ChallengeView: View {
 }
 
 // Placeholder pages for Settings
-struct SettingsView: View {
+/*struct SettingsView: View {
     var body: some View {
         ZStack {
             Color.white.ignoresSafeArea()
@@ -167,7 +161,7 @@ struct SettingsView: View {
                 .navigationTitle("Settings")
         }
     }
-}
+}*/
 
 // Placeholder pages for Edit Profile
 struct EditProfileView: View {
@@ -450,4 +444,6 @@ struct PlayerProfile_Previews: PreviewProvider {
         PlayerProfile()
     }
 }
+
+
 
