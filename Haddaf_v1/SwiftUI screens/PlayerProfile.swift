@@ -68,8 +68,45 @@ struct PlayerProfileContentView: View {
         GridItem(.flexible(), spacing: 12)
     ]
     
-    // Mock data
-    private let posts: [Post] = (0..<9).map { _ in Post(imageName: "post_placeholder") }
+    // UPDATED: Mock data with the detailed Post model, containing only two posts.
+    @State private var posts: [Post] = [
+        Post(
+            imageName: "post_placeholder1",
+            caption: "Cool dribble right :)",
+            timestamp: "1 hour ago",
+            isPrivate: true, // This post is private
+            authorName: "SALEM AL-DAWSARI",
+            authorImageName: "salem_al-dawsari",
+            likeCount: 1200,
+            commentCount: 28,
+            stats: [
+                .init(label: "GOALS", value: 2, maxValue: 10),
+                .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 15),
+                .init(label: "BLOCKED", value: 3, maxValue: 5),
+                .init(label: "SHOTS ON TARGET", value: 12, maxValue: 20),
+                .init(label: "CORNERS", value: 9, maxValue: 10),
+                .init(label: "OFFSIDES", value: 4, maxValue: 5)
+            ]
+        ),
+        Post(
+            imageName: "post_placeholder2",
+            caption: "Great team win today!",
+            timestamp: "3 hours ago",
+            isPrivate: false, // This post is public
+            authorName: "SALEM AL-DAWSARI",
+            authorImageName: "salem_al-dawsari",
+            likeCount: 4500,
+            commentCount: 112,
+            stats: [
+                    .init(label: "GOALS", value: 2, maxValue: 10),
+                    .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 15),
+                    .init(label: "BLOCKED", value: 3, maxValue: 5),
+                    .init(label: "SHOTS ON TARGET", value: 12, maxValue: 20),
+                    .init(label: "CORNERS", value: 9, maxValue: 10),
+                    .init(label: "OFFSIDES", value: 4, maxValue: 5)
+                ]
+        )
+    ]
 
 
     var body: some View {
@@ -87,9 +124,10 @@ struct PlayerProfileContentView: View {
                             
                             if selectedContent == .posts {
                                 LazyVGrid(columns: postColumns, spacing: 12) {
-                                    ForEach(posts) { post in
+                                    // UPDATED: Using a binding ($) to allow the detail view to modify the post
+                                    ForEach($posts) { $post in
                                         // Each post is a navigation link to the detail view
-                                        NavigationLink(destination: PostDetailView(post: post)) {
+                                        NavigationLink(destination: PostDetailView(post: $post)) {
                                             Image(post.imageName)
                                                 .resizable()
                                                 .aspectRatio(1, contentMode: .fill)
@@ -119,6 +157,7 @@ struct PlayerProfileContentView: View {
                     }
                 )
         }
+        .navigationBarBackButtonHidden(true)
     }
 }
 
@@ -158,17 +197,6 @@ struct ChallengeView: View {
     }
 }
 
-// Placeholder pages for Settings
-struct SettingsView: View {
-    var body: some View {
-        ZStack {
-            Color.white.ignoresSafeArea()
-            Text("Settings Page")
-                .navigationTitle("Settings")
-        }
-    }
-}
-
 // Placeholder pages for Edit Profile
 struct EditProfileView: View {
     var body: some View {
@@ -191,27 +219,261 @@ struct VideoUploadView: View {
     }
 }
 
-// Placeholder pages for Post Details
+// MARK: - POST DETAIL VIEW
 struct PostDetailView: View {
+    // 1. Add the dismiss environment variable
+    @Environment(\.dismiss) private var dismiss
+    
+    @Binding var post: Post
+    @State private var showPrivacyAlert = false
+    
+    let accentColor = Color(hex: "#36796C")
+
+    var body: some View {
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    
+                    // 2. Add the new custom header
+                    ZStack {
+                        // Title
+                        Text("Post")
+                            .font(.custom("Poppins", size: 28))
+                            .fontWeight(.medium)
+                            .foregroundColor(accentColor)
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        // Custom Back Button
+                        HStack {
+                            Button { dismiss() } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(accentColor)
+                                    .padding(10)
+                                    .background(Circle().fill(Color.black.opacity(0.05)))
+                            }
+                            Spacer()
+                        }
+                    }
+                    .padding(.bottom, 8)
+                    
+                    VideoPlayerPlaceholderView(post: post)
+
+                    // Caption and Metadata... (rest of the view is unchanged)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(post.caption)
+                            .font(.headline)
+                        
+                        HStack(spacing: 8) {
+                            Text(post.timestamp)
+                            Spacer()
+                            
+                            Button(action: {
+                                showPrivacyAlert = true
+                            }) {
+                                if post.isPrivate {
+                                    Image(systemName: "lock.fill")
+                                        .foregroundColor(.red)
+                                } else {
+                                    Image(systemName: "lock.open.fill")
+                                        .foregroundColor(accentColor)
+                                }
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                         Image(post.authorImageName)
+                             .resizable()
+                             .aspectRatio(contentMode: .fill)
+                             .frame(width: 40, height: 40)
+                             .clipShape(Circle())
+                         
+                         Text(post.authorName)
+                             .font(.headline)
+                             .fontWeight(.bold)
+                         
+                         Spacer()
+                         
+                         HStack(spacing: 4) {
+                             Image(systemName: "heart")
+                             Text("\(post.likeCount/1000, specifier: "%.1f")K")
+                         }
+                         
+                         HStack(spacing: 4) {
+                             Image(systemName: "message")
+                             Text("\(post.commentCount)")
+                         }
+                     }
+                     .font(.subheadline)
+                     
+                     Divider()
+
+                     VStack(alignment: .leading, spacing: 12) {
+                         ForEach(post.stats) { stat in
+                             PostStatBarView(stat: stat, accentColor: accentColor)
+                         }
+                     }
+                }
+                .padding(.horizontal)
+            }
+            // 3. REMOVE old navigation modifiers and ADD the one to hide the default button
+            .navigationBarBackButtonHidden(true)
+
+            // Conditionally overlay the custom popup
+            if showPrivacyAlert {
+                PrivacyWarningPopupView(
+                    isPresented: $showPrivacyAlert,
+                    isPrivate: post.isPrivate,
+                    onConfirm: {
+                        post.isPrivate.toggle()
+                    }
+                )
+            }
+        }
+        .onChange(of: showPrivacyAlert) { newValue, _ in
+            withAnimation(.easeInOut) {}
+        }
+    }
+}
+
+// MARK: - NEW Custom Popup View
+struct PrivacyWarningPopupView: View {
+    @Binding var isPresented: Bool
+    let isPrivate: Bool
+    let onConfirm: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation { isPresented = false }
+                }
+                .transition(.opacity)
+
+            // Use GeometryReader to get screen dimensions for centering
+            GeometryReader { geometry in
+                VStack {
+                    Spacer() // Pushes content down from the top
+
+                    // The popup card
+                    VStack(spacing: 20) {
+                        Text("Change Visibility?")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.center)
+
+                        Text(isPrivate ? "Making this post public will allow everyone to see it." : "Making this post private will hide it from other users.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+
+                        HStack(spacing: 24) {
+                            // Cancel Button
+                            Button("Cancel") {
+                                withAnimation { isPresented = false }
+                            }
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.black)
+                            .frame(width: 120, height: 44)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(10)
+
+                            // Confirm Button
+                            Button("Confirm") {
+                                withAnimation {
+                                    onConfirm()
+                                    isPresented = false
+                                }
+                            }
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.red)
+                            .frame(width: 120, height: 44)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(10)
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding()
+                    .frame(width: 320)
+                    .background(Color.white)
+                    .cornerRadius(20)
+                    .shadow(radius: 12)
+                    .transition(.scale)
+                    
+                    Spacer() // Pushes content up from the bottom
+                }
+                // Ensure the centering VStack fills the whole screen
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+        }
+    }
+}
+
+
+// MARK: - Helper Views for PostDetailView
+
+struct VideoPlayerPlaceholderView: View {
     let post: Post
     
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            Image(post.imageName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 250)
+                .background(Color.black)
+                .clipped()
+
+            Color.black.opacity(0.3)
+            
             VStack {
-                Image(post.imageName)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding()
-                
-                Text("This is the detail view for a post.")
-                    .font(.headline)
-                
                 Spacer()
+                HStack(spacing: 40) {
+                    Image(systemName: "backward.fill")
+                    Image(systemName: "play.fill").font(.system(size: 40))
+                    Image(systemName: "forward.fill")
+                }
+                Spacer()
+                HStack {
+                    Text("3:21")
+                    Spacer()
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .padding(12)
+                .background(.black.opacity(0.4))
             }
-            .navigationTitle("Post")
-            .navigationBarTitleDisplayMode(.inline)
+            .font(.callout)
+            .foregroundColor(.white)
+        }
+        .frame(height: 250)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct PostStatBarView: View {
+    let stat: PostStat
+    let accentColor: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(stat.label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(stat.value)")
+                    .font(.caption)
+                    .fontWeight(.bold)
+            }
+            ProgressView(value: Double(stat.value), total: Double(stat.maxValue))
+                .tint(accentColor)
         }
     }
 }
@@ -222,14 +484,10 @@ struct PostDetailView: View {
 struct TopNavigationBar: View {
     var body: some View {
         HStack {
-            // navigates to the SettingsView
             NavigationLink(destination: SettingsView()) {
                 Image(systemName: "gearshape")
             }
-            
             Spacer()
-            
-            // navigates to the EditProfileView
             NavigationLink(destination: EditProfileView()) {
                 Image(systemName: "square.and.pencil")
             }
@@ -255,6 +513,7 @@ struct ProfileHeader: View {
             Text("SALEM AL-DAWSARI")
                 .font(.title2)
                 .fontWeight(.bold)
+                .foregroundColor(Color(hex: "#36796C"))
         }
     }
 }
@@ -395,10 +654,26 @@ struct PlayerStat: Identifiable {
     let value: String
 }
 
-// Data model for a post in the grid
+// Data for a stat in the detail view (e.g. Goals, 2 of 10)
+struct PostStat: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: Int
+    let maxValue: Int
+}
+
+// UPDATED: The new, detailed Post model
 struct Post: Identifiable {
     let id = UUID()
     let imageName: String
+    var caption: String = "Default caption"
+    var timestamp: String = "Just now"
+    var isPrivate: Bool
+    var authorName: String = "SALEM AL-DAWSARI"
+    var authorImageName: String = "salem_al-dawsari"
+    var likeCount: Int = 0
+    var commentCount: Int = 0
+    var stats: [PostStat] = []
 }
 
 
@@ -450,4 +725,3 @@ struct PlayerProfile_Previews: PreviewProvider {
         PlayerProfile()
     }
 }
-
