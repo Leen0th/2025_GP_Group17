@@ -135,7 +135,7 @@ struct VideoUploadView: View {
             }
             .navigationDestination(isPresented: $navigateToFeedback) {
                 if let item = selectedVideoItem {
-                    PerformanceFeedbackView(selectedVideoItem: item)
+                    ProcessingVideoView(selectedVideoItem: item)
                 }
             }
         }
