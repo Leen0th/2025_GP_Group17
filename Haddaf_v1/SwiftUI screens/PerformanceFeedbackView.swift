@@ -6,8 +6,10 @@
 //
 
 import SwiftUI
+import PhotosUI
+import AVKit // Import for VideoPlayer
 
-// MARK: - Color Extension
+// MARK: - Color Extension (Unchanged)
 extension Color {
     init(hexval: String) {
         let h = hexval.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -23,7 +25,7 @@ extension Color {
     }
 }
 
-// MARK: - Models
+// MARK: - Models (Unchanged)
 struct PFPostStat: Identifiable {
     let id = UUID()
     let label: String
@@ -31,44 +33,7 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Video Placeholder
-struct PerformanceVideoPlaceholderView: View {
-    var body: some View {
-        ZStack {
-            Image("post_placeholder2") // ← تأكدي أن الصورة موجودة في Assets
-                .resizable()
-                .scaledToFill()
-                .frame(height: 220)
-                .clipped()
-
-            Color.black.opacity(0.25)
-
-            VStack {
-                Spacer()
-                HStack(spacing: 36) {
-                    Image(systemName: "backward.fill")
-                    Image(systemName: "play.fill").font(.system(size: 42, weight: .bold))
-                    Image(systemName: "forward.fill")
-                }
-                Spacer()
-                HStack {
-                    Text("3:21")
-                    Spacer()
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                }
-                .font(.callout)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.black.opacity(0.35))
-            }
-            .foregroundColor(.white)
-            .padding(8)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-// MARK: - Stat Bar
+// MARK: - Stat Bar (Unchanged)
 struct PFStatBarView: View {
     let stat: PFPostStat
     let accent: Color
@@ -101,16 +66,20 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - Main View
+// MARK: - Main View (REWRITTEN)
 struct PerformanceFeedbackView: View {
-    @State private var selectedTab: Tab = .profile
-    @State private var showVideoUpload = false
-
-    private let primary = Color(hex: "#36796C")
+    // 1. ACCEPT the selected video from the previous screen
+    let selectedVideoItem: PhotosPickerItem
+    
+    // 2. State for the video player and UI
+    @State private var player: AVPlayer?
     @State private var caption: String = ""
     enum Visibility { case `public`, `private` }
     @State private var visibility: Visibility = .public
 
+    private let primary = Color(hexval: "#36796C")
+    
+    // Using your existing placeholder stats
     private let stats: [PFPostStat] = [
         .init(label: "GOALS", value: 2, maxValue: 5),
         .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 20),
@@ -121,91 +90,85 @@ struct PerformanceFeedbackView: View {
     ]
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.white.ignoresSafeArea()
+        // This view is now a simple ScrollView, not a ZStack with a tab bar.
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
-
-                    // Video
-                    PerformanceVideoPlaceholderView()
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-
-                    // Stats
-                    VStack(spacing: 16) {
-                        ForEach(stats) { s in
-                            PFStatBarView(stat: s, accent: primary)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-
-                    // Add caption + Post visibility section
-                    VStack(alignment: .leading, spacing: 18) {
-                        // Add caption
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Add a caption :")
-                                .font(.custom("Poppins", size: 16))
-                                .foregroundColor(.gray) // ← صار رمادي
-
-                            TextField("", text: $caption, axis: .vertical)
-                                .lineLimit(1...4)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color(.systemGray3), lineWidth: 1)
-                                        .background(.white)
-                                )
-                        }
-                        .padding(.horizontal, 16)
-
-                        // Post Visibility
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Post Visibility :")
-                                .font(.custom("Poppins", size: 16))
-                                .foregroundColor(.gray)
-                                .padding(.leading, 16)
-
-                            HStack(spacing: 40) {
-                                visibilityOption(title: "public", isSelected: visibility == .public)
-                                    .onTapGesture { visibility = .public }
-                                visibilityOption(title: "private", isSelected: visibility == .private)
-                                    .onTapGesture { visibility = .private }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 16)
-                        }
-                    }
-                    .padding(.top, 4) // ← رفع بسيط عن الفوتر
-
-                    // Post Button
-                    Button {
-                        // TODO: Handle post action
-                    } label: {
-                        Text("post")
-                            .textCase(.lowercase)
-                            .font(.custom("Poppins", size: 18))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(primary)
-                            .clipShape(Capsule())
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 120) // مساحة للفوتر
+                // 3. VIDEO PLAYER that loads the selected video
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                } else {
+                    // Show a loading indicator while the video is prepared
+                    ProgressView()
+                        .frame(height: 220)
+                        .frame(maxWidth: .infinity)
                 }
-            }
+                
+                // Stats section
+                VStack(spacing: 16) {
+                    ForEach(stats) { s in
+                        PFStatBarView(stat: s, accent: primary)
+                    }
+                }
 
-            // ✅ Footer ثابت بالأسفل
-            CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
+                // Caption and Visibility sections
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Add a caption :")
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(.gray)
+
+                        TextField("", text: $caption, axis: .vertical)
+                            .lineLimit(1...4)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(.systemGray3), lineWidth: 1)
+                            )
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Post Visibility :")
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(.gray)
+
+                        HStack(spacing: 40) {
+                            visibilityOption(title: "public", isSelected: visibility == .public)
+                                .onTapGesture { visibility = .public }
+                            visibilityOption(title: "private", isSelected: visibility == .private)
+                                .onTapGesture { visibility = .private }
+                        }
+                    }
+                }
+                .padding(.top, 4)
+
+                // Post Button
+                Button {
+                    // TODO: Handle post action (upload video data, caption, etc. to Firestore)
+                } label: {
+                    Text("post")
+                        .textCase(.lowercase)
+                        .font(.custom("Poppins", size: 18))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(primary)
+                        .clipShape(Capsule())
+                }
+                .padding(.bottom, 20)
+            }
+            .padding(.horizontal, 16) // Apply horizontal padding to the whole content stack
         }
-        .sheet(isPresented: $showVideoUpload) { VideoUploadView() }
-        .ignoresSafeArea(.all, edges: .bottom)
-        .navigationBarBackButtonHidden(true)
+        .background(Color.white)
+        .navigationTitle("Performance Feedback")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: loadVideo) // 4. Load the video when the view appears
     }
 
-    // MARK: - Helper
+    // MARK: - Helper Methods
     private func visibilityOption(title: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: isSelected ? "circle.inset.filled" : "circle")
@@ -216,10 +179,19 @@ struct PerformanceFeedbackView: View {
                 .foregroundColor(primary)
         }
     }
-}
-
-#Preview {
-    NavigationStack {
-        PerformanceFeedbackView()
+    
+    // 5. FUNCTION to load the video from the PhotosPickerItem
+    private func loadVideo() {
+        Task {
+            do {
+                if let videoURL = try await selectedVideoItem.loadTransferable(type: URL.self) {
+                    await MainActor.run {
+                        self.player = AVPlayer(url: videoURL)
+                    }
+                }
+            } catch {
+                print("Error loading video: \(error.localizedDescription)")
+            }
+        }
     }
 }
