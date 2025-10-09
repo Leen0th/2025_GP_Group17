@@ -22,6 +22,10 @@ class UserProfile: ObservableObject {
     @Published var location = "Riyadh"
     @Published var email = "salem@email.com"
     @Published var phoneNumber = "+966 55 123 4567"
+    @Published var endorsements: [CoachEndorsement] = [
+            .init(coachName: "Simone Inzaghi", coachImage: "p1", endorsementText: "Salem is a phenomenal forward with a great work ethic and a powerful shot. A true asset to any team.", rating: 5),
+            .init(coachName: "Jorge Jesus", coachImage: "p2", endorsementText: "A true leader on and off the pitch. His tactical awareness is second to none. Highly recommended.", rating: 5),
+        ]
     
     @Published var isEmailVisible = true
     @Published var isPhoneVisible = false
@@ -34,6 +38,14 @@ struct PlayerStat: Identifiable {
     let id = UUID()
     let title: String
     let value: String
+}
+
+struct CoachEndorsement: Identifiable {
+    let id = UUID()
+    let coachName: String
+    let coachImage: String
+    let endorsementText: String
+    let rating: Int // e.g., 4 out of 5 stars
 }
 
 struct PostStat: Identifiable {
@@ -67,7 +79,7 @@ struct Post: Identifiable {
 
 // MARK: - Enums
 enum ContentType {
-    case posts, progress
+    case posts, progress, endorsements
 }
 
 enum Tab {
