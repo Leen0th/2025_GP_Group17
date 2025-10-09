@@ -13,8 +13,39 @@ struct PlayerProfileContentView: View {
     ]
     
     @State private var posts: [Post] = [
-        Post(imageName: "post_placeholder1", caption: "Cool dribble right :)", timestamp: "1 hour ago", isPrivate: true, authorName: "SALEM AL-DAWSARI", authorImageName: "salem_al-dawsari", likeCount: 1200, isLikedByUser: true, comments: [], stats: []),
-        Post(imageName: "post_placeholder2", caption: "Great team win today!", timestamp: "3 hours ago", isPrivate: false, authorName: "SALEM AL-DAWSARI", authorImageName: "salem_al-dawsari", likeCount: 4500, isLikedByUser: false, comments: [], stats: [])
+        Post(
+            imageName: "post_placeholder1", caption: "Cool dribble right :)", timestamp: "1 hour ago", isPrivate: true,
+            authorName: "SALEM AL-DAWSARI", authorImageName: "salem_al-dawsari",
+            likeCount: 1200, isLikedByUser: true,
+            comments: [
+                .init(username: "Jakob Septimus", userImage: "p1", text: "This is it! Arsenal must stay focused...", timestamp: "30 min ago"),
+                .init(username: "Jaxson Torff", userImage: "p2", text: "Newcastle has been impressive...", timestamp: "30 min ago")
+            ],
+            stats: [
+                .init(label: "GOALS", value: 2, maxValue: 10),
+                .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 15),
+                .init(label: "BLOCKED", value: 3, maxValue: 5),
+                .init(label: "SHOTS ON TARGET", value: 12, maxValue: 20),
+                .init(label: "CORNERS", value: 9, maxValue: 10),
+                .init(label: "OFFSIDES", value: 4, maxValue: 5)
+            ]
+        ),
+        Post(
+            imageName: "post_placeholder2", caption: "Great team win today!", timestamp: "3 hours ago", isPrivate: false,
+            authorName: "SALEM AL-DAWSARI", authorImageName: "salem_al-dawsari",
+            likeCount: 4500, isLikedByUser: false,
+            comments: [
+                .init(username: "Kaylynn Dokidis", userImage: "p3", text: "A thrilling end to the season!", timestamp: "30 min ago"),
+            ],
+            stats: [
+                .init(label: "GOALS", value: 1, maxValue: 10),
+                .init(label: "TOTAL ATTEMPTS", value: 5, maxValue: 15),
+                .init(label: "BLOCKED", value: 2, maxValue: 5),
+                .init(label: "SHOTS ON TARGET", value: 8, maxValue: 20),
+                .init(label: "CORNERS", value: 6, maxValue: 10),
+                .init(label: "OFFSIDES", value: 1, maxValue: 5)
+            ]
+        )
     ]
 
     var body: some View {
