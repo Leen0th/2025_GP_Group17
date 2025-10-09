@@ -160,7 +160,7 @@ struct SignInView: View {
 
         // 👇 بعد تسجيل الدخول يروح للبروفايل
         .navigationDestination(isPresented: $goToProfile) {
-            PlayerProfile()
+            PlayerProfileView()
         }
     }
 

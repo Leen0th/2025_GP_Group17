@@ -65,7 +65,7 @@ struct WelcomeView: View {
 
                     // Continue as guest → Profile (غيّر الاسم لصفحتك الفعلية)
                     NavigationLink {
-                        PlayerProfile()   // ← استبدلها باسم صفحة البروفايل عندك إن لزم
+                        PlayerProfileView()   // ← استبدلها باسم صفحة البروفايل عندك إن لزم
                     } label: {
                         Text("Continue as guest")
                             .font(.custom("Poppins", size: 18))

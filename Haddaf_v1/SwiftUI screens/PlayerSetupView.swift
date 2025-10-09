@@ -111,7 +111,7 @@ struct PlayerSetupView: View {
         .navigationBarBackButtonHidden(true)
         // وجهة التنقل لصفحة البروفايل
         .navigationDestination(isPresented: $goToProfile) {
-            PlayerProfile()
+            PlayerProfileView()
         }
     }
 
