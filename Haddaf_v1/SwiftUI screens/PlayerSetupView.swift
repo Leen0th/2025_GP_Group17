@@ -3,18 +3,24 @@ import SwiftUI
 struct PlayerSetupView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var position = ""
-    @State private var weight = ""
-    @State private var height = ""
-    @State private var location = ""
+    // MARK: - Model
+    @State private var position: String = ""
+    @State private var weight: String = ""
+    @State private var height: String = ""
+    @State private var location: String = ""
 
-    // Navigation to Profile
+    // MARK: - Position picker
+    @State private var showPositionPicker: Bool = false
+    private let positions = ["Attacker", "Midfielder", "Defender"]
+
+    // MARK: - Navigation
     @State private var goToProfile = false
 
+    // MARK: - Theme
     private let primary = Color(hexV: "#36796C")
     private let bg = Color(hexV: "#EFF5EC")
 
-    // ✅ التحقق: كل الحقول لازم تكون غير فاضية
+    // MARK: - Validation
     private var isFormValid: Bool {
         !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !weight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -29,7 +35,7 @@ struct PlayerSetupView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
 
-                    // العنوان بالنص
+                    // Title
                     Text("Set up your profile")
                         .font(.custom("Poppins", size: 28))
                         .fontWeight(.medium)
@@ -37,13 +43,26 @@ struct PlayerSetupView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    // Position
+                    // Position (button-like + wheel sheet)
                     fieldLabel("Position")
-                    roundedField {
-                        TextField("", text: $position)
-                            .font(.custom("Poppins", size: 16))
-                            .foregroundColor(primary)
-                            .tint(primary)
+                    buttonLikeField {
+                        HStack {
+                            Text(position.isEmpty ? "Select position" : position)
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(position.isEmpty ? .gray : primary)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .foregroundColor(primary.opacity(0.85))
+                        }
+                    } onTap: {
+                        showPositionPicker = true
+                    }
+                    .sheet(isPresented: $showPositionPicker) {
+                        PositionWheelPickerSheet(
+                            positions: positions,
+                            selection: $position
+                        )
+                        .presentationDetents([.height(320)])
                     }
 
                     // Weight
@@ -75,11 +94,9 @@ struct PlayerSetupView: View {
                             .tint(primary)
                     }
 
-                    // Done → PlayerProfile (مفعّل فقط إذا الحقول كاملة)
+                    // Done
                     Button {
-                        if isFormValid {
-                            goToProfile = true
-                        }
+                        if isFormValid { goToProfile = true }
                     } label: {
                         Text("Done")
                             .font(.custom("Poppins", size: 18))
@@ -90,8 +107,8 @@ struct PlayerSetupView: View {
                             .clipShape(Capsule())
                     }
                     .padding(.top, 6)
-                    .disabled(!isFormValid)              // تعطيل الزر
-                    .opacity(isFormValid ? 1.0 : 0.5)    // توضيح حالة التعطيل
+                    .disabled(!isFormValid)
+                    .opacity(isFormValid ? 1.0 : 0.5)
 
                     Spacer(minLength: 20)
                 }
@@ -109,13 +126,13 @@ struct PlayerSetupView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        // وجهة التنقل لصفحة البروفايل
         .navigationDestination(isPresented: $goToProfile) {
             PlayerProfileView()
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers UI
+
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .font(.custom("Poppins", size: 14))
@@ -133,9 +150,72 @@ struct PlayerSetupView: View {
                     .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
             )
     }
+
+    private func buttonLikeField<Content: View>(
+        @ViewBuilder content: () -> Content,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            content()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                )
+        }
+    }
 }
 
-// لو ما عندك امتداد الألوان هذا مكرر، احذفيه
+// MARK: - Wheel sheet for Position
+private struct PositionWheelPickerSheet: View {
+    let positions: [String]
+    @Binding var selection: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var tempSelection: String = ""
+    private let primary = Color(hexV: "#36796C")
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Select your position")
+                .font(.custom("Poppins", size: 18))
+                .foregroundColor(.primary)
+                .padding(.top, 8)
+
+            Picker("", selection: $tempSelection) {
+                ForEach(positions, id: \.self) { pos in
+                    Text(pos).tag(pos)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(height: 180)
+
+            Button("Done") {
+                selection = tempSelection
+                dismiss()
+            }
+            .font(.custom("Poppins", size: 18))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(primary)
+            .clipShape(Capsule())
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+        }
+        .onAppear {
+            tempSelection = selection.isEmpty ? (positions.first ?? "") : selection
+        }
+        .padding(.horizontal, 12)
+        .background(Color(.systemBackground))
+    }
+}
+
+// MARK: - Color hex init
 extension Color {
     init(hexV: String) {
         let hexV = hexV.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -162,6 +242,3 @@ extension Color {
                   opacity: Double(a) / 255)
     }
 }
-
-
-

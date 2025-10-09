@@ -2,14 +2,12 @@
 //  PerformanceFeedbackView.swift
 //  Haddaf_v1
 //
-//  Created by Lujain Alhussan on 17/04/1447 AH.
-//
 
 import SwiftUI
 import PhotosUI
-import AVKit // Import for VideoPlayer
+import AVKit
 
-// MARK: - Color Extension (Unchanged)
+// MARK: - Color Extension
 extension Color {
     init(hexval: String) {
         let h = hexval.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -25,7 +23,7 @@ extension Color {
     }
 }
 
-// MARK: - Models (Unchanged)
+// MARK: - Models
 struct PFPostStat: Identifiable {
     let id = UUID()
     let label: String
@@ -33,13 +31,13 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Stat Bar (Unchanged)
+// MARK: - Stat Bar  (مطابق لستايل PostStatBarView)
 struct PFStatBarView: View {
     let stat: PFPostStat
     let accent: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(stat.label)
                     .font(.caption)
@@ -47,31 +45,19 @@ struct PFStatBarView: View {
                 Spacer()
                 Text("\(stat.value)")
                     .font(.caption)
+                    .fontWeight(.bold)
                     .foregroundColor(.secondary)
-                    .fontWeight(.semibold)
             }
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color(.systemGray5))
-                    .frame(height: 6)
-                GeometryReader { geo in
-                    let ratio = max(0, min(1, Double(stat.value) / Double(stat.maxValue)))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(accent)
-                        .frame(width: geo.size.width * ratio, height: 6)
-                }
-            }
-            .frame(height: 6)
+            ProgressView(value: Double(stat.value), total: Double(stat.maxValue))
+                .tint(accent)
         }
     }
 }
 
-// MARK: - Main View (REWRITTEN)
+// MARK: - Main View
 struct PerformanceFeedbackView: View {
-    // 1. ACCEPT the selected video from the previous screen
     let selectedVideoItem: PhotosPickerItem
     
-    // 2. State for the video player and UI
     @State private var player: AVPlayer?
     @State private var caption: String = ""
     enum Visibility { case `public`, `private` }
@@ -79,7 +65,6 @@ struct PerformanceFeedbackView: View {
 
     private let primary = Color(hexval: "#36796C")
     
-    // Using your existing placeholder stats
     private let stats: [PFPostStat] = [
         .init(label: "GOALS", value: 2, maxValue: 5),
         .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 20),
@@ -90,30 +75,28 @@ struct PerformanceFeedbackView: View {
     ]
 
     var body: some View {
-        // This view is now a simple ScrollView, not a ZStack with a tab bar.
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
 
-                // 3. VIDEO PLAYER that loads the selected video
+                // Video
                 if let player = player {
                     VideoPlayer(player: player)
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 } else {
-                    // Show a loading indicator while the video is prepared
                     ProgressView()
                         .frame(height: 220)
                         .frame(maxWidth: .infinity)
                 }
                 
-                // Stats section
-                VStack(spacing: 16) {
+                // Stats (spacing مطابق لصفحة Post)
+                VStack(spacing: 12) {
                     ForEach(stats) { s in
                         PFStatBarView(stat: s, accent: primary)
                     }
                 }
 
-                // Caption and Visibility sections
+                // Caption + Visibility (بدون تغيير)
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Add a caption :")
@@ -145,9 +128,8 @@ struct PerformanceFeedbackView: View {
                 }
                 .padding(.top, 4)
 
-                // Post Button
                 Button {
-                    // TODO: Handle post action (upload video data, caption, etc. to Firestore)
+                    // TODO: Handle post action
                 } label: {
                     Text("post")
                         .textCase(.lowercase)
@@ -160,15 +142,15 @@ struct PerformanceFeedbackView: View {
                 }
                 .padding(.bottom, 20)
             }
-            .padding(.horizontal, 16) // Apply horizontal padding to the whole content stack
+            .padding(.horizontal, 16) // نفس فكرة PostView .padding(.horizontal)
         }
         .background(Color.white)
         .navigationTitle("Performance Feedback")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: loadVideo) // 4. Load the video when the view appears
+        .onAppear(perform: loadVideo)
     }
 
-    // MARK: - Helper Methods
+    // MARK: - Helpers
     private func visibilityOption(title: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: isSelected ? "circle.inset.filled" : "circle")
@@ -180,7 +162,6 @@ struct PerformanceFeedbackView: View {
         }
     }
     
-    // 5. FUNCTION to load the video from the PhotosPickerItem
     private func loadVideo() {
         Task {
             do {
