@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct PlayerSetupView: View {
     @Environment(\.dismiss) private var dismiss
@@ -8,6 +9,10 @@ struct PlayerSetupView: View {
     @State private var weight: String = ""
     @State private var height: String = ""
     @State private var location: String = ""
+    
+    // MARK: - Profile Picture States
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var profileImage: Image? = nil
 
     // MARK: - Position picker
     @State private var showPositionPicker: Bool = false
@@ -42,6 +47,15 @@ struct PlayerSetupView: View {
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
+                    
+                    // MARK: - Profile Picture Picker (بالصورة الجديدة وعلامة الزائد)
+                    ProfilePicturePicker(
+                        selectedItem: $selectedItem,
+                        profileImage: $profileImage,
+                        primaryColor: primary
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 10)
 
                     // Position (button-like + wheel sheet)
                     fieldLabel("Position")
@@ -60,9 +74,12 @@ struct PlayerSetupView: View {
                     .sheet(isPresented: $showPositionPicker) {
                         PositionWheelPickerSheet(
                             positions: positions,
-                            selection: $position
+                            selection: $position,
+                            showSheet: $showPositionPicker
                         )
-                        .presentationDetents([.height(320)])
+                        .presentationDetents([.height(300)])
+                        .presentationBackground(.white)
+                        .presentationCornerRadius(28)
                     }
 
                     // Weight
@@ -127,12 +144,11 @@ struct PlayerSetupView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToProfile) {
-            PlayerProfileView()
+            // PlayerProfileView()
         }
     }
 
     // MARK: - Helpers UI
-
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .font(.custom("Poppins", size: 14))
@@ -169,12 +185,70 @@ struct PlayerSetupView: View {
     }
 }
 
+// -----------------------------------------------------------------------------------
+
+// MARK: - Profile Picture Component
+private struct ProfilePicturePicker: View {
+    @Binding var selectedItem: PhotosPickerItem?
+    @Binding var profileImage: Image?
+    let primaryColor: Color
+    
+    var body: some View {
+        PhotosPicker(
+            selection: $selectedItem,
+            matching: .images,
+            photoLibrary: .shared()
+        ) {
+            ZStack(alignment: .bottomTrailing) {
+                // 1. Image or Placeholder
+                if let image = profileImage {
+                    // إذا تم اختيار صورة، اعرضها
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 100, height: 100)
+                        .clipShape(Circle())
+                } else {
+                    // ✅ استخدام الصورة الرمادية المخصصة كـ Placeholder
+                    Image("profile_placeholder") // 👈 يجب أن يكون هذا اسم الـ Imageset في Assets
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 100, height: 100)
+                        .clipShape(Circle())
+                }
+                
+                // 2. Edit Icon (علامة الزائد/Plus)
+                Circle()
+                    .fill(primaryColor)
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        Image(systemName: "plus") // تم التغيير إلى علامة الزائد
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+            }
+        }
+        // 3. منطق التعامل مع اختيار الصورة (PhotosPicker)
+        .onChange(of: selectedItem) { newItem in
+            Task {
+                if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                    if let uiImage = UIImage(data: data) {
+                        profileImage = Image(uiImage: uiImage)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------
+
 // MARK: - Wheel sheet for Position
 private struct PositionWheelPickerSheet: View {
     let positions: [String]
     @Binding var selection: String
+    @Binding var showSheet: Bool // تم تصحيح هذا السطر
 
-    @Environment(\.dismiss) private var dismiss
     @State private var tempSelection: String = ""
     private let primary = Color(hexV: "#36796C")
 
@@ -182,8 +256,9 @@ private struct PositionWheelPickerSheet: View {
         VStack(spacing: 16) {
             Text("Select your position")
                 .font(.custom("Poppins", size: 18))
-                .foregroundColor(.primary)
-                .padding(.top, 8)
+                .foregroundColor(primary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
 
             Picker("", selection: $tempSelection) {
                 ForEach(positions, id: \.self) { pos in
@@ -196,7 +271,7 @@ private struct PositionWheelPickerSheet: View {
 
             Button("Done") {
                 selection = tempSelection
-                dismiss()
+                showSheet = false
             }
             .font(.custom("Poppins", size: 18))
             .foregroundColor(.white)
@@ -204,16 +279,16 @@ private struct PositionWheelPickerSheet: View {
             .padding(.vertical, 12)
             .background(primary)
             .clipShape(Capsule())
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
+            .padding(.bottom, 16)
+            .safeAreaPadding(.bottom, 8)
         }
         .onAppear {
             tempSelection = selection.isEmpty ? (positions.first ?? "") : selection
         }
-        .padding(.horizontal, 12)
-        .background(Color(.systemBackground))
+        .padding(.horizontal, 20)
     }
 }
+// -----------------------------------------------------------------------------------
 
 // MARK: - Color hex init
 extension Color {
@@ -223,17 +298,21 @@ extension Color {
         Scanner(string: hexV).scanHexInt64(&int)
         let a, r, g, b: UInt64
         switch hexV.count {
-        case 3: (a, r, g, b) = (255, (int >> 8) * 17,
-                                (int >> 4 & 0xF) * 17,
-                                (int & 0xF) * 17)
-        case 6: (a, r, g, b) = (255, int >> 16,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
-        case 8: (a, r, g, b) = (int >> 24,
-                                int >> 16 & 0xFF,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
-        default: (a, r, g, b) = (255, 0, 0, 0)
+        case 3:
+            (a, r, g, b) = (255, (int >> 8) * 17,
+                            (int >> 4 & 0xF) * 17,
+                            (int & 0xF) * 17)
+        case 6:
+            (a, r, g, b) = (255, int >> 16,
+                            int >> 8 & 0xFF,
+                            int & 0xFF)
+        case 8:
+            (a, r, g, b) = (int >> 24,
+                            int >> 16 & 0xFF,
+                            int >> 8 & 0xFF,
+                            int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
         }
         self.init(.sRGB,
                   red: Double(r) / 255,

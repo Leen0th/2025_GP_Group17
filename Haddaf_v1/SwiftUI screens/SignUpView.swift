@@ -1,3 +1,4 @@
+
 import SwiftUI
 
 enum UserRole: String { case player = "Player", coach = "Coach" }
@@ -17,7 +18,7 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var phone = ""
     @State private var password = ""
-    @State private var isHidden = true   // 👈 نفس SignIn
+    @State private var isHidden = true  // 👈 نفس SignIn
 
     // DOB (starts empty)
     @State private var dob: Date? = nil
@@ -82,7 +83,11 @@ struct SignUpView: View {
 
                     // DOB
                     fieldLabel("Date of birth")
-                    buttonLikeField(action: { showDOBPicker = true }) {
+                    buttonLikeField(action: {
+                        // تعيين القيمة المؤقتة قبل فتح الشيت
+                        if let d = dob { tempDOB = d } else { tempDOB = Date() }
+                        showDOBPicker = true
+                    }) {
                         HStack {
                             Text(dob.map { formatDate($0) } ?? "Select date")
                                 .font(.custom("Poppins", size: 16))
@@ -92,23 +97,16 @@ struct SignUpView: View {
                                 .foregroundColor(primary.opacity(0.85))
                         }
                     }
+                    // ✅ تم تطبيق تعديلات الـ Sheet هنا
                     .sheet(isPresented: $showDOBPicker) {
-                        VStack(spacing: 16) {
-                            Text("Select your birth date")
-                                .font(.custom("Poppins", size: 18))
-                            DatePicker("", selection: $tempDOB, in: ...Date(), displayedComponents: .date)
-                                .datePickerStyle(.wheel)
-                                .labelsHidden()
-                                .tint(primary)
-                                .padding(.horizontal)
-                            Button("Done") {
-                                dob = tempDOB
-                                showDOBPicker = false
-                            }
-                            .font(.custom("Poppins", size: 18))
-                            .padding(.vertical, 8)
-                        }
-                        .presentationDetents([.height(340)])
+                        DateWheelPickerSheet(
+                            selection: $dob,
+                            tempSelection: $tempDOB,
+                            showSheet: $showDOBPicker
+                        )
+                        .presentationDetents([.height(300)]) // حجم النافذة مناسب (مثل Position)
+                        .presentationBackground(.white) // ✅ الخلفية البيضاء تغطي الحواف
+                        .presentationCornerRadius(28)  // ✅ الزوايا الدائرية
                     }
 
                     // Phone
@@ -175,7 +173,7 @@ struct SignUpView: View {
                         Text("Already have an account?")
                             .font(.custom("Poppins", size: 15))
                             .foregroundColor(.gray)
-                        NavigationLink { SignInView() } label: {
+                        NavigationLink { /* SignInView() */ } label: { // تأكد من وجود SignInView
                             Text("Sign in")
                                 .font(.custom("Poppins", size: 15))
                                 .fontWeight(.semibold)
@@ -202,12 +200,11 @@ struct SignUpView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) {
-            PlayerSetupView()
+            PlayerSetupView() // تأكد من وجود PlayerSetupView
         }
     }
 
     // MARK: - Helpers
-
     private func rolePill(_ r: UserRole) -> some View {
         Button { role = r } label: {
             HStack(spacing: 8) {
@@ -262,7 +259,52 @@ struct SignUpView: View {
     }
 }
 
-// Hex color
+// MARK: - Wheel sheet for DOB (New Structure)
+private struct DateWheelPickerSheet: View {
+    @Binding var selection: Date? // التاريخ النهائي
+    @Binding var tempSelection: Date // القيمة المؤقتة لاختيار DatePicker
+    @Binding var showSheet: Bool // لغلق الشيت
+
+    private let primary = Color(hexv: "#36796C")
+
+    var body: some View {
+        VStack(spacing: 16) {
+            
+            // العنوان باللون الأخضر
+            Text("Select your birth date")
+                .font(.custom("Poppins", size: 18))
+                .foregroundColor(primary) // اللون الأخضر
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+            
+            // الـ DatePicker
+            DatePicker("", selection: $tempSelection, in: ...Date(), displayedComponents: .date)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .tint(primary)
+                .frame(height: 180)
+            
+            // زر Done الأخضر بشكل كبسولة
+            Button("Done") {
+                selection = tempSelection // حفظ القيمة
+                showSheet = false
+            }
+            .font(.custom("Poppins", size: 18))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(primary)
+            .clipShape(Capsule())
+            .padding(.bottom, 16)
+            
+        }
+        // ✅ إضافة Padding أفقي على الـ VStack بالكامل لضبط محتوى الـ Sheet
+        .padding(.horizontal, 20)
+        // ❌ تم حذف .background و .cornerRadius ليعتمد على .presentationBackground في الـ SignUpView
+    }
+}
+
+// Hex color (Unchanged)
 extension Color {
     init(hexv: String) {
         let hexv = hexv.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -271,15 +313,15 @@ extension Color {
         let a, r, g, b: UInt64
         switch hexv.count {
         case 3: (a, r, g, b) = (255, (int >> 8) * 17,
-                                (int >> 4 & 0xF) * 17,
-                                (int & 0xF) * 17)
+                                 (int >> 4 & 0xF) * 17,
+                                 (int & 0xF) * 17)
         case 6: (a, r, g, b) = (255, int >> 16,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
+                                 int >> 8 & 0xFF,
+                                 int & 0xFF)
         case 8: (a, r, g, b) = (int >> 24,
-                                int >> 16 & 0xFF,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
+                                 int >> 16 & 0xFF,
+                                 int >> 8 & 0xFF,
+                                 int & 0xFF)
         default: (a, r, g, b) = (255, 0, 0, 0)
         }
         self.init(.sRGB,
@@ -289,12 +331,3 @@ extension Color {
                   opacity: Double(a) / 255)
     }
 }
-
-
-// استخدام:
-#Preview {
-    ContentView() // NavigationStack + SignUpView
-}
-
-
-
