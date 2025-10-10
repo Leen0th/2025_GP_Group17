@@ -3,6 +3,9 @@ import SwiftUI
 struct WelcomeView: View {
     private let primary = Color(hex: "#36796C")
     private let bg = Color(hex: "#EFF5EC")
+    
+    // This state variable triggers the main app screen
+    @State private var showMainApp = false
 
     var body: some View {
         ZStack {
@@ -63,10 +66,10 @@ struct WelcomeView: View {
                         Rectangle().fill(Color.gray.opacity(0.35)).frame(height: 1)
                     }
 
-                    // Continue as guest → Profile (غيّر الاسم لصفحتك الفعلية)
-                    NavigationLink {
-                        PlayerProfileView()   // ← استبدلها باسم صفحة البروفايل عندك إن لزم
-                    } label: {
+                    // The "Continue as guest" button now triggers the full screen cover
+                    Button(action: {
+                        showMainApp = true
+                    }) {
                         Text("Continue as guest")
                             .font(.custom("Poppins", size: 18))
                             .foregroundColor(primary)
@@ -79,10 +82,12 @@ struct WelcomeView: View {
                     }
                 }
                 .padding(.horizontal, 40)
-
                 Spacer()
             }
         }
-        .navigationBarBackButtonHidden(true) // شاشة الترحيب بدون Back
+        .navigationBarBackButtonHidden(true)
+        .fullScreenCover(isPresented: $showMainApp) {
+            PlayerProfileView()
+        }
     }
 }

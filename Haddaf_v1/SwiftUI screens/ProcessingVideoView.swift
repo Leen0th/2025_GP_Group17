@@ -66,7 +66,7 @@ struct ProcessingVideoView: View {
             }
         }
         .navigationDestination(isPresented: $isProcessingComplete) {
-            PerformanceFeedbackView(selectedVideoItem: selectedVideoItem)
+            PerformanceFeedbackView()
         }
     }
 }

@@ -2,12 +2,12 @@
 //  PerformanceFeedbackView.swift
 //  Haddaf_v1
 //
+//  Created by Lujain Alhussan on 17/04/1447 AH.
+//
 
 import SwiftUI
-import PhotosUI
-import AVKit
 
-// MARK: - Color Extension
+// MARK: - Color Extension (Unchanged)
 extension Color {
     init(hexval: String) {
         let h = hexval.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -23,7 +23,7 @@ extension Color {
     }
 }
 
-// MARK: - Models
+// MARK: - Models (Unchanged)
 struct PFPostStat: Identifiable {
     let id = UUID()
     let label: String
@@ -31,7 +31,46 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Stat Bar  (مطابق لستايل PostStatBarView)
+// MARK: - New Video Placeholder (Adapted from your PostViews file)
+struct PerformanceVideoPlaceholderView: View {
+    var body: some View {
+        ZStack {
+            // Ensure you have an image named "post_placeholder2" in your Assets
+            Image("post_placeholder2")
+                .resizable()
+                .scaledToFill()
+                .frame(height: 220)
+                .clipped()
+
+            Color.black.opacity(0.25)
+
+            VStack {
+                Spacer()
+                HStack(spacing: 36) {
+                    Image(systemName: "backward.fill")
+                    Image(systemName: "play.fill").font(.system(size: 42, weight: .bold))
+                    Image(systemName: "forward.fill")
+                }
+                Spacer()
+                HStack {
+                    Text("3:21")
+                    Spacer()
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.black.opacity(0.35))
+            }
+            .foregroundColor(.white)
+            .padding(8)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+
+// MARK: - Stat Bar (Unchanged)
 struct PFStatBarView: View {
     let stat: PFPostStat
     let accent: Color
@@ -54,11 +93,9 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - Main View
+// MARK: - Main View (Rewritten to be Standalone)
 struct PerformanceFeedbackView: View {
-    let selectedVideoItem: PhotosPickerItem
-    
-    @State private var player: AVPlayer?
+    // REMOVED: No longer needs selectedVideoItem or AVPlayer state
     @State private var caption: String = ""
     enum Visibility { case `public`, `private` }
     @State private var visibility: Visibility = .public
@@ -78,25 +115,17 @@ struct PerformanceFeedbackView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
 
-                // Video
-                if let player = player {
-                    VideoPlayer(player: player)
-                        .frame(height: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                } else {
-                    ProgressView()
-                        .frame(height: 220)
-                        .frame(maxWidth: .infinity)
-                }
+                // ✅ Video section now uses the placeholder
+                PerformanceVideoPlaceholderView()
                 
-                // Stats (spacing مطابق لصفحة Post)
+                // Stats section (Unchanged)
                 VStack(spacing: 12) {
                     ForEach(stats) { s in
                         PFStatBarView(stat: s, accent: primary)
                     }
                 }
 
-                // Caption + Visibility (بدون تغيير)
+                // Caption + Visibility section (Unchanged)
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Add a caption :")
@@ -128,6 +157,7 @@ struct PerformanceFeedbackView: View {
                 }
                 .padding(.top, 4)
 
+                // Post Button (Unchanged)
                 Button {
                     // TODO: Handle post action
                 } label: {
@@ -142,15 +172,15 @@ struct PerformanceFeedbackView: View {
                 }
                 .padding(.bottom, 20)
             }
-            .padding(.horizontal, 16) // نفس فكرة PostView .padding(.horizontal)
+            .padding(.horizontal, 16)
         }
         .background(Color.white)
         .navigationTitle("Performance Feedback")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: loadVideo)
+        // REMOVED: .onAppear is no longer needed to load a video
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers (Unchanged)
     private func visibilityOption(title: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: isSelected ? "circle.inset.filled" : "circle")
@@ -159,20 +189,6 @@ struct PerformanceFeedbackView: View {
             Text(title)
                 .font(.custom("Poppins", size: 16))
                 .foregroundColor(primary)
-        }
-    }
-    
-    private func loadVideo() {
-        Task {
-            do {
-                if let videoURL = try await selectedVideoItem.loadTransferable(type: URL.self) {
-                    await MainActor.run {
-                        self.player = AVPlayer(url: videoURL)
-                    }
-                }
-            } catch {
-                print("Error loading video: \(error.localizedDescription)")
-            }
         }
     }
 }
