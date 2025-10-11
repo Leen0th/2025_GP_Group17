@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A1B53EC2E9AAF5500E1738D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 1A1B53EB2E9AAF5500E1738D /* FirebaseStorage */; };
+		1A1B53EE2E9AC42C00E1738D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 1A1B53ED2E9AC42C00E1738D /* FirebaseAuth */; };
+		1A1B53F02E9AC43400E1738D /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 1A1B53EF2E9AC43400E1738D /* FirebaseFirestore */; };
 		1DB869322E95A50300D1426A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 1DB869312E95A50300D1426A /* FirebaseAnalytics */; };
 /* End PBXBuildFile section */
 
@@ -57,6 +60,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				1DB869322E95A50300D1426A /* FirebaseAnalytics in Frameworks */,
+				1A1B53F02E9AC43400E1738D /* FirebaseFirestore in Frameworks */,
+				1A1B53EE2E9AC42C00E1738D /* FirebaseAuth in Frameworks */,
+				1A1B53EC2E9AAF5500E1738D /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,12 +83,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1A1B53EA2E9AAF5500E1738D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		1DB868BA2E945D9E00D1426A = {
 			isa = PBXGroup;
 			children = (
 				1DB868C52E945D9E00D1426A /* Haddaf_v1 */,
 				1DB868D72E945DA000D1426A /* Haddaf_v1Tests */,
 				1DB868E12E945DA000D1426A /* Haddaf_v1UITests */,
+				1A1B53EA2E9AAF5500E1738D /* Frameworks */,
 				1DB868C42E945D9E00D1426A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -118,6 +132,9 @@
 			name = Haddaf_v1;
 			packageProductDependencies = (
 				1DB869312E95A50300D1426A /* FirebaseAnalytics */,
+				1A1B53EB2E9AAF5500E1738D /* FirebaseStorage */,
+				1A1B53ED2E9AC42C00E1738D /* FirebaseAuth */,
+				1A1B53EF2E9AC43400E1738D /* FirebaseFirestore */,
 			);
 			productName = Haddaf_v1;
 			productReference = 1DB868C32E945D9E00D1426A /* Haddaf_v1.app */;
@@ -615,6 +632,21 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1A1B53EB2E9AAF5500E1738D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1DB869302E95A50300D1426A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		1A1B53ED2E9AC42C00E1738D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1DB869302E95A50300D1426A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		1A1B53EF2E9AC43400E1738D /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1DB869302E95A50300D1426A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
 		1DB869312E95A50300D1426A /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 1DB869302E95A50300D1426A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;

@@ -1,5 +1,6 @@
-
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
 
 enum UserRole: String { case player = "Player", coach = "Coach" }
 
@@ -18,15 +19,20 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var phone = ""
     @State private var password = ""
-    @State private var isHidden = true  // 👈 نفس SignIn
+    @State private var isHidden = true
 
-    // DOB (starts empty)
+    // DOB
     @State private var dob: Date? = nil
     @State private var showDOBPicker = false
     @State private var tempDOB = Date()
 
     // Nav
     @State private var goToPlayerSetup = false
+
+    // UX
+    @State private var isLoading = false
+    @State private var showAlert = false
+    @State private var alertMsg = ""
 
     // Validation
     private var isFormValid: Bool {
@@ -55,8 +61,7 @@ struct SignUpView: View {
 
                     // Role
                     HStack(spacing: 28) {
-                        rolePill(.player)
-                        rolePill(.coach)
+                        rolePill(.player); rolePill(.coach)
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
@@ -84,8 +89,7 @@ struct SignUpView: View {
                     // DOB
                     fieldLabel("Date of birth")
                     buttonLikeField(action: {
-                        // تعيين القيمة المؤقتة قبل فتح الشيت
-                        if let d = dob { tempDOB = d } else { tempDOB = Date() }
+                        tempDOB = dob ?? Date()
                         showDOBPicker = true
                     }) {
                         HStack {
@@ -97,16 +101,15 @@ struct SignUpView: View {
                                 .foregroundColor(primary.opacity(0.85))
                         }
                     }
-                    // ✅ تم تطبيق تعديلات الـ Sheet هنا
                     .sheet(isPresented: $showDOBPicker) {
                         DateWheelPickerSheet(
                             selection: $dob,
                             tempSelection: $tempDOB,
                             showSheet: $showDOBPicker
                         )
-                        .presentationDetents([.height(300)]) // حجم النافذة مناسب (مثل Position)
-                        .presentationBackground(.white) // ✅ الخلفية البيضاء تغطي الحواف
-                        .presentationCornerRadius(28)  // ✅ الزوايا الدائرية
+                        .presentationDetents([.height(300)])
+                        .presentationBackground(.white)
+                        .presentationCornerRadius(28)
                     }
 
                     // Phone
@@ -119,7 +122,7 @@ struct SignUpView: View {
                             .tint(primary)
                     }
 
-                    // Password  ✅ نفس منطق SignIn
+                    // Password
                     fieldLabel("Password")
                     roundedField {
                         ZStack(alignment: .trailing) {
@@ -152,20 +155,21 @@ struct SignUpView: View {
 
                     // Sign Up
                     Button {
-                        if isFormValid, role == .player {
-                            goToPlayerSetup = true
-                        }
+                        Task { await handleSignUp() }
                     } label: {
-                        Text("Sign Up")
-                            .font(.custom("Poppins", size: 18))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(primary)
-                            .clipShape(Capsule())
+                        HStack {
+                            if isLoading { ProgressView().tint(.white) }
+                            Text("Sign Up")
+                        }
+                        .font(.custom("Poppins", size: 18))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(primary)
+                        .clipShape(Capsule())
                     }
                     .padding(.top, 8)
-                    .disabled(!isFormValid)
+                    .disabled(!isFormValid || isLoading)
                     .opacity(isFormValid ? 1.0 : 0.5)
 
                     // Footer
@@ -173,7 +177,7 @@ struct SignUpView: View {
                         Text("Already have an account?")
                             .font(.custom("Poppins", size: 15))
                             .foregroundColor(.gray)
-                        NavigationLink { /* SignInView() */ } label: { // تأكد من وجود SignInView
+                        NavigationLink { /* SignInView() */ } label: {
                             Text("Sign in")
                                 .font(.custom("Poppins", size: 15))
                                 .fontWeight(.semibold)
@@ -200,11 +204,71 @@ struct SignUpView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) {
-            PlayerSetupView() // تأكد من وجود PlayerSetupView
+            PlayerSetupView() // انتقلي لإعداد الملف الشخصي
+        }
+        .alert("Error", isPresented: $showAlert) { Button("OK", role: .cancel) {} } message: { Text(alertMsg) }
+    }
+
+    // MARK: - Actions
+    private func handleSignUp() async {
+        guard isFormValid else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            // 1) إنشاء المستخدم في Auth
+            let authResult = try await Auth.auth().createUser(withEmail: email.lowercased(), password: password)
+            let uid = authResult.user.uid
+
+            // 2) تفكيك الاسم الكامل
+            let (first, lastOpt) = splitName(fullName)
+
+            // 3) بناء البيانات للتخزين
+            var data: [String: Any] = [
+                "email": email.lowercased(),
+                "firstName": first,
+                "role": role == .player ? "player" : "coach",
+                "phone": phone,
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+
+            if let dob = dob {
+                data["dob"] = Timestamp(date: dob)
+            }
+
+            // lastName: إمّا قيمة نصية أو null لو ما كتبه المستخدم
+            data["lastName"] = lastOpt ?? NSNull()
+
+            // 4) الكتابة إلى Firestore
+            try await Firestore.firestore().collection("users").document(uid).setData(data, merge: true)
+
+            // 5) نجاح → الانتقال لصفحة الإعداد
+            goToPlayerSetup = true
+
+        } catch {
+            print("🔥 SIGNUP ERROR:", error)
+            alertMsg = error.localizedDescription
+            showAlert = true
         }
     }
 
-    // MARK: - Helpers
+    /// تفكيك الاسم الكامل إلى first و last (لو فيه أكثر من كلمة ناخذ الأولى first والباقي last)
+    private func splitName(_ full: String) -> (first: String, last: String?) {
+        let parts = full
+            .split(separator: " ")
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+
+        guard let first = parts.first else { return ("", nil) }
+        if parts.count >= 2 {
+            let last = parts.dropFirst().joined(separator: " ")
+            return (first, last)
+        } else {
+            return (first, nil) // نخليه null في Firestore
+        }
+    }
+
+    // MARK: - UI helpers
     private func rolePill(_ r: UserRole) -> some View {
         Button { role = r } label: {
             HStack(spacing: 8) {
@@ -259,34 +323,30 @@ struct SignUpView: View {
     }
 }
 
-// MARK: - Wheel sheet for DOB (New Structure)
+// MARK: - Wheel sheet for DOB
 private struct DateWheelPickerSheet: View {
-    @Binding var selection: Date? // التاريخ النهائي
-    @Binding var tempSelection: Date // القيمة المؤقتة لاختيار DatePicker
-    @Binding var showSheet: Bool // لغلق الشيت
+    @Binding var selection: Date?
+    @Binding var tempSelection: Date
+    @Binding var showSheet: Bool
 
     private let primary = Color(hexv: "#36796C")
 
     var body: some View {
         VStack(spacing: 16) {
-            
-            // العنوان باللون الأخضر
             Text("Select your birth date")
                 .font(.custom("Poppins", size: 18))
-                .foregroundColor(primary) // اللون الأخضر
+                .foregroundColor(primary)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 16)
-            
-            // الـ DatePicker
+
             DatePicker("", selection: $tempSelection, in: ...Date(), displayedComponents: .date)
                 .datePickerStyle(.wheel)
                 .labelsHidden()
                 .tint(primary)
                 .frame(height: 180)
-            
-            // زر Done الأخضر بشكل كبسولة
+
             Button("Done") {
-                selection = tempSelection // حفظ القيمة
+                selection = tempSelection
                 showSheet = false
             }
             .font(.custom("Poppins", size: 18))
@@ -296,15 +356,12 @@ private struct DateWheelPickerSheet: View {
             .background(primary)
             .clipShape(Capsule())
             .padding(.bottom, 16)
-            
         }
-        // ✅ إضافة Padding أفقي على الـ VStack بالكامل لضبط محتوى الـ Sheet
         .padding(.horizontal, 20)
-        // ❌ تم حذف .background و .cornerRadius ليعتمد على .presentationBackground في الـ SignUpView
     }
 }
 
-// Hex color (Unchanged)
+// Hex color
 extension Color {
     init(hexv: String) {
         let hexv = hexv.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

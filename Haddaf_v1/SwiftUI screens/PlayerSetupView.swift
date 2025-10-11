@@ -1,36 +1,53 @@
 import SwiftUI
 import PhotosUI
+import FirebaseAuth
+import FirebaseStorage
+import FirebaseFirestore
+import UIKit
 
 struct PlayerSetupView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    // MARK: - Model
+    // MARK: - Model (حقول هذه الشاشة فقط)
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
     @State private var location: String = ""
-    
-    // MARK: - Profile Picture States
-    @State private var selectedItem: PhotosPickerItem? = nil
-    @State private var profileImage: Image? = nil
 
-    // MARK: - Position picker
-    @State private var showPositionPicker: Bool = false
+    // MARK: - Position list (wheel)
+    @State private var showPositionPicker = false
     private let positions = ["Attacker", "Midfielder", "Defender"]
 
-    // MARK: - Navigation
+    // MARK: - Profile Picture
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var selectedImageData: Data?
+    @State private var profileImage: Image?
+    @State private var fileExt: String = "jpg"
+    @State private var downloadURL: URL?    // يصير له قيمة بعد اكتمال رفع الصورة
+
+    // MARK: - حالة الرفع (صامت)
+    @State private var isUploading = false
+    @State private var showAlert = false
+    @State private var alertMsg = ""
     @State private var goToProfile = false
 
     // MARK: - Theme
     private let primary = Color(hexV: "#36796C")
     private let bg = Color(hexV: "#EFF5EC")
 
-    // MARK: - Validation
-    private var isFormValid: Bool {
-        !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !weight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !height.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    // لازم كل الحقول تتعبّى
+    private var fieldsFilled: Bool {
+        !position.isEmpty && !weight.isEmpty && !height.isEmpty && !location.isEmpty
+    }
+
+    // زر Done يتفعّل فقط إذا: كل الحقول متعبّاة + (لو اليوزر اختار صورة لازم يكون رفعها خلص)
+    private var canSubmit: Bool {
+        guard fieldsFilled else { return false }
+        if selectedImageData != nil {
+            // إذا اختار صورة، ما نسمح إلا بعد اكتمال الرفع ووجود رابط
+            return !isUploading && downloadURL != nil
+        } else {
+            // ما اختار صورة -> يكفي تعبئة الحقول
+            return !isUploading
+        }
     }
 
     var body: some View {
@@ -39,7 +56,6 @@ struct PlayerSetupView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-
                     // Title
                     Text("Set up your profile")
                         .font(.custom("Poppins", size: 28))
@@ -47,17 +63,33 @@ struct PlayerSetupView: View {
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
-                    
-                    // MARK: - Profile Picture Picker (بالصورة الجديدة وعلامة الزائد)
-                    ProfilePicturePicker(
-                        selectedItem: $selectedItem,
-                        profileImage: $profileImage,
-                        primaryColor: primary
-                    )
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 10)
 
-                    // Position (button-like + wheel sheet)
+                    // صورة البروفايل (رفع صامت بمجرد الاختيار)
+                    PhotosPicker(selection: $selectedItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            if let image = profileImage {
+                                image.resizable().scaledToFill()
+                                    .frame(width: 110, height: 110)
+                                    .clipShape(Circle())
+                            } else {
+                                Image("profile_placeholder")
+                                    .resizable().scaledToFill()
+                                    .frame(width: 110, height: 110)
+                                    .clipShape(Circle())
+                            }
+                            Circle().fill(primary)
+                                .frame(width: 32, height: 32)
+                                .overlay(
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.white)
+                                )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+
+                    // Position (زر يفتح Wheel Sheet)
                     fieldLabel("Position")
                     buttonLikeField {
                         HStack {
@@ -89,7 +121,6 @@ struct PlayerSetupView: View {
                             .keyboardType(.numbersAndPunctuation)
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
-                            .tint(primary)
                     }
 
                     // Height
@@ -99,7 +130,6 @@ struct PlayerSetupView: View {
                             .keyboardType(.numbersAndPunctuation)
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
-                            .tint(primary)
                     }
 
                     // Location
@@ -108,12 +138,19 @@ struct PlayerSetupView: View {
                         TextField("", text: $location)
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
-                            .tint(primary)
                     }
 
                     // Done
                     Button {
-                        if isFormValid { goToProfile = true }
+                        Task {
+                            do {
+                                try await savePlayerSetupData()
+                                goToProfile = true
+                            } catch {
+                                alertMsg = error.localizedDescription
+                                showAlert = true
+                            }
+                        }
                     } label: {
                         Text("Done")
                             .font(.custom("Poppins", size: 18))
@@ -123,36 +160,114 @@ struct PlayerSetupView: View {
                             .background(primary)
                             .clipShape(Capsule())
                     }
-                    .padding(.top, 6)
-                    .disabled(!isFormValid)
-                    .opacity(isFormValid ? 1.0 : 0.5)
+                    .disabled(!canSubmit)
+                    .opacity(canSubmit ? 1 : 0.5)
 
-                    Spacer(minLength: 20)
+                    Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(primary)
+        // بمجرد اختيار صورة: اعرض المعاينة ثم ارفعها بصمت
+        .onChange(of: selectedItem) { newItem in
+            Task {
+                guard let item = newItem else { return }
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    selectedImageData = data
+                    fileExt = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    if let ui = UIImage(data: data) { profileImage = Image(uiImage: ui) }
+                    // ارفع مباشرة بدون ما نبيّن أي مؤشر للمستخدم
+                    do { try await uploadProfilePhoto() }
+                    catch {
+                        alertMsg = error.localizedDescription
+                        showAlert = true
+                    }
                 }
             }
         }
-        .navigationBarBackButtonHidden(true)
+        // الانتقال لصفحة البروفايل
         .navigationDestination(isPresented: $goToProfile) {
-            // PlayerProfileView()
+            PlayerProfileView()
         }
+        .alert("Notice", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(alertMsg) }
     }
 
-    // MARK: - Helpers UI
+    // MARK: - رفع الصورة (صامت) وتحديث users/{uid}.profilePic
+    private func uploadProfilePhoto() async throws {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "Auth", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "No user id"])
+        }
+        guard let data = selectedImageData else {
+            throw NSError(domain: "Upload", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "No image selected"])
+        }
+
+        isUploading = true
+        defer { isUploading = false }
+
+        let filename = "\(UUID().uuidString).\(fileExt)"
+        let ref = Storage.storage().reference()
+            .child("profile")
+            .child(uid)
+            .child(filename)
+
+        let meta = StorageMetadata()
+        meta.contentType = "image/\(fileExt == "jpg" ? "jpeg" : fileExt)"
+
+        let task = ref.putData(data, metadata: meta) { _, _ in }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            task.observe(.success) { _ in continuation.resume() }
+            task.observe(.failure) { snap in
+                let err = snap.error ?? NSError(domain: "Upload", code: -1,
+                                                userInfo: [NSLocalizedDescriptionKey: "Unknown upload error"])
+                continuation.resume(throwing: err)
+            }
+        }
+
+        let url = try await ref.downloadURL()
+        self.downloadURL = url
+
+        try await Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .setData(["profilePic": url.absoluteString], merge: true)
+    }
+
+    // MARK: - تخزين بيانات السيت أب فقط
+    private func savePlayerSetupData() async throws {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "Auth", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "No user id"])
+        }
+
+        let db = Firestore.firestore()
+        let profileRef = db.collection("users")
+            .document(uid)
+            .collection("player")
+            .document("profile")
+
+        let weightInt = Int(weight.filter { "0123456789".contains($0) })
+        let heightInt = Int(height.filter { "0123456789".contains($0) })
+
+        let payload: [String: Any] = [
+            "position": position,
+            "weight": weightInt ?? NSNull(),
+            "height": heightInt ?? NSNull(),
+            "location": location,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await profileRef.setData(payload, merge: true)
+    }
+
+    // MARK: - UI Helpers
     private func fieldLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.custom("Poppins", size: 14))
-            .foregroundColor(.gray)
+        Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
     }
 
     private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -185,70 +300,11 @@ struct PlayerSetupView: View {
     }
 }
 
-// -----------------------------------------------------------------------------------
-
-// MARK: - Profile Picture Component
-private struct ProfilePicturePicker: View {
-    @Binding var selectedItem: PhotosPickerItem?
-    @Binding var profileImage: Image?
-    let primaryColor: Color
-    
-    var body: some View {
-        PhotosPicker(
-            selection: $selectedItem,
-            matching: .images,
-            photoLibrary: .shared()
-        ) {
-            ZStack(alignment: .bottomTrailing) {
-                // 1. Image or Placeholder
-                if let image = profileImage {
-                    // إذا تم اختيار صورة، اعرضها
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 100, height: 100)
-                        .clipShape(Circle())
-                } else {
-                    // ✅ استخدام الصورة الرمادية المخصصة كـ Placeholder
-                    Image("profile_placeholder") // 👈 يجب أن يكون هذا اسم الـ Imageset في Assets
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 100, height: 100)
-                        .clipShape(Circle())
-                }
-                
-                // 2. Edit Icon (علامة الزائد/Plus)
-                Circle()
-                    .fill(primaryColor)
-                    .frame(width: 30, height: 30)
-                    .overlay {
-                        Image(systemName: "plus") // تم التغيير إلى علامة الزائد
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-            }
-        }
-        // 3. منطق التعامل مع اختيار الصورة (PhotosPicker)
-        .onChange(of: selectedItem) { newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                    if let uiImage = UIImage(data: data) {
-                        profileImage = Image(uiImage: uiImage)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------------
-
 // MARK: - Wheel sheet for Position
 private struct PositionWheelPickerSheet: View {
     let positions: [String]
     @Binding var selection: String
-    @Binding var showSheet: Bool // تم تصحيح هذا السطر
-
+    @Binding var showSheet: Bool
     @State private var tempSelection: String = ""
     private let primary = Color(hexV: "#36796C")
 
@@ -280,15 +336,11 @@ private struct PositionWheelPickerSheet: View {
             .background(primary)
             .clipShape(Capsule())
             .padding(.bottom, 16)
-            .safeAreaPadding(.bottom, 8)
         }
-        .onAppear {
-            tempSelection = selection.isEmpty ? (positions.first ?? "") : selection
-        }
+        .onAppear { tempSelection = selection.isEmpty ? (positions.first ?? "") : selection }
         .padding(.horizontal, 20)
     }
 }
-// -----------------------------------------------------------------------------------
 
 // MARK: - Color hex init
 extension Color {
@@ -298,21 +350,10 @@ extension Color {
         Scanner(string: hexV).scanHexInt64(&int)
         let a, r, g, b: UInt64
         switch hexV.count {
-        case 3:
-            (a, r, g, b) = (255, (int >> 8) * 17,
-                            (int >> 4 & 0xF) * 17,
-                            (int & 0xF) * 17)
-        case 6:
-            (a, r, g, b) = (255, int >> 16,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-        case 8:
-            (a, r, g, b) = (int >> 24,
-                            int >> 16 & 0xFF,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (255, 0, 0, 0)
         }
         self.init(.sRGB,
                   red: Double(r) / 255,
