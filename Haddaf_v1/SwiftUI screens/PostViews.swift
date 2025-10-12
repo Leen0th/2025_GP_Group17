@@ -6,11 +6,15 @@
 //
 
 import SwiftUI
+import FirebaseFirestore // MARK: - ADDED: Import Firebase
 
 // MARK: - Post Detail View
 struct PostDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var post: Post
+    
+    // MARK: - MODIFIED: Use @State instead of @Binding if you pass a copy
+    @State var post: Post
+    
     @State private var showPrivacyAlert = false
     @State private var showCommentsSheet = false
     let accentColor = Color(hex: "#36796C")
@@ -20,7 +24,7 @@ struct PostDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    VideoPlayerPlaceholderView(post: post)
+                    VideoPlayerPlaceholderView(post: post) // This can later be replaced with a real AVPlayer
                     captionAndMetadata
                     authorInfoAndInteractions
                     Divider()
@@ -29,10 +33,17 @@ struct PostDetailView: View {
             }.navigationBarBackButtonHidden(true)
             
             if showPrivacyAlert {
-                PrivacyWarningPopupView(isPresented: $showPrivacyAlert, isPrivate: post.isPrivate, onConfirm: { post.isPrivate.toggle() })
+                PrivacyWarningPopupView(isPresented: $showPrivacyAlert, isPrivate: post.isPrivate, onConfirm: {
+                    post.isPrivate.toggle()
+                    // TODO: Add logic to update post visibility in Firestore
+                })
             }
         }
-        .sheet(isPresented: $showCommentsSheet) { CommentsView(post: $post) }
+        .sheet(isPresented: $showCommentsSheet) {
+            if let postId = post.id {
+                CommentsView(postId: postId) // Pass Post ID to CommentsView
+            }
+        }
         .onChange(of: showPrivacyAlert) { _,_ in withAnimation(.easeInOut) {} }
     }
 
@@ -65,30 +76,69 @@ struct PostDetailView: View {
     
     private var authorInfoAndInteractions: some View {
         HStack {
-            Image(post.authorImageName).resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+            // Using AsyncImage to load author's profile picture from URL
+            AsyncImage(url: URL(string: post.authorImageName)) { image in
+                image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+            } placeholder: {
+                Circle().fill(.gray.opacity(0.1)).frame(width: 40, height: 40)
+            }
             Text(post.authorName).font(.headline).fontWeight(.bold)
             Spacer()
+            
+            // MARK: - UPDATED: Like Button
             Button(action: {
-                post.isLikedByUser.toggle()
-                if post.isLikedByUser { post.likeCount += 1 } else { post.likeCount -= 1 }
+                Task { await toggleLike() }
             }) {
                 HStack(spacing: 4) {
                     Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
                     Text(formatNumber(post.likeCount))
                 }.foregroundColor(post.isLikedByUser ? .red : .primary)
             }
+            
             Button(action: { showCommentsSheet = true }) {
                 HStack(spacing: 4) {
                     Image(systemName: "message")
-                    Text("\(post.comments.count)")
+                    Text("\(post.commentCount)")
                 }
             }
         }.font(.subheadline).foregroundColor(.primary)
     }
     
+    // MARK: - UPDATED: Logic to update likes in Firestore
+    private func toggleLike() async {
+        guard let postId = post.id else { return }
+        
+        // Optimistically update the UI
+        post.isLikedByUser.toggle()
+        let increment: Int64 = post.isLikedByUser ? 1 : -1
+        post.likeCount += Int(increment)
+        
+        do {
+            try await Firestore.firestore().collection("videoPosts").document(postId).updateData([
+                "likeCount": FieldValue.increment(increment)
+            ])
+            // For a real app, you'd also track which user liked the post
+        } catch {
+            print("Error updating like count: \(error.localizedDescription)")
+            // Revert optimistic UI update on failure
+            post.isLikedByUser.toggle()
+            post.likeCount -= Int(increment)
+        }
+    }
+    
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(post.stats) { stat in PostStatBarView(stat: stat, accentColor: accentColor) }
+            // This section would be populated after fetching the 'performanceFeedback' subcollection
+            if let stats = post.stats {
+                ForEach(stats) { stat in
+                    // ProgressView needs adjustment for Double
+                    // PostStatBarView(stat: stat, accentColor: accentColor)
+                }
+            } else {
+                Text("No performance stats available for this post.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
     
@@ -104,7 +154,10 @@ struct PostDetailView: View {
 
 // MARK: - Comments Sheet View
 struct CommentsView: View {
-    @Binding var post: Post
+    // MARK: - UPDATED: Use ViewModel for comments
+    let postId: String
+    @StateObject private var viewModel = CommentsViewModel()
+    
     @Environment(\.dismiss) var dismiss
     @State private var newCommentText = ""
     private let accentColor = Color(hex: "#36796C")
@@ -114,7 +167,7 @@ struct CommentsView: View {
             // Header
             HStack {
                 Spacer()
-                Text("Comment").font(.headline).padding()
+                Text("Comments").font(.headline).padding() // Corrected typo
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark").font(.subheadline.bold()) }
             }.padding().overlay(Divider(), alignment: .bottom)
@@ -122,7 +175,7 @@ struct CommentsView: View {
             // Comments List
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    ForEach(post.comments) { comment in CommentRowView(comment: comment) }
+                    ForEach(viewModel.comments) { comment in CommentRowView(comment: comment) }
                 }.padding()
             }
             
@@ -137,13 +190,22 @@ struct CommentsView: View {
                 }.disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty)
             }.padding().background(.white)
         }
+        .onAppear { // Fetch comments when the sheet appears
+            viewModel.fetchComments(for: postId)
+        }
+        .onDisappear { // Stop listening to updates when sheet is closed
+            viewModel.stopListening()
+        }
     }
     
     func addComment() {
-        guard !newCommentText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let newComment = Comment(username: "SALEM AL-DAWSARI", userImage: "salem_al-dawsari", text: newCommentText, timestamp: "Just now")
-        post.comments.append(newComment)
-        newCommentText = ""
+        let trimmedComment = newCommentText.trimmingCharacters(in: .whitespaces)
+        guard !trimmedComment.isEmpty else { return }
+        
+        Task {
+            await viewModel.addComment(text: trimmedComment, for: postId)
+            newCommentText = ""
+        }
     }
 }
 
@@ -152,7 +214,13 @@ fileprivate struct CommentRowView: View {
     let comment: Comment
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(comment.userImage).resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+            // Load user image from URL
+            AsyncImage(url: URL(string: comment.userImage)) { image in
+                image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+            } placeholder: {
+                Circle().fill(.gray.opacity(0.1)).frame(width: 40, height: 40)
+            }
+            
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(comment.username).fontWeight(.semibold)
@@ -164,11 +232,18 @@ fileprivate struct CommentRowView: View {
     }
 }
 
+// Unchanged Helper Views...
 struct VideoPlayerPlaceholderView: View {
     let post: Post
     var body: some View {
         ZStack {
-            Image(post.imageName).resizable().aspectRatio(contentMode: .fit).frame(height: 250).background(Color.black).clipped()
+            AsyncImage(url: URL(string: post.imageName)) { image in
+                image.resizable().aspectRatio(contentMode: .fit)
+            } placeholder: {
+                Color.black
+            }
+            .frame(height: 250).background(Color.black).clipped()
+            
             Color.black.opacity(0.3)
             VStack {
                 Spacer()
@@ -196,9 +271,9 @@ struct PostStatBarView: View {
             HStack {
                 Text(stat.label).font(.caption).foregroundColor(.secondary)
                 Spacer()
-                Text("\(stat.value)").font(.caption).fontWeight(.bold)
+                Text(String(format: "%.1f", stat.value)).font(.caption).fontWeight(.bold)
             }
-            ProgressView(value: Double(stat.value), total: Double(stat.maxValue)).tint(accentColor)
+            ProgressView(value: stat.value, total: 100).tint(accentColor) // Assuming max value is 100
         }
     }
 }

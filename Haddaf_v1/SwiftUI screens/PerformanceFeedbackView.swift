@@ -1,11 +1,3 @@
-
-//
-//  PerformanceFeedbackView.swift
-//  Haddaf_v1
-//
-//  Created by Lujain Alhussan on 17/04/1447 AH.
-//
-
 import SwiftUI
 
 // MARK: - Color Extension (Unchanged)
@@ -32,47 +24,32 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Video Placeholder (Optimized to match PostDetailView)
+// MARK: - Video Placeholder (Updated)
 struct PerformanceVideoPlaceholderView: View {
-    let imageName: String = "post_placeholder2"
-    
+    var image: UIImage?
+
     var body: some View {
         ZStack {
-            Image(imageName)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 250)
-                .background(Color.black)
-                .clipped()
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Color.black
+            }
 
             Color.black.opacity(0.3)
-
-            VStack {
-                Spacer()
-                HStack(spacing: 40) {
-                    Image(systemName: "backward.fill")
-                    Image(systemName: "play.fill").font(.system(size: 40))
-                    Image(systemName: "forward.fill")
-                }
-                Spacer()
-                HStack {
-                    Text("3:21")
-                    Spacer()
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                }
-                .padding(12)
-                .background(.black.opacity(0.4))
-            }
-            .font(.callout)
-            .foregroundColor(.white)
+            Image(systemName: "play.fill").font(.system(size: 40)).foregroundColor(.white)
         }
         .frame(height: 250)
+        .background(Color.black)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipped()
     }
 }
 
 
-// MARK: - Stat Bar (Optimized to match PostDetailView)
+// MARK: - Stat Bar (Unchanged)
 struct PFStatBarView: View {
     let stat: PFPostStat
     let accent: Color
@@ -80,96 +57,36 @@ struct PFStatBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(stat.label)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text(stat.label).font(.caption).foregroundColor(.secondary)
                 Spacer()
-                Text("\(stat.value)")
-                    .font(.caption)
-                    .fontWeight(.bold)
+                Text("\(stat.value)").font(.caption).fontWeight(.bold)
             }
-            ProgressView(value: Double(stat.value), total: Double(stat.maxValue))
-                .tint(accent)
+            ProgressView(value: Double(stat.value), total: Double(stat.maxValue)).tint(accent)
         }
     }
 }
 
-// MARK: - Main View (Corrected for PostDetailView alignment)
+// MARK: - Main View (Updated)
 struct PerformanceFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: VideoProcessingViewModel
+    
     @State private var caption: String = ""
-    enum Visibility { case `public`, `private` }
-    @State private var visibility: Visibility = .public
+    @State private var isPrivate: Bool = false
+    @State private var isPosting = false
+    @State private var navigateToProfile = false
 
     private let primary = Color(hexval: "#36796C")
     
-    private let stats: [PFPostStat] = [
-        .init(label: "GOALS", value: 2, maxValue: 5),
-        .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 20),
-        .init(label: "BLOCKED", value: 3, maxValue: 10),
-        .init(label: "SHOTS ON TARGET", value: 12, maxValue: 20),
-        .init(label: "CORNERS", value: 9, maxValue: 15),
-        .init(label: "OFFSIDES", value: 4, maxValue: 10),
-    ]
-
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                        
-                    PerformanceVideoPlaceholderView()
-                    
-                    // Stats section
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(stats) { s in
-                            PFStatBarView(stat: s, accent: primary)
-                        }
-                    }
-                    
-                    // قسم التسمية والرؤية - تم التعديل هنا
-                    VStack(alignment: .leading, spacing: 18) {
-                        
-                        // التسمية - تعديل اللون والجرأة
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Add a caption :")
-                                .font(.subheadline)
-                                .fontWeight(.medium) // بولد شوي
-                                .foregroundColor(.secondary) // رمادي
-
-                            TextField("", text: $caption, axis: .vertical)
-                                .lineLimit(1...4)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color(.systemGray3), lineWidth: 1)
-                                        .background(Color.white)
-                                )
-                                .cornerRadius(12)
-                        }
-                        .padding(.top, 4)
-                        
-                        // الرؤية - تعديل اللون والجرأة والترتيب الرأسي
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Post Visibility :")
-                                .font(.subheadline)
-                                .fontWeight(.medium) // بولد شوي
-                                .foregroundColor(.secondary) // رمادي
-                            
-                            // الخيارات تحت العنوان
-                            HStack(spacing: 40) {
-                                visibilityOption(title: "public", isSelected: visibility == .public)
-                                    .onTapGesture { visibility = .public }
-                                
-                                visibilityOption(title: "private", isSelected: visibility == .private)
-                                    .onTapGesture { visibility = .private }
-                            }
-                        }
-                        .padding(.top, 10)
-
-                        Spacer().frame(height: 100)
-                    }
+                    PerformanceVideoPlaceholderView(image: viewModel.thumbnail)
+                    statsSection
+                    captionAndVisibilitySection
+                    Spacer().frame(height: 100)
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 100)
@@ -177,60 +94,98 @@ struct PerformanceFeedbackView: View {
             .background(Color.white)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
-            
-            // Post Button (مثبت في الأسفل)
-            VStack {
-                Button {
-                    // TODO: Handle post action
-                } label: {
-                    Text("post")
-                        .textCase(.lowercase)
-                        .font(.custom("Poppins", size: 18))
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(primary)
-                        .clipShape(Capsule())
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 16)
+            .navigationDestination(isPresented: $navigateToProfile) {
+                // Navigate back to the main profile view
+                PlayerProfileView()
             }
-            .background(.white)
+            
+            postButton
         }
+        .disabled(isPosting)
+        // ✅ FIXED: Combined overlays and corrected the .ignoresSafeArea modifier placement.
+        .overlay(
+            ZStack {
+                if isPosting {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea() // This now works on the Color View
+                    
+                    ProgressView().tint(.white)
+                }
+            }
+        )
     }
     
-    // MARK: - Header View
     private var header: some View {
         ZStack {
-            Text("Performance Feedback")
-                .font(.custom("Poppins", size: 28))
-                .fontWeight(.medium)
-                .foregroundColor(primary)
-                .offset(y: 6)
-            
+            Text("Performance Feedback").font(.custom("Poppins", size: 28)).fontWeight(.medium).foregroundColor(primary).offset(y: 6)
             HStack {
                 Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(primary)
-                        .padding(10)
-                        .background(Circle().fill(Color.black.opacity(0.05)))
+                    Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold)).foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05)))
                 }
                 Spacer()
             }
         }.padding(.bottom, 8)
     }
+    
+    private var statsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(viewModel.performanceStats) { s in
+                PFStatBarView(stat: s, accent: primary)
+            }
+        }
+    }
+    
+    private var captionAndVisibilitySection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add a caption :").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                TextField("", text: $caption, axis: .vertical)
+                    .lineLimit(1...4).padding(.horizontal, 16).padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 12).stroke(Color(.systemGray3), lineWidth: 1).background(Color.white))
+                    .cornerRadius(12)
+            }.padding(.top, 4)
+            
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Post Visibility :").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                HStack(spacing: 40) {
+                    visibilityOption(title: "Public", isSelected: !isPrivate).onTapGesture { isPrivate = false }
+                    visibilityOption(title: "Private", isSelected: isPrivate).onTapGesture { isPrivate = true }
+                }
+            }.padding(.top, 10)
+        }
+    }
+    
+    private var postButton: some View {
+        VStack {
+            Button {
+                Task {
+                    isPosting = true
+                    do {
+                        try await viewModel.createPost(caption: caption, isPrivate: isPrivate)
+                        // This assumes the root of your navigation stack is the profile.
+                        // For more complex navigation, you might need a different approach.
+                        navigateToProfile = true
+                    } catch {
+                        print("Failed to create post: \(error.localizedDescription)")
+                        // Show an alert to the user
+                    }
+                    isPosting = false
+                }
+            } label: {
+                Text("Post").textCase(.lowercase).font(.custom("Poppins", size: 18)).fontWeight(.medium).foregroundColor(.white)
+                    .frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule())
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 16)
+        }
+        .background(.white)
+    }
 
-    // MARK: - Helpers
     private func visibilityOption(title: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: isSelected ? "circle.inset.filled" : "circle")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(primary)
-            Text(title)
-                .font(.body)
-                .foregroundColor(.primary)
+            Image(systemName: isSelected ? "circle.inset.filled" : "circle").font(.system(size: 18, weight: .semibold)).foregroundColor(primary)
+            Text(title).font(.body).foregroundColor(.primary)
         }
     }
 }
+

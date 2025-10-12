@@ -9,43 +9,40 @@ import SwiftUI
 import PhotosUI
 
 struct ProcessingVideoView: View {
+    @StateObject private var viewModel: VideoProcessingViewModel
     let selectedVideoItem: PhotosPickerItem
-
-    @State private var isAnimating = false
-    @State private var isProcessingComplete = false
     
+    init(selectedVideoItem: PhotosPickerItem) {
+        self.selectedVideoItem = selectedVideoItem
+        _viewModel = StateObject(wrappedValue: VideoProcessingViewModel())
+    }
+
     let accentColor = Color(hex: "#36796C")
 
     var body: some View {
-        // ✅ FIX: Use a ZStack as the main container to lock the content in the center.
         ZStack {
-            // The VStack no longer needs Spacers because the ZStack handles centering.
             VStack(spacing: 20) {
-                // Animated Spinner and Logo
                 ZStack {
-                    Circle()
-                        .stroke(lineWidth: 12)
-                        .fill(Color.gray.opacity(0.1))
+                    Circle().stroke(lineWidth: 12).fill(Color.gray.opacity(0.1))
 
-                    Circle()
-                        .trim(from: 0, to: 0.75)
-                        .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                        .fill(accentColor)
-                        .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+                    if viewModel.isProcessing {
+                        Circle()
+                            .trim(from: 0, to: 0.75)
+                            .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+                            .fill(accentColor)
+                            .rotationEffect(Angle(degrees: 360))
+                            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: viewModel.isProcessing)
+                    }
                     
-                    Image("Haddaf_logo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 80, height: 80)
+                    Image("Haddaf_logo").resizable().scaledToFit().frame(width: 80, height: 80)
                 }
                 .frame(width: 150, height: 150)
                 
-                // Text below the spinner
                 Text("Please Wait")
                     .font(.custom("Poppins-Bold", size: 24))
                     .fontWeight(.bold)
 
-                Text("It may take a few minutes to process this video")
+                Text(viewModel.processingStateMessage)
                     .font(.custom("Poppins-Regular", size: 16))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -54,19 +51,13 @@ struct ProcessingVideoView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
-        .ignoresSafeArea() // This prevents the nav bar from affecting the layout
+        .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
-        .onAppear {
-            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
-                isAnimating = true
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                isProcessingComplete = true
-            }
+        .task {
+            await viewModel.processVideo(item: selectedVideoItem)
         }
-        .navigationDestination(isPresented: $isProcessingComplete) {
-            PerformanceFeedbackView()
+        .navigationDestination(isPresented: $viewModel.processingComplete) {
+            PerformanceFeedbackView(viewModel: viewModel)
         }
     }
 }

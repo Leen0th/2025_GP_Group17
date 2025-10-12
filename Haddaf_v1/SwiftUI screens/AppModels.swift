@@ -1,36 +1,33 @@
-//
-//  AppModels.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 09/10/2025.
-//
-
 import SwiftUI
 import Combine
 import PhotosUI
 
 // MARK: - View Model (Observable Object)
+// This class is now primarily a data holder. The fetching logic is in PlayerProfileViewModel.
 class UserProfile: ObservableObject {
-    @Published var name = "SALEM AL-DAWSARI"
-    @Published var position = "Forwards"
-    @Published var age = "34"
-    @Published var weight = "71kg"
-    @Published var height = "172cm"
-    @Published var team = "AlHilal"
-    @Published var rank = "1"
-    @Published var score = "100"
-    @Published var location = "Riyadh"
-    @Published var email = "salem@email.com"
-    @Published var phoneNumber = "+966 55 123 4567"
-    @Published var endorsements: [CoachEndorsement] = [
-            .init(coachName: "Simone Inzaghi", coachImage: "p1", endorsementText: "Salem is a phenomenal forward with a great work ethic and a powerful shot. A true asset to any team.", rating: 5),
-            .init(coachName: "Jorge Jesus", coachImage: "p2", endorsementText: "A true leader on and off the pitch. His tactical awareness is second to none. Highly recommended.", rating: 5),
-        ]
+    @Published var name = "Loading..."
+    @Published var position = ""
+    @Published var age = ""
+    @Published var weight = ""
+    @Published var height = ""
+    @Published var team = ""
+    @Published var rank = ""
+    @Published var score = ""
+    @Published var location = ""
+    @Published var email = ""
+    @Published var phoneNumber = ""
     
-    @Published var isEmailVisible = true
+    // ✅ FIXED: Added properties back to match EditProfileView
+    @Published var isEmailVisible = false
     @Published var isPhoneVisible = false
     
-    @Published var profileImage: UIImage? = UIImage(named: "salem_al-dawsari")
+    @Published var profileImage: UIImage? = UIImage(systemName: "person.circle.fill")
+    
+    // Endorsements would need their own fetching logic if moved to Firebase
+    @Published var endorsements: [CoachEndorsement] = [
+        .init(coachName: "Simone Inzaghi", coachImage: "p1", endorsementText: "Salem is a phenomenal forward with a great work ethic and a powerful shot. A true asset to any team.", rating: 5),
+        .init(coachName: "Jorge Jesus", coachImage: "p2", endorsementText: "A true leader on and off the pitch. His tactical awareness is second to none. Highly recommended.", rating: 5),
+    ]
 }
 
 // MARK: - Data Models
@@ -45,14 +42,14 @@ struct CoachEndorsement: Identifiable {
     let coachName: String
     let coachImage: String
     let endorsementText: String
-    let rating: Int // e.g., 4 out of 5 stars
+    let rating: Int
 }
 
+// MODIFIED: This now aligns with the 'performanceFeedback' subcollection
 struct PostStat: Identifiable {
     let id = UUID()
     let label: String
-    let value: Int
-    let maxValue: Int
+    let value: Double
 }
 
 struct Comment: Identifiable {
@@ -63,21 +60,23 @@ struct Comment: Identifiable {
     let timestamp: String
 }
 
+// MODIFIED: Post struct updated for Firebase data
 struct Post: Identifiable {
-    var id = UUID()
-    var imageName: String
-    var caption: String = "Default"
-    var timestamp: String = "Just now"
+    var id: String? // Firestore Document ID
+    var imageName: String // Thumbnail URL
+    var videoURL: String?
+    var caption: String
+    var timestamp: String
     var isPrivate: Bool
-    var authorName: String = "Default"
-    var authorImageName: String = "Default"
-    var likeCount: Int = 0
-    var isLikedByUser: Bool = false
-    var comments: [Comment] = []
-    var stats: [PostStat] = []
+    var authorName: String
+    var authorImageName: String // Author Profile Pic URL
+    var likeCount: Int
+    var commentCount: Int
+    var isLikedByUser: Bool
+    var stats: [PostStat]? // Performance feedback stats
 }
 
-// MARK: - Enums
+// MARK: - Enums (Unchanged)
 enum ContentType {
     case posts, progress, endorsements
 }
@@ -106,7 +105,7 @@ enum Tab {
     }
 }
 
-// MARK: - Extensions
+// MARK: - Extensions (Unchanged)
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
