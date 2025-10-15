@@ -49,11 +49,11 @@ struct SignInView: View {
 
     private let primary = colorHex("#36796C")
     private let bg = colorHex("#EFF5EC")
-    private let emailActionURL = "https://haddaf-db.firebaseapp.com/__/auth/action"
+    private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     private var isFormValid: Bool {
-        !email.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !password.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         isValidEmail(email)
     }
 
@@ -79,8 +79,15 @@ struct SignInView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
                             .font(.custom("Poppins", size: 16))
+                            .foregroundColor(primary)           // ✅ لون النص أخضر
+                            .tint(primary)                      // ✅ لون المؤشر أخضر
                             .padding()
                             .background(RoundedRectangle(cornerRadius: 14).fill(.white))
+                    }
+                    if !email.isEmpty && !isValidEmail(email) {
+                        Text("Please enter a valid email address.")
+                            .foregroundColor(.red)
+                            .font(.system(size: 13))
                     }
 
                     // Password
@@ -91,14 +98,20 @@ struct SignInView: View {
                         HStack {
                             if isHidden {
                                 SecureField("", text: $password)
+                                    .foregroundColor(primary)   // ✅ لون النص أخضر
+                                    .tint(primary)               // ✅ لون المؤشر أخضر
                             } else {
                                 TextField("", text: $password)
+                                    .foregroundColor(primary)   // ✅ لون النص أخضر
+                                    .tint(primary)               // ✅ لون المؤشر أخضر
                             }
                             Button { isHidden.toggle() } label: {
-                                Image(systemName: isHidden ? "eye.slash" : "eye")
+                                Image(systemName: "eye\(isHidden ? ".slash" : "")")
                                     .foregroundColor(.gray)
                             }
                         }
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
                         .padding()
                         .background(RoundedRectangle(cornerRadius: 14).fill(.white))
                     }
@@ -136,14 +149,39 @@ struct SignInView: View {
                 }
                 .padding(.horizontal, 22)
             }
+
+            // ✅ نافذة تحقق موحّدة (Resend فقط) بنفس شكل Sign Up
+            if showVerifyPrompt {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                UnifiedVerifySheetSI(
+                    email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                    primary: primary,
+                    resendCooldown: $resendCooldown,
+                    errorText: $inlineVerifyError,
+                    onResend: { Task { await resendVerification() } },
+                    onClose: {
+                        withAnimation {
+                            stopVerificationWatcher()
+                            showVerifyPrompt = false
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale))
+                .zIndex(1)
+            }
         }
         .navigationDestination(isPresented: $goToProfile) { PlayerProfileView() }
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
+        .onAppear { restoreCooldownIfAny() }
+        .onDisappear { cleanupTasks() }
     }
 
     // MARK: Sign In Logic
     private func handleSignIn() async {
         guard isFormValid else { return }
+        signInError = nil
+        inlineVerifyError = nil
+
         do {
             let result = try await Auth.auth().signIn(withEmail: email.lowercased(), password: password)
             let user = result.user
@@ -152,28 +190,23 @@ struct SignInView: View {
             if user.isEmailVerified {
                 goToProfile = true
             } else {
+                // غير مفعّل → أرسل بريد تحقق وابدأ نفس تجربة Sign Up
                 try await sendVerificationEmail(to: user)
                 markVerificationSentNow()
                 startResendCooldown(seconds: resendCooldownSeconds)
-                showVerifyPrompt = true
+                await MainActor.run { showVerifyPrompt = true }
                 startVerificationWatcher()
             }
         } catch {
             let ns = error as NSError
             if let authErr = AuthErrorCode(rawValue: ns.code) {
                 switch authErr {
-                case .invalidEmail:
-                    signInError = "Invalid email format."
-                case .userNotFound:
-                    signInError = "No user found for this email."
-                case .wrongPassword:
-                    signInError = "Wrong password. Try again."
-                case .tooManyRequests:
-                    signInError = "Too many attempts. Try again later."
-                case .networkError:
-                    signInError = "Network error. Check your connection."
-                default:
-                    signInError = ns.localizedDescription
+                case .invalidEmail:    signInError = "Invalid email format."
+                case .userNotFound:    signInError = "No user found for this email."
+                case .wrongPassword:   signInError = "Wrong password. Try again."
+                case .tooManyRequests: signInError = "Too many attempts. Try again later."
+                case .networkError:    signInError = "Network error. Check your connection."
+                default:               signInError = ns.localizedDescription
                 }
             } else {
                 signInError = ns.localizedDescription
@@ -189,41 +222,93 @@ struct SignInView: View {
             while !Task.isCancelled && Date() < end {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let user = Auth.auth().currentUser else { break }
-                try? await user.reload()
-                if user.isEmailVerified {
-                    await finalizeAfterVerification(for: user)
-                    break
-                }
+                do {
+                    try await user.reload()
+                    if user.isEmailVerified {
+                        await finalizeAfterVerification(for: user)
+                        break
+                    }
+                } catch { /* ignore */ }
             }
         }
+    }
+    private func stopVerificationWatcher() {
+        verifyTask?.cancel()
+        verifyTask = nil
     }
 
     // MARK: finalizeAfterVerification
     @MainActor
     private func finalizeAfterVerification(for user: User) async {
-        // Example only — you can customize as needed
-        let db = Firestore.firestore()
-        try? await db.collection("users").document(user.uid).setData([
-            "email": user.email ?? "",
-            "emailVerified": true,
-            "updatedAt": FieldValue.serverTimestamp()
-        ], merge: true)
+        if let draft = DraftStore.load() {
+            let (first, lastOpt) = splitName(draft.fullName)
+            var data: [String: Any] = [
+                "email": user.email ?? draft.email,
+                "firstName": first,
+                "lastName": lastOpt ?? NSNull(),
+                "role": draft.role,
+                "phone": draft.phone,
+                "emailVerified": true,
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+            if let d = draft.dob { data["dob"] = Timestamp(date: d) }
+
+            try? await Firestore.firestore()
+                .collection("users")
+                .document(user.uid)
+                .setData(data, merge: true)
+
+            DraftStore.clear()
+        } else {
+            try? await Firestore.firestore()
+                .collection("users")
+                .document(user.uid)
+                .setData([
+                    "email": user.email ?? "",
+                    "emailVerified": true,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], merge: true)
+        }
+
+        inlineVerifyError = nil
         showVerifyPrompt = false
         goToPlayerSetup = true
+        stopVerificationWatcher()
+    }
+
+    // MARK: (لو احتجتي زر "I verified" مستقبلاً، الدالة موجودة)
+    private func checkIfVerifiedAndProceed() async {
+        guard let user = Auth.auth().currentUser else { return }
+        do {
+            try await user.reload()
+            if user.isEmailVerified {
+                await finalizeAfterVerification(for: user)
+            } else {
+                await MainActor.run {
+                    inlineVerifyError = "Still not verified. Open the link in your email, then try again."
+                }
+            }
+        } catch {
+            await MainActor.run {
+                inlineVerifyError = (error as NSError).localizedDescription
+            }
+        }
     }
 
     // MARK: Resend verification
     private func resendVerification() async {
         guard let user = Auth.auth().currentUser else { return }
+        guard resendCooldown == 0 else { return }
         do {
             try await sendVerificationEmail(to: user)
             markVerificationSentNow()
             startResendCooldown(seconds: resendCooldownSeconds)
+            await MainActor.run { inlineVerifyError = nil }
         } catch {
             let ns = error as NSError
             if let code = AuthErrorCode(rawValue: ns.code) {
                 inlineVerifyError = (code == .tooManyRequests)
-                ? "Too many requests from this device. Try again later."
+                ? "Too many requests from this device. Please try again later."
                 : ns.localizedDescription
             } else {
                 inlineVerifyError = ns.localizedDescription
@@ -261,9 +346,95 @@ struct SignInView: View {
             }
         }
     }
-
     private func markVerificationSentNow() {
         let now = Int(Date().timeIntervalSince1970)
         UserDefaults.standard.set(now, forKey: lastSentKey)
+    }
+    private func restoreCooldownIfAny() {
+        let now = Int(Date().timeIntervalSince1970)
+        let last = UserDefaults.standard.integer(forKey: lastSentKey)
+        let diff = max(0, resendCooldownSeconds - (now - last))
+        if diff > 0 { startResendCooldown(seconds: diff) }
+    }
+    private func cleanupTasks() {
+        stopVerificationWatcher()
+        resendTimerTask?.cancel()
+        resendTimerTask = nil
+    }
+
+    private func splitName(_ full: String) -> (first: String, last: String?) {
+        let parts = full.split(separator: " ").map { String($0) }
+        guard let first = parts.first else { return ("", nil) }
+        return parts.count > 1 ? (first, parts.dropFirst().joined(separator: " ")) : (first, nil)
+    }
+}
+
+// MARK: - Unified Verify Sheet (Sign In نسخة مستقلة لتجنب أي تعارض أسماء)
+struct UnifiedVerifySheetSI: View {
+    let email: String
+    let primary: Color
+    @Binding var resendCooldown: Int
+    @Binding var errorText: String?
+    var onResend: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 14) {
+                HStack {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+
+                Text("Verify your email")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                Text("We’ve sent a verification link to \(email).\n")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+
+                Button(action: { if resendCooldown == 0 { onResend() } }) {
+                    Text(resendCooldown > 0 ? "Resend (\(resendCooldown)s)" : "Resend")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 10)
+                        .background(Color(UIColor.systemGray5))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .disabled(resendCooldown > 0)
+
+                if let errorText, !errorText.isEmpty {
+                    Text(errorText)
+                        .font(.system(size: 13))
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 2)
+                }
+
+                Spacer().frame(height: 8)
+            }
+            .padding(.vertical, 10)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+            )
+            Spacer()
+        }
+        .padding()
+        .background(Color.clear)
     }
 }

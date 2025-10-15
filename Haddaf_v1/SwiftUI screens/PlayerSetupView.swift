@@ -6,7 +6,9 @@ import FirebaseFirestore
 import UIKit
 
 struct PlayerSetupView: View {
-    // MARK: - Model (حقول هذه الشاشة فقط)
+
+    // MARK: - Fields (this screen only)
+    @State private var phone: String = ""           // phone goes here (no OTP)
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
@@ -16,14 +18,18 @@ struct PlayerSetupView: View {
     @State private var showPositionPicker = false
     private let positions = ["Attacker", "Midfielder", "Defender"]
 
+    // MARK: - Location (dropdown with search)
+    @State private var showLocationPicker = false
+    @State private var locationSearch = ""
+
     // MARK: - Profile Picture
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var profileImage: Image?
     @State private var fileExt: String = "jpg"
-    @State private var downloadURL: URL?    // يصير له قيمة بعد اكتمال رفع الصورة
+    @State private var downloadURL: URL?    // gets a value after upload completes
 
-    // MARK: - حالة الرفع (صامت)
+    // MARK: - Upload & flow state
     @State private var isUploading = false
     @State private var showAlert = false
     @State private var alertMsg = ""
@@ -33,19 +39,33 @@ struct PlayerSetupView: View {
     private let primary = Color(hexV: "#36796C")
     private let bg = Color(hexV: "#EFF5EC")
 
-    // لازم كل الحقول تتعبّى
-    private var fieldsFilled: Bool {
-        !position.isEmpty && !weight.isEmpty && !height.isEmpty && !location.isEmpty
-    }
+    // MARK: - Validation (realistic ranges)
+    private var weightInt: Int? { Int(weight) }
+    private var heightInt: Int? { Int(height) }
 
-    // زر Done يتفعّل فقط إذا: كل الحقول متعبّاة + (لو اليوزر اختار صورة لازم يكون رفعها خلص)
+    private var isWeightValid: Bool {
+        guard let w = weightInt else { return false }
+        return (15...200).contains(w)   // ✅ الآن يبدأ من 15
+    }
+    private var isHeightValid: Bool {
+        guard let h = heightInt else { return false }
+        return (100...230).contains(h)
+    }
+    private var isPhoneValid: Bool {
+        !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var fieldsFilled: Bool {
+        isPhoneValid &&
+        !position.isEmpty &&
+        !location.isEmpty &&
+        isWeightValid &&
+        isHeightValid
+    }
     private var canSubmit: Bool {
         guard fieldsFilled else { return false }
         if selectedImageData != nil {
-            // إذا اختار صورة، ما نسمح إلا بعد اكتمال الرفع ووجود رابط
             return !isUploading && downloadURL != nil
         } else {
-            // ما اختار صورة -> يكفي تعبئة الحقول
             return !isUploading
         }
     }
@@ -64,7 +84,7 @@ struct PlayerSetupView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    // صورة البروفايل (رفع صامت بمجرد الاختيار)
+                    // Profile photo (silent upload once selected)
                     PhotosPicker(selection: $selectedItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
                             if let image = profileImage {
@@ -89,7 +109,25 @@ struct PlayerSetupView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 6)
 
-                    // Position (زر يفتح Wheel Sheet)
+                    // ========= Phone (before Position) =========
+                    fieldLabel("Phone Number")
+                    // 👇 صندوق فارغ بدون Placeholder
+                    TextField("", text: $phone)
+                        .keyboardType(.phonePad)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .font(.custom("Poppins", size: 16))
+                        .foregroundColor(primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(.white)
+                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        )
+
+                    // ========= Position =========
                     fieldLabel("Position")
                     buttonLikeField {
                         HStack {
@@ -114,33 +152,100 @@ struct PlayerSetupView: View {
                         .presentationCornerRadius(28)
                     }
 
-                    // Weight
-                    fieldLabel("Weight")
-                    roundedField {
+                    // ========= Weight (validated) =========
+                    fieldLabel("Weight (kg)")
+                    VStack(alignment: .leading, spacing: 6) {
                         TextField("", text: $weight)
-                            .keyboardType(.numbersAndPunctuation)
+                            .keyboardType(.numberPad)
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
+                            .onChange(of: weight) { new in
+                                // keep digits only, max 3
+                                let filtered = new.filter(\.isNumber)
+                                weight = String(filtered.prefix(3))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(.white)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(isWeightValid || weight.isEmpty ? Color.clear : .red, lineWidth: 1)
+                            )
+
+                        if !weight.isEmpty && !isWeightValid {
+                            Text("Enter a realistic weight between 15–200 kg.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
 
-                    // Height
-                    fieldLabel("Height")
-                    roundedField {
+                    // ========= Height (validated) =========
+                    fieldLabel("Height (cm)")
+                    VStack(alignment: .leading, spacing: 6) {
                         TextField("", text: $height)
-                            .keyboardType(.numbersAndPunctuation)
+                            .keyboardType(.numberPad)
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
+                            .onChange(of: height) { new in
+                                // keep digits only, max 3
+                                let filtered = new.filter(\.isNumber)
+                                height = String(filtered.prefix(3))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(.white)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(isHeightValid || height.isEmpty ? Color.clear : .red, lineWidth: 1)
+                            )
+
+                        if !height.isEmpty && !isHeightValid {
+                            Text("Enter a realistic height between 100–230 cm.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
 
-                    // Location
+                    // ========= Location (dropdown with search) =========
                     fieldLabel("Location")
-                    roundedField {
-                        TextField("", text: $location)
-                            .font(.custom("Poppins", size: 16))
-                            .foregroundColor(primary)
+                    buttonLikeField {
+                        HStack {
+                            Text(location.isEmpty ? "Select city" : location)
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(location.isEmpty ? .gray : primary)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .foregroundColor(primary.opacity(0.85))
+                        }
+                    } onTap: {
+                        locationSearch = ""
+                        showLocationPicker = true
+                    }
+                    .sheet(isPresented: $showLocationPicker) {
+                        LocationPickerSheet(
+                            title: "Select your city",
+                            allCities: SAUDI_CITIES,
+                            selection: $location,
+                            searchText: $locationSearch,
+                            showSheet: $showLocationPicker,
+                            accent: primary
+                        )
+                        .presentationDetents([.large])
+                        .presentationBackground(.white)
+                        .presentationCornerRadius(28)
                     }
 
-                    // Done
+                    // ========= Done =========
                     Button {
                         Task {
                             do {
@@ -169,7 +274,7 @@ struct PlayerSetupView: View {
                 .padding(.bottom, 24)
             }
         }
-        // بمجرد اختيار صورة: اعرض المعاينة ثم ارفعها بصمت
+        // When an image gets picked: preview then upload silently
         .onChange(of: selectedItem) { newItem in
             Task {
                 guard let item = newItem else { return }
@@ -177,7 +282,6 @@ struct PlayerSetupView: View {
                     selectedImageData = data
                     fileExt = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                     if let ui = UIImage(data: data) { profileImage = Image(uiImage: ui) }
-                    // ارفع مباشرة بدون ما نبيّن أي مؤشر للمستخدم
                     do { try await uploadProfilePhoto() }
                     catch {
                         alertMsg = error.localizedDescription
@@ -186,7 +290,7 @@ struct PlayerSetupView: View {
                 }
             }
         }
-        // الانتقال لصفحة البروفايل
+        // Navigate to profile
         .navigationDestination(isPresented: $goToProfile) {
             PlayerProfileView()
         }
@@ -195,7 +299,7 @@ struct PlayerSetupView: View {
         } message: { Text(alertMsg) }
     }
 
-    // MARK: - رفع الصورة (صامت) وتحديث users/{uid}.profilePic
+    // MARK: - Upload profile photo (silent) + users/{uid}.profilePic
     private func uploadProfilePhoto() async throws {
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0,
@@ -238,7 +342,7 @@ struct PlayerSetupView: View {
             .setData(["profilePic": url.absoluteString], merge: true)
     }
 
-    // MARK: - تخزين بيانات السيت أب فقط
+    // MARK: - Save Player Setup
     private func savePlayerSetupData() async throws {
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0,
@@ -246,13 +350,19 @@ struct PlayerSetupView: View {
         }
 
         let db = Firestore.firestore()
+
+        // Update root user doc with phone + timestamp
+        let trimmedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await db.collection("users").document(uid).setData([
+            "phone": trimmedPhone,
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
+
+        // Player-specific data under users/{uid}/player/profile
         let profileRef = db.collection("users")
             .document(uid)
             .collection("player")
             .document("profile")
-
-        let weightInt = Int(weight.filter { "0123456789".contains($0) })
-        let heightInt = Int(height.filter { "0123456789".contains($0) })
 
         let payload: [String: Any] = [
             "position": position,
@@ -268,18 +378,6 @@ struct PlayerSetupView: View {
     // MARK: - UI Helpers
     private func fieldLabel(_ title: String) -> some View {
         Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
-    }
-
-    private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(.white)
-                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-            )
     }
 
     private func buttonLikeField<Content: View>(
@@ -342,17 +440,98 @@ private struct PositionWheelPickerSheet: View {
     }
 }
 
+// MARK: - Location Picker (dropdown with search)
+private struct LocationPickerSheet: View {
+    let title: String
+    let allCities: [String]
+    @Binding var selection: String
+    @Binding var searchText: String
+    @Binding var showSheet: Bool
+    let accent: Color
+
+    var filtered: [String] {
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return allCities }
+        return allCities.filter { $0.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(filtered, id: \.self) { city in
+                    Button {
+                        selection = city
+                        showSheet = false
+                    } label: {
+                        HStack {
+                            Text(city).foregroundColor(.black) // 👈 أسود بدل الأزرق
+                            Spacer()
+                            if city == selection {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(accent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain) // يمنع تلوين كنص رابط
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search city")
+            .navigationTitle(Text(title))
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showSheet = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Saudi cities (English)
+private let SAUDI_CITIES: [String] = [
+    "Riyadh", "Jeddah", "Mecca", "Medina", "Dammam", "Khobar", "Dhahran", "Taif",
+    "Tabuk", "Abha", "Khamis Mushait", "Jizan", "Najran", "Hail", "Buraydah", "Unaizah",
+    "Al Hofuf", "Al Mubarraz", "Jubail", "Yanbu", "Rabigh", "Al Baha", "Bisha", "Al Majmaah",
+    "Al Zulfi", "Sakaka", "Arar", "Qurayyat", "Rafha", "Turaif", "Tarut", "Qatif", "Safwa",
+    "Saihat", "Al Khafji", "Al Ahsa", "Al Qassim", "Al Qaisumah", "Sharurah", "Tendaha",
+    "Wadi ad-Dawasir", "Al Qurayyat", "Tayma", "Umluj", "Haql", "Al Wajh",
+    "Al Lith", "Al Qunfudhah", "Sabya", "Abu Arish", "Samtah",
+    "Baljurashi", "Al Mandaq", "Qilwah", "Al Namas", "Tanomah",
+    "Mahd adh Dhahab", "Badr", "Al Ula", "Khaybar",
+    "Al Bukayriyah", "Riyadh Al Khabra", "Al Rass",
+    "Diriyah", "Al Kharj", "Hotat Bani Tamim", "Al Hariq", "Wadi Al Dawasir",
+    "Afif", "Dawadmi", "Shaqra", "Thadig", "Muzahmiyah", "Rumah",
+    "Ad Dilam", "Al Quwayiyah",
+    "Duba", "Turaif", "Ar Ruwais", "Farasan", "Al Dayer", "Fifa", "Al Aridhah",
+    "Al Bahah City", "King Abdullah Economic City", "Al Uyaynah", "Al Badayea",
+    "Al Uwayqilah", "Bathaa", "Al Jafr", "Thuqbah", "Buqayq (Abqaiq)", "Ain Dar",
+    "Nairyah", "Al Hassa", "Salwa", "Ras Tanura", "Khafji", "Manfouha", "Al Muzahmiyah"
+].sorted()
+
 // MARK: - Color hex init
 extension Color {
     init(hexV: String) {
-        let hexV = hexV.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        let s = hexV.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
-        Scanner(string: hexV).scanHexInt64(&int)
+        Scanner(string: s).scanHexInt64(&int)
         let a, r, g, b: UInt64
-        switch hexV.count {
-        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        switch s.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17,
+                                (int >> 4 & 0xF) * 17,
+                                (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16,
+                                int >> 8 & 0xFF,
+                                int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24,
+                                int >> 16 & 0xFF,
+                                int >> 8 & 0xFF,
+                                int & 0xFF)
         default: (a, r, g, b) = (255, 0, 0, 0)
         }
         self.init(.sRGB,
