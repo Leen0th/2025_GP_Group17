@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ChangePasswordView: View {
     // ألوان التطبيق
-    private let primary = Color(hexv: "#36796C")
+    private let primary = Color(hexV: "#36796C")
     private let fieldBorder = Color.black.opacity(0.25)
     private let bg = Color.white
 
