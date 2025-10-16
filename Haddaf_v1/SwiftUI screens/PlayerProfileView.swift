@@ -22,6 +22,11 @@ struct PlayerProfileView: View {
         .fullScreenCover(isPresented: $showVideoUpload) {
             VideoUploadView()
         }
+        // ✅ بعد نجاح إنشاء البوست: ارجعي لتبويب البروفايل وأغلقي شاشة الرفع
+        .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
+            selectedTab = .profile
+            showVideoUpload = false
+        }
     }
 }
 
@@ -35,7 +40,8 @@ struct CustomTabBar: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 Divider()
-                Color.white.frame(height: 85).shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -5)
+                Color.white.frame(height: 85)
+                    .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -5)
             }
             HStack {
                 TabButton(tab: .discovery, selectedTab: $selectedTab, accentColor: accentColor)
@@ -43,14 +49,24 @@ struct CustomTabBar: View {
                 Spacer().frame(width: 80)
                 TabButton(tab: .challenge, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .profile, selectedTab: $selectedTab, accentColor: accentColor)
-            }.padding(.horizontal, 30).frame(height: 80).padding(.top, 5)
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 80)
+            .padding(.top, 5)
             
             Button(action: { showVideoUpload = true }) {
                 ZStack {
-                    Circle().fill(Color.white).frame(width: 68, height: 68).shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 5)
-                    Image("Haddaf_logo").resizable().aspectRatio(contentMode: .fit).frame(width: 40, height: 70)
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 68, height: 68)
+                        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 5)
+                    Image("Haddaf_logo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 40, height: 70)
                 }
-            }.offset(y: -30)
+            }
+            .offset(y: -30)
         }
     }
 }
@@ -66,7 +82,9 @@ fileprivate struct TabButton: View {
             VStack(spacing: 4) {
                 Image(systemName: tab.imageName).font(.title2)
                 Text(tab.title).font(.caption)
-            }.foregroundColor(selectedTab == tab ? accentColor : .black.opacity(0.7)).frame(maxWidth: .infinity)
+            }
+            .foregroundColor(selectedTab == tab ? accentColor : .black.opacity(0.7))
+            .frame(maxWidth: .infinity)
         }
     }
 }
