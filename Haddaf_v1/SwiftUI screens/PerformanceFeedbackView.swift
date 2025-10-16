@@ -139,15 +139,30 @@ struct PerformanceFeedbackView: View {
                     isPosting = true
                     do {
                         try await viewModel.createPost(caption: caption, isPrivate: isPrivate)
-                        await MainActor.run { dismiss() }
-                    } catch { postingError = error.localizedDescription }
+                        viewModel.resetAfterPosting()     // مهم
+                        await MainActor.run { dismiss() } // يغلق Feedback
+                    } catch {
+                        postingError = error.localizedDescription
+                    }
                     isPosting = false
                 }
-            } label: { Text("Post").textCase(.lowercase).font(.custom("Poppins", size: 18)).fontWeight(.medium).foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule()) }
-            .padding(.horizontal).padding(.bottom, 16)
+            } label: {
+                Text("Post")
+                    .textCase(.lowercase)
+                    .font(.custom("Poppins", size: 18))
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(primary)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 16)
         }
         .background(.white)
     }
+
 
     private func visibilityOption(title: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {

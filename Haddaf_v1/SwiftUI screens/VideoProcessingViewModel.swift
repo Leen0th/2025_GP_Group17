@@ -1,12 +1,13 @@
 import SwiftUI
 import PhotosUI
-import FirebaseStorage
-import FirebaseFirestore
-import FirebaseAuth
 import AVFoundation
+import FirebaseAuth
+import FirebaseFirestore
+import FirebaseStorage
 
 @MainActor
 class VideoProcessingViewModel: ObservableObject {
+    // UI state
     @Published var processingStateMessage = "Preparing video..."
     @Published var isProcessing = false
     @Published var processingComplete = false
@@ -14,114 +15,155 @@ class VideoProcessingViewModel: ObservableObject {
     @Published var performanceStats: [PFPostStat] = []
     @Published var videoURL: URL?
 
-    private let db = Firestore.firestore()
-    private let storage = Storage.storage()
+    // Firebase
+    let db = Firestore.firestore()
+    let storage = Storage.storage() // ← make storage available in scope
 
+    // MARK: - Processing pipeline
     func processVideo(item: PhotosPickerItem) async {
         isProcessing = true
         defer { isProcessing = false }
 
-        let startTime = Date()
+        let start = Date()
 
         do {
             processingStateMessage = "Accessing video file..."
-            // This now uses the memory-safe getURL function
             guard let url = await getURL(from: item) else {
-                throw NSError(domain: "VideoProcessing", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."])
+                throw NSError(domain: "VideoProcessing", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."])
             }
             self.videoURL = url
 
-            async let generatedThumbnail = generateThumbnail(for: url)
-            async let mockStats = generateMockStatsAfterDelay()
+            async let thumb = generateThumbnail(for: url)
+            async let stats = generateMockStatsAfterDelay()
 
             processingStateMessage = "Generating thumbnail..."
-            self.thumbnail = try await generatedThumbnail
+            self.thumbnail = try await thumb
 
             processingStateMessage = "Analyzing performance..."
-            self.performanceStats = await mockStats
+            self.performanceStats = await stats
 
-            let elapsedTime = Date().timeIntervalSince(startTime)
-            if elapsedTime < 5.0 {
-                let remainingTime = 5.0 - elapsedTime
-                try await Task.sleep(nanoseconds: UInt64(remainingTime * 1_000_000_000))
-            }
+            // keep spinner at least ~5s for UX
+            let elapsed = Date().timeIntervalSince(start)
+            if elapsed < 5 { try await Task.sleep(nanoseconds: UInt64((5 - elapsed) * 1_000_000_000)) }
 
             processingComplete = true
-
         } catch {
             processingStateMessage = "Error: \(error.localizedDescription)"
-            print("Video processing failed: \(error)")
+            print("processVideo error: \(error)")
         }
     }
 
+    // MARK: - Create post
     func createPost(caption: String, isPrivate: Bool) async throws {
-        guard let uid = Auth.auth().currentUser?.uid else { throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]) }
-        guard let localVideoURL = videoURL, let thumbnailImage = thumbnail else { throw NSError(domain: "Upload", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."]) }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "Auth", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+        guard let localVideoURL = videoURL, let thumb = thumbnail else {
+            throw NSError(domain: "Upload", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."])
+        }
 
         let postID = UUID().uuidString
-        let (videoDownloadURL, thumbnailDownloadURL) = try await uploadFiles(videoURL: localVideoURL, thumbnail: thumbnailImage, userID: uid, postID: postID)
-        let userDocRef = db.collection("users").document(uid)
-        let userDoc = try await userDocRef.getDocument()
+        let (videoDL, thumbDL) = try await uploadFiles(videoURL: localVideoURL,
+                                                       thumbnail: thumb,
+                                                       userID: uid,
+                                                       postID: postID)
 
-        let userData = userDoc.data()
-        let firstName = userData?["firstName"] as? String ?? ""
-        let lastName = userData?["lastName"] as? String ?? ""
-        let authorUsername = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
-        let authorProfilePic = userData?["profilePic"] as? String ?? ""
+        // author info
+        let userRef = db.collection("users").document(uid)
+        let userDoc = try await userRef.getDocument()
+        let data = userDoc.data() ?? [:]
+        let first = (data["firstName"] as? String) ?? ""
+        let last  = (data["lastName"]  as? String) ?? ""
+        let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
+        let profilePic = (data["profilePic"] as? String) ?? ""
 
+        // post document
+        let postRef = db.collection("videoPosts").document(postID)
         let postData: [String: Any] = [
-            "authorId": userDocRef,
+            "authorId": userRef,                           // DocumentReference
             "authorUsername": authorUsername,
-            "profilePic": authorProfilePic,
+            "profilePic": profilePic,
             "caption": caption,
-            "url": videoDownloadURL.absoluteString,
-            "thumbnailURL": thumbnailDownloadURL.absoluteString,
+            "url": videoDL.absoluteString,
+            "thumbnailURL": thumbDL.absoluteString,
             "uploadDateTime": Timestamp(date: Date()),
-            "visibility": !isPrivate,
+            "visibility": !isPrivate,                      // true = public
             "likeCount": 0,
             "commentCount": 0
         ]
-
-        let postRef = db.collection("videoPosts").document(postID)
         try await postRef.setData(postData)
 
-        let feedbackRef = postRef.collection("performanceFeedback").document("feedback")
-        let performanceData: [String: Any] = [
+        // performance feedback (optional)
+        let perfRef = postRef.collection("performanceFeedback").document("feedback")
+        let perf: [String: Any] = [
             "passingAccuracy": performanceStats.first { $0.label == "PASSING ACCURACY" }?.value ?? 0,
             "speed": performanceStats.first { $0.label == "SPEED" }?.value ?? 0,
             "score": performanceStats.first { $0.label == "SCORE" }?.value ?? 0
         ]
-        try await feedbackRef.setData(performanceData)
+        try await perfRef.setData(perf)
+
+        // notify UI to insert immediately
+        let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
+        let newPost = Post(
+            id: postID,
+            imageName: thumbDL.absoluteString,
+            videoURL: videoDL.absoluteString,
+            caption: caption,
+            timestamp: df.string(from: Date()),
+            isPrivate: isPrivate,
+            authorName: authorUsername,
+            authorImageName: profilePic,
+            likeCount: 0,
+            commentCount: 0,
+            isLikedByUser: false,
+            stats: nil
+        )
+        NotificationCenter.default.post(name: .postCreated, object: nil, userInfo: ["post": newPost])
     }
 
-    // MARK: - Private Helper Methods
+    func resetAfterPosting() {
+        processingComplete = false
+        videoURL = nil
+        thumbnail = nil
+        performanceStats = []
+        processingStateMessage = "Preparing video..."
+    }
 
-    // ✅ This function copies the file directly without loading it into RAM.
+    // MARK: - Private helpers
     private func getURL(from item: PhotosPickerItem) async -> URL? {
-        let results = try? await item.loadTransferable(type: VideoPickerTransferable.self)
-        return results?.videoURL
+        let r = try? await item.loadTransferable(type: VideoPickerTransferable.self)
+        return r?.videoURL
     }
 
     private func generateThumbnail(for url: URL) async throws -> UIImage {
         let asset = AVAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
         let time = CMTime(seconds: 0.5, preferredTimescale: 60)
-        let cgImage = try await imageGenerator.image(at: time).image
-        return UIImage(cgImage: cgImage)
+        let cgimg = try await gen.image(at: time).image
+        return UIImage(cgImage: cgimg)
     }
 
-    private func uploadFiles(videoURL: URL, thumbnail: UIImage, userID: String, postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
-        let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
+    private func uploadFiles(videoURL: URL,
+                             thumbnail: UIImage,
+                             userID: String,
+                             postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
+        // video
+        let videoRef = self.storage.reference().child("posts/\(userID)/\(postID).mov")
         _ = try await videoRef.putFileAsync(from: videoURL)
         let videoDownloadURL = try await videoRef.downloadURL()
 
+        // thumbnail
         guard let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) else {
-            throw NSError(domain: "Upload", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
+            throw NSError(domain: "Upload", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
         }
-        let thumbnailRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
-        _ = try await thumbnailRef.putDataAsync(thumbnailData)
-        let thumbnailDownloadURL = try await thumbnailRef.downloadURL()
+        let thumbRef = self.storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
+        _ = try await thumbRef.putDataAsync(thumbnailData)
+        let thumbnailDownloadURL = try await thumbRef.downloadURL()
 
         return (videoDownloadURL, thumbnailDownloadURL)
     }
@@ -138,7 +180,8 @@ class VideoProcessingViewModel: ObservableObject {
     }
 }
 
-// ✅ This supporting struct is essential for the memory-safe approach.
+// Transferable used to safely obtain a file URL from PhotosPicker (no memory blowups)
+
 struct VideoPickerTransferable: Transferable {
     let videoURL: URL
 
@@ -148,11 +191,9 @@ struct VideoPickerTransferable: Transferable {
         } importing: { received in
             let fileName = received.file.lastPathComponent
             let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            
             if FileManager.default.fileExists(atPath: copy.path) {
                 try FileManager.default.removeItem(at: copy)
             }
-            
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self.init(videoURL: copy)
         }
