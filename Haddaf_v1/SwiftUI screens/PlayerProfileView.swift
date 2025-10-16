@@ -1,10 +1,3 @@
-//
-//  PlayerProfileView.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 09/10/2025.
-//
-
 import SwiftUI
 
 // MARK: - Main Container View
@@ -26,7 +19,6 @@ struct PlayerProfileView: View {
             CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
         }
         .ignoresSafeArea(.all, edges: .bottom)
-        // ✅ THIS IS THE ONLY CHANGE NEEDED
         .fullScreenCover(isPresented: $showVideoUpload) {
             VideoUploadView()
         }

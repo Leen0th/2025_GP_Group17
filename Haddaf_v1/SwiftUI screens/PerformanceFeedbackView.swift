@@ -42,7 +42,7 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - Main View (Trimming Removed)
+// MARK: - Main View (UPDATED)
 struct PerformanceFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: VideoProcessingViewModel
@@ -54,26 +54,26 @@ struct PerformanceFeedbackView: View {
 
     private let primary = Color(hexval: "#36796C")
     
+    private var isPostButtonDisabled: Bool {
+        return caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || caption.count > 100 || isPosting
+    }
+    
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
                     
-                    // Live video player
                     if let url = viewModel.videoURL {
                         VideoPlayer(player: AVPlayer(url: url))
                             .frame(height: 250)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     } else {
-                        // Fallback view
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color.black)
                             .frame(height: 250)
                             .overlay(Text("No Video Found").foregroundColor(.white))
                     }
-                    
-                    // The "Trim Video" button has been removed.
                     
                     statsSection
                     captionAndVisibilitySection
@@ -95,8 +95,6 @@ struct PerformanceFeedbackView: View {
         .alert("Error", isPresented: .constant(postingError != nil)) {
             Button("OK") { postingError = nil }
         } message: { Text(postingError ?? "Unknown error occurred") }
-        
-        // The .sheet modifier for the trimmer has been removed.
     }
     
     private var header: some View {
@@ -118,15 +116,34 @@ struct PerformanceFeedbackView: View {
     private var captionAndVisibilitySection: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Add a caption :").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
-                TextField("", text: $caption, axis: .vertical).lineLimit(1...4).padding(.horizontal, 16).padding(.vertical, 14).background(RoundedRectangle(cornerRadius: 12).stroke(Color(.systemGray3), lineWidth: 1).background(Color.white)).cornerRadius(12)
+                HStack {
+                    Text("Add a caption:").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(caption.count)/100")
+                        .font(.caption)
+                        .foregroundColor(caption.count > 100 ? .red : .secondary)
+                }
+                TextField("Write something...", text: $caption, axis: .vertical)
+                    .lineLimit(1...4)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 12).stroke(Color(.systemGray3), lineWidth: 1).background(Color.white))
+                    .cornerRadius(12)
             }.padding(.top, 4)
             
             VStack(alignment: .leading, spacing: 10) {
-                Text("Post Visibility :").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
-                HStack(spacing: 40) {
-                    visibilityOption(title: "Public", isSelected: !isPrivate).onTapGesture { isPrivate = false }
-                    visibilityOption(title: "Private", isSelected: isPrivate).onTapGesture { isPrivate = true }
+                Text("Post Visibility:").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                Button(action: { isPrivate.toggle() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: isPrivate ? "lock.fill" : "lock.open.fill")
+                            .foregroundColor(isPrivate ? .red : primary)
+                        Text(isPrivate ? "Private" : "Public")
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color.secondary.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }.padding(.top, 10)
         }
@@ -139,8 +156,8 @@ struct PerformanceFeedbackView: View {
                     isPosting = true
                     do {
                         try await viewModel.createPost(caption: caption, isPrivate: isPrivate)
-                        viewModel.resetAfterPosting()     // مهم
-                        await MainActor.run { dismiss() } // يغلق Feedback
+                        viewModel.resetAfterPosting()
+                        await MainActor.run { dismiss() }
                     } catch {
                         postingError = error.localizedDescription
                     }
@@ -157,17 +174,12 @@ struct PerformanceFeedbackView: View {
                     .background(primary)
                     .clipShape(Capsule())
             }
+            .disabled(isPostButtonDisabled)
+            .opacity(isPostButtonDisabled ? 0.6 : 1.0)
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
         .background(.white)
     }
-
-
-    private func visibilityOption(title: String, isSelected: Bool) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: isSelected ? "circle.inset.filled" : "circle").font(.system(size: 18, weight: .semibold)).foregroundColor(primary)
-            Text(title).font(.body).foregroundColor(.primary)
-        }
-    }
 }
+

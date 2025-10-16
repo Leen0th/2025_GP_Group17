@@ -17,7 +17,7 @@ class VideoProcessingViewModel: ObservableObject {
 
     // Firebase
     let db = Firestore.firestore()
-    let storage = Storage.storage() // ← make storage available in scope
+    let storage = Storage.storage()
 
     // MARK: - Processing pipeline
     func processVideo(item: PhotosPickerItem) async {
@@ -43,7 +43,6 @@ class VideoProcessingViewModel: ObservableObject {
             processingStateMessage = "Analyzing performance..."
             self.performanceStats = await stats
 
-            // keep spinner at least ~5s for UX
             let elapsed = Date().timeIntervalSince(start)
             if elapsed < 5 { try await Task.sleep(nanoseconds: UInt64((5 - elapsed) * 1_000_000_000)) }
 
@@ -71,7 +70,6 @@ class VideoProcessingViewModel: ObservableObject {
                                                        userID: uid,
                                                        postID: postID)
 
-        // author info
         let userRef = db.collection("users").document(uid)
         let userDoc = try await userRef.getDocument()
         let data = userDoc.data() ?? [:]
@@ -80,32 +78,32 @@ class VideoProcessingViewModel: ObservableObject {
         let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
         let profilePic = (data["profilePic"] as? String) ?? ""
 
-        // post document
         let postRef = db.collection("videoPosts").document(postID)
         let postData: [String: Any] = [
-            "authorId": userRef,                           // DocumentReference
+            "authorId": userRef,
             "authorUsername": authorUsername,
             "profilePic": profilePic,
             "caption": caption,
             "url": videoDL.absoluteString,
             "thumbnailURL": thumbDL.absoluteString,
             "uploadDateTime": Timestamp(date: Date()),
-            "visibility": !isPrivate,                      // true = public
+            "visibility": !isPrivate,
             "likeCount": 0,
             "commentCount": 0
         ]
         try await postRef.setData(postData)
 
-        // performance feedback (optional)
         let perfRef = postRef.collection("performanceFeedback").document("feedback")
-        let perf: [String: Any] = [
-            "passingAccuracy": performanceStats.first { $0.label == "PASSING ACCURACY" }?.value ?? 0,
-            "speed": performanceStats.first { $0.label == "SPEED" }?.value ?? 0,
-            "score": performanceStats.first { $0.label == "SCORE" }?.value ?? 0
-        ]
-        try await perfRef.setData(perf)
-
-        // notify UI to insert immediately
+        let perfData = Dictionary(uniqueKeysWithValues: self.performanceStats.map {
+            ($0.label, ["value": $0.value, "maxValue": $0.maxValue])
+        })
+        try await perfRef.setData(["stats": perfData])
+        
+        let postStats: [PostStat] = self.performanceStats.map { pfStat in
+            let normalizedValue = Double(pfStat.maxValue) > 0 ? (Double(pfStat.value) / Double(pfStat.maxValue)) * 100.0 : 0.0
+            return PostStat(label: pfStat.label, value: normalizedValue)
+        }
+        
         let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
         let newPost = Post(
             id: postID,
@@ -119,7 +117,7 @@ class VideoProcessingViewModel: ObservableObject {
             likeCount: 0,
             commentCount: 0,
             isLikedByUser: false,
-            stats: nil
+            stats: postStats
         )
         NotificationCenter.default.post(name: .postCreated, object: nil, userInfo: ["post": newPost])
     }
@@ -151,12 +149,10 @@ class VideoProcessingViewModel: ObservableObject {
                              thumbnail: UIImage,
                              userID: String,
                              postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
-        // video
         let videoRef = self.storage.reference().child("posts/\(userID)/\(postID).mov")
         _ = try await videoRef.putFileAsync(from: videoURL)
         let videoDownloadURL = try await videoRef.downloadURL()
 
-        // thumbnail
         guard let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) else {
             throw NSError(domain: "Upload", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
@@ -179,8 +175,6 @@ class VideoProcessingViewModel: ObservableObject {
         ]
     }
 }
-
-// Transferable used to safely obtain a file URL from PhotosPicker (no memory blowups)
 
 struct VideoPickerTransferable: Transferable {
     let videoURL: URL

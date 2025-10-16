@@ -64,7 +64,7 @@ struct Comment: Identifiable {
 struct Post: Identifiable {
     var id: String? // Firestore Document ID
     var imageName: String // Thumbnail URL
-    var videoURL: String?
+    var videoURL: String? // Video URL
     var caption: String
     var timestamp: String
     var isPrivate: Bool
