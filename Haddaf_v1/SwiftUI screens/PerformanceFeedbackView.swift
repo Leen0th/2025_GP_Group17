@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 // MARK: - Color Extension (Unchanged)
 extension Color {
@@ -24,31 +25,6 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Video Placeholder (Updated)
-struct PerformanceVideoPlaceholderView: View {
-    var image: UIImage?
-
-    var body: some View {
-        ZStack {
-            if let image = image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Color.black
-            }
-
-            Color.black.opacity(0.3)
-            Image(systemName: "play.fill").font(.system(size: 40)).foregroundColor(.white)
-        }
-        .frame(height: 250)
-        .background(Color.black)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .clipped()
-    }
-}
-
-
 // MARK: - Stat Bar (Unchanged)
 struct PFStatBarView: View {
     let stat: PFPostStat
@@ -66,7 +42,7 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - Main View (Updated)
+// MARK: - Main View (Trimming Removed)
 struct PerformanceFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: VideoProcessingViewModel
@@ -74,7 +50,7 @@ struct PerformanceFeedbackView: View {
     @State private var caption: String = ""
     @State private var isPrivate: Bool = false
     @State private var isPosting = false
-    @State private var navigateToProfile = false
+    @State private var postingError: String? = nil
 
     private let primary = Color(hexval: "#36796C")
     
@@ -83,7 +59,22 @@ struct PerformanceFeedbackView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    PerformanceVideoPlaceholderView(image: viewModel.thumbnail)
+                    
+                    // Live video player
+                    if let url = viewModel.videoURL {
+                        VideoPlayer(player: AVPlayer(url: url))
+                            .frame(height: 250)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        // Fallback view
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black)
+                            .frame(height: 250)
+                            .overlay(Text("No Video Found").foregroundColor(.white))
+                    }
+                    
+                    // The "Trim Video" button has been removed.
+                    
                     statsSection
                     captionAndVisibilitySection
                     Spacer().frame(height: 100)
@@ -94,34 +85,25 @@ struct PerformanceFeedbackView: View {
             .background(Color.white)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
-            .navigationDestination(isPresented: $navigateToProfile) {
-                // Navigate back to the main profile view
-                PlayerProfileView()
-            }
             
             postButton
         }
         .disabled(isPosting)
-        // ✅ FIXED: Combined overlays and corrected the .ignoresSafeArea modifier placement.
         .overlay(
-            ZStack {
-                if isPosting {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea() // This now works on the Color View
-                    
-                    ProgressView().tint(.white)
-                }
-            }
+            ZStack { if isPosting { Color.black.opacity(0.4).ignoresSafeArea(); ProgressView().tint(.white) } }
         )
+        .alert("Error", isPresented: .constant(postingError != nil)) {
+            Button("OK") { postingError = nil }
+        } message: { Text(postingError ?? "Unknown error occurred") }
+        
+        // The .sheet modifier for the trimmer has been removed.
     }
     
     private var header: some View {
         ZStack {
             Text("Performance Feedback").font(.custom("Poppins", size: 28)).fontWeight(.medium).foregroundColor(primary).offset(y: 6)
             HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold)).foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05)))
-                }
+                Button { dismiss() } label: { Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold)).foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05))) }
                 Spacer()
             }
         }.padding(.bottom, 8)
@@ -129,9 +111,7 @@ struct PerformanceFeedbackView: View {
     
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(viewModel.performanceStats) { s in
-                PFStatBarView(stat: s, accent: primary)
-            }
+            ForEach(viewModel.performanceStats) { s in PFStatBarView(stat: s, accent: primary) }
         }
     }
     
@@ -139,10 +119,7 @@ struct PerformanceFeedbackView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Add a caption :").font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
-                TextField("", text: $caption, axis: .vertical)
-                    .lineLimit(1...4).padding(.horizontal, 16).padding(.vertical, 14)
-                    .background(RoundedRectangle(cornerRadius: 12).stroke(Color(.systemGray3), lineWidth: 1).background(Color.white))
-                    .cornerRadius(12)
+                TextField("", text: $caption, axis: .vertical).lineLimit(1...4).padding(.horizontal, 16).padding(.vertical, 14).background(RoundedRectangle(cornerRadius: 12).stroke(Color(.systemGray3), lineWidth: 1).background(Color.white)).cornerRadius(12)
             }.padding(.top, 4)
             
             VStack(alignment: .leading, spacing: 10) {
@@ -162,21 +139,12 @@ struct PerformanceFeedbackView: View {
                     isPosting = true
                     do {
                         try await viewModel.createPost(caption: caption, isPrivate: isPrivate)
-                        // This assumes the root of your navigation stack is the profile.
-                        // For more complex navigation, you might need a different approach.
-                        navigateToProfile = true
-                    } catch {
-                        print("Failed to create post: \(error.localizedDescription)")
-                        // Show an alert to the user
-                    }
+                        await MainActor.run { dismiss() }
+                    } catch { postingError = error.localizedDescription }
                     isPosting = false
                 }
-            } label: {
-                Text("Post").textCase(.lowercase).font(.custom("Poppins", size: 18)).fontWeight(.medium).foregroundColor(.white)
-                    .frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule())
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 16)
+            } label: { Text("Post").textCase(.lowercase).font(.custom("Poppins", size: 18)).fontWeight(.medium).foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule()) }
+            .padding(.horizontal).padding(.bottom, 16)
         }
         .background(.white)
     }
@@ -188,4 +156,3 @@ struct PerformanceFeedbackView: View {
         }
     }
 }
-

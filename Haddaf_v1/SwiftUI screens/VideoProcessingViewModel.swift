@@ -12,8 +12,8 @@ class VideoProcessingViewModel: ObservableObject {
     @Published var processingComplete = false
     @Published var thumbnail: UIImage?
     @Published var performanceStats: [PFPostStat] = []
-    
-    private var videoURL: URL?
+    @Published var videoURL: URL?
+
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
 
@@ -21,132 +21,112 @@ class VideoProcessingViewModel: ObservableObject {
         isProcessing = true
         defer { isProcessing = false }
 
+        let startTime = Date()
+
         do {
-            // 1. Get local URL for the video
             processingStateMessage = "Accessing video file..."
+            // This now uses the memory-safe getURL function
             guard let url = await getURL(from: item) else {
                 throw NSError(domain: "VideoProcessing", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."])
             }
             self.videoURL = url
 
-            // 2. Generate Thumbnail
+            async let generatedThumbnail = generateThumbnail(for: url)
+            async let mockStats = generateMockStatsAfterDelay()
+
             processingStateMessage = "Generating thumbnail..."
-            let generatedThumbnail = try await generateThumbnail(for: url)
-            self.thumbnail = generatedThumbnail
-            
-            // 3. Simulate performance analysis
+            self.thumbnail = try await generatedThumbnail
+
             processingStateMessage = "Analyzing performance..."
-            try await Task.sleep(nanoseconds: 2_000_000_000) // Simulate network/analysis delay
-            self.performanceStats = generateMockStats()
-            
+            self.performanceStats = await mockStats
+
+            let elapsedTime = Date().timeIntervalSince(startTime)
+            if elapsedTime < 5.0 {
+                let remainingTime = 5.0 - elapsedTime
+                try await Task.sleep(nanoseconds: UInt64(remainingTime * 1_000_000_000))
+            }
+
             processingComplete = true
-            
+
         } catch {
             processingStateMessage = "Error: \(error.localizedDescription)"
             print("Video processing failed: \(error)")
         }
     }
-    
+
     func createPost(caption: String, isPrivate: Bool) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]) }
         guard let localVideoURL = videoURL, let thumbnailImage = thumbnail else { throw NSError(domain: "Upload", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."]) }
 
         let postID = UUID().uuidString
-        
-        // 1. Upload Video and Thumbnail to Storage
         let (videoDownloadURL, thumbnailDownloadURL) = try await uploadFiles(videoURL: localVideoURL, thumbnail: thumbnailImage, userID: uid, postID: postID)
-
-        // 2. Prepare Firestore data
         let userDocRef = db.collection("users").document(uid)
         let userDoc = try await userDocRef.getDocument()
-        
+
         let userData = userDoc.data()
         let firstName = userData?["firstName"] as? String ?? ""
         let lastName = userData?["lastName"] as? String ?? ""
-        let authorUsername = "\(firstName) \(lastName)"
+        let authorUsername = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
         let authorProfilePic = userData?["profilePic"] as? String ?? ""
 
         let postData: [String: Any] = [
             "authorId": userDocRef,
-            "authorUsername": authorUsername.trimmingCharacters(in: .whitespaces),
+            "authorUsername": authorUsername,
             "profilePic": authorProfilePic,
             "caption": caption,
             "url": videoDownloadURL.absoluteString,
             "thumbnailURL": thumbnailDownloadURL.absoluteString,
             "uploadDateTime": Timestamp(date: Date()),
-            "visibility": !isPrivate, // Public is true in Firestore
+            "visibility": !isPrivate,
             "likeCount": 0,
             "commentCount": 0
         ]
-        
-        // 3. Create Post Document in Firestore
+
         let postRef = db.collection("videoPosts").document(postID)
         try await postRef.setData(postData)
-        
-        // 4. Add Performance Feedback Subcollection
+
         let feedbackRef = postRef.collection("performanceFeedback").document("feedback")
         let performanceData: [String: Any] = [
-            "passingAccuracy": performanceStats.first(where: { $0.label == "PASSING ACCURACY" })?.value ?? 0,
-            "speed": performanceStats.first(where: { $0.label == "SPEED" })?.value ?? 0,
-            "score": performanceStats.first(where: { $0.label == "SCORE" })?.value ?? 0
+            "passingAccuracy": performanceStats.first { $0.label == "PASSING ACCURACY" }?.value ?? 0,
+            "speed": performanceStats.first { $0.label == "SPEED" }?.value ?? 0,
+            "score": performanceStats.first { $0.label == "SCORE" }?.value ?? 0
         ]
         try await feedbackRef.setData(performanceData)
     }
 
     // MARK: - Private Helper Methods
-    
-    // ✅ FIXED: Added a fallback to handle cases where a direct URL is not available.
-    private func getURL(from item: PhotosPickerItem) async -> URL? {
-        // First, try the simple URL loading method
-        if let url = try? await item.loadTransferable(type: URL.self) {
-            return url
-        }
 
-        // If that fails, fall back to loading as Data and writing to a temporary file
-        if let data = try? await item.loadTransferable(type: Data.self) {
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "\(UUID().uuidString).mov"
-            let fileURL = tempDir.appendingPathComponent(fileName)
-            
-            do {
-                try data.write(to: fileURL)
-                return fileURL
-            } catch {
-                print("Failed to write video data to temporary file: \(error)")
-                return nil
-            }
-        }
-        
-        return nil // Return nil if both methods fail
+    // ✅ This function copies the file directly without loading it into RAM.
+    private func getURL(from item: PhotosPickerItem) async -> URL? {
+        let results = try? await item.loadTransferable(type: VideoPickerTransferable.self)
+        return results?.videoURL
     }
 
     private func generateThumbnail(for url: URL) async throws -> UIImage {
         let asset = AVAsset(url: url)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
-        let time = CMTime(seconds: 1, preferredTimescale: 60)
+        let time = CMTime(seconds: 0.5, preferredTimescale: 60)
         let cgImage = try await imageGenerator.image(at: time).image
         return UIImage(cgImage: cgImage)
     }
-    
+
     private func uploadFiles(videoURL: URL, thumbnail: UIImage, userID: String, postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
-        // Upload Video
         let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
         _ = try await videoRef.putFileAsync(from: videoURL)
         let videoDownloadURL = try await videoRef.downloadURL()
-        
-        // Upload Thumbnail
+
         guard let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) else {
             throw NSError(domain: "Upload", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
         }
         let thumbnailRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
         _ = try await thumbnailRef.putDataAsync(thumbnailData)
         let thumbnailDownloadURL = try await thumbnailRef.downloadURL()
-        
+
         return (videoDownloadURL, thumbnailDownloadURL)
     }
 
-    private func generateMockStats() -> [PFPostStat] {
+    private func generateMockStatsAfterDelay() async -> [PFPostStat] {
         return [
             .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
             .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
@@ -158,3 +138,23 @@ class VideoProcessingViewModel: ObservableObject {
     }
 }
 
+// ✅ This supporting struct is essential for the memory-safe approach.
+struct VideoPickerTransferable: Transferable {
+    let videoURL: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.videoURL)
+        } importing: { received in
+            let fileName = received.file.lastPathComponent
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            
+            if FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.removeItem(at: copy)
+            }
+            
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return Self.init(videoURL: copy)
+        }
+    }
+}

@@ -26,7 +26,8 @@ struct PlayerProfileView: View {
             CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
         }
         .ignoresSafeArea(.all, edges: .bottom)
-        .sheet(isPresented: $showVideoUpload) {
+        // ✅ THIS IS THE ONLY CHANGE NEEDED
+        .fullScreenCover(isPresented: $showVideoUpload) {
             VideoUploadView()
         }
     }
@@ -79,5 +80,5 @@ fileprivate struct TabButton: View {
 }
 
 #Preview {
-    PlayerProfileView() 
+    PlayerProfileView()
 }

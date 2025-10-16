@@ -66,12 +66,16 @@ class PlayerProfileViewModel: ObservableObject {
                 userProfile.rank = "\(data["rank"] as? Int ?? 0)"
                 userProfile.score = "\(data["cumulativeScore"] as? Int ?? 0)"
                 userProfile.location = data["location"] as? String ?? "N/A"
-                userProfile.phoneNumber = data["phoneNumber"] as? String ?? ""
                 
-                // ✅ FIXED: Fetch visibility status from Firestore
-                userProfile.isPhoneVisible = data["contactVisibility"] as? Bool ?? false
-                // Note: 'isEmailVisible' does not have a field in your Firestore structure,
-                // so it will use the default value from AppModels.swift
+                // Fix #3: Get phone number from player/profile
+                userProfile.phoneNumber = data["phone"] as? String ?? ""
+                
+                // Fix #5: Check visibility flags
+                let isPhoneVisible = data["contactVisibility"] as? Bool ?? false
+                let isEmailVisible = data["isEmailVisible"] as? Bool ?? false
+                
+                userProfile.isPhoneVisible = isPhoneVisible
+                userProfile.isEmailVisible = isEmailVisible
             }
 
         } catch {
@@ -98,7 +102,7 @@ class PlayerProfileViewModel: ObservableObject {
                     videoURL: data["url"] as? String ?? "",
                     caption: data["caption"] as? String ?? "",
                     timestamp: timestamp?.dateValue().formatted(date: .abbreviated, time: .shortened) ?? "N/A",
-                    isPrivate: data["visibility"] as? Bool ?? true,
+                    isPrivate: !(data["visibility"] as? Bool ?? true),
                     authorName: data["authorUsername"] as? String ?? "User",
                     authorImageName: data["profilePic"] as? String ?? "",
                     likeCount: data["likeCount"] as? Int ?? 0,

@@ -1,21 +1,12 @@
-//
-//  PlaceholderViews.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 09/10/2025.
-//
-
 import SwiftUI
 import PhotosUI
 
-// MARK: - Placeholder Tab Screens (Unchanged)
+// MARK: - Placeholder Tab Screens
 struct DiscoveryView: View {
     var body: some View {
         ZStack {
             Color.white.ignoresSafeArea()
-            Text("Discovery Page")
-                .font(.largeTitle)
-                .foregroundColor(.secondary)
+            Text("Discovery Page").font(.largeTitle).foregroundColor(.secondary)
         }
     }
 }
@@ -24,9 +15,7 @@ struct TeamsView: View {
     var body: some View {
         ZStack {
             Color.white.ignoresSafeArea()
-            Text("Teams Page")
-                .font(.largeTitle)
-                .foregroundColor(.secondary)
+            Text("Teams Page").font(.largeTitle).foregroundColor(.secondary)
         }
     }
 }
@@ -35,27 +24,26 @@ struct ChallengeView: View {
     var body: some View {
         ZStack {
             Color.white.ignoresSafeArea()
-            Text("Challenge Page")
-                .font(.largeTitle)
-                .foregroundColor(.secondary)
+            Text("Challenge Page").font(.largeTitle).foregroundColor(.secondary)
         }
     }
 }
 
 
-// MARK: - Video Upload View (UPDATED with new layout)
+// MARK: - Video Upload View (Trimming Removed)
 struct VideoUploadView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedVideoItem: PhotosPickerItem?
     
-    @State private var navigateToFeedback = false
+    // Simplified navigation state
+    @State private var navigateToProcessing = false
     
     let accentColor = Color(hex: "#36796C")
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Header (Unchanged)
+                // Header
                 ZStack {
                     Text("Upload Your Video")
                         .font(.custom("Poppins", size: 28))
@@ -78,41 +66,28 @@ struct VideoUploadView: View {
                 .padding(.top, 20)
 
                 Spacer()
-                
-                // --- Main upload area (MODIFIED) ---
+
+                // Main upload area
                 VStack {
-                    Spacer() // Pushes the icon down from the top edge
-                    
+                    Spacer()
                     Image(systemName: "arrow.down.to.line.circle.fill")
                         .font(.system(size: 60))
                         .foregroundColor(accentColor.opacity(0.7))
-                    
-                    // ✅ This Spacer pushes the icon and button apart
                     Spacer()
-                    
                     PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
                         Text("Choose Video")
-                            .font(.custom("Poppins", size: 18))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 40)
-                            .padding(.vertical, 12)
-                            .background(accentColor)
+                            .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
+                            .foregroundColor(.white).padding(.horizontal, 40)
+                            .padding(.vertical, 12).background(accentColor)
                             .clipShape(Capsule())
                     }
-                    
-                    // Provides a bit of padding from the bottom edge
                     Spacer().frame(height: 30)
                 }
                 .frame(maxWidth: .infinity)
-                // ✅ This makes the box a square
                 .aspectRatio(1.0, contentMode: .fit)
                 .background(
                     ZStack {
-                        Image("upload_background")
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .clipped()
+                        Image("upload_background").resizable().aspectRatio(contentMode: .fill).clipped()
                         Color.white.opacity(0.3)
                     }
                 )
@@ -125,15 +100,16 @@ struct VideoUploadView: View {
                 .padding(.horizontal)
 
                 Spacer()
-                // Pushes the box up slightly from the absolute center
                 Spacer()
             }
             .onChange(of: selectedVideoItem) { _, newItem in
+                // When a video is picked, navigate directly
                 if newItem != nil {
-                    navigateToFeedback = true
+                    navigateToProcessing = true
                 }
             }
-            .navigationDestination(isPresented: $navigateToFeedback) {
+            .navigationDestination(isPresented: $navigateToProcessing) {
+                // Pass the selected item to the processing view
                 if let item = selectedVideoItem {
                     ProcessingVideoView(selectedVideoItem: item)
                 }

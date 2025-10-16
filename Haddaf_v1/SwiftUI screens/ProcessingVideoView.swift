@@ -1,15 +1,11 @@
-//
-//  ProcessingVideoView.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 09/10/2025.
-//
-
 import SwiftUI
 import PhotosUI
 
 struct ProcessingVideoView: View {
     @StateObject private var viewModel: VideoProcessingViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    // Reverted to accept PhotosPickerItem
     let selectedVideoItem: PhotosPickerItem
     
     init(selectedVideoItem: PhotosPickerItem) {
@@ -18,6 +14,8 @@ struct ProcessingVideoView: View {
     }
 
     let accentColor = Color(hex: "#36796C")
+    @State private var navigateToFeedback = false
+    @State private var isAnimating = false
 
     var body: some View {
         ZStack {
@@ -25,14 +23,12 @@ struct ProcessingVideoView: View {
                 ZStack {
                     Circle().stroke(lineWidth: 12).fill(Color.gray.opacity(0.1))
 
-                    if viewModel.isProcessing {
-                        Circle()
-                            .trim(from: 0, to: 0.75)
-                            .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                            .fill(accentColor)
-                            .rotationEffect(Angle(degrees: 360))
-                            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: viewModel.isProcessing)
-                    }
+                    Circle()
+                        .trim(from: 0, to: 0.75)
+                        .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+                        .fill(accentColor)
+                        .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+                        .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
                     
                     Image("Haddaf_logo").resizable().scaledToFit().frame(width: 80, height: 80)
                 }
@@ -54,9 +50,18 @@ struct ProcessingVideoView: View {
         .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
         .task {
+            // Pass the item to the view model
             await viewModel.processVideo(item: selectedVideoItem)
         }
-        .navigationDestination(isPresented: $viewModel.processingComplete) {
+        .onAppear {
+            isAnimating = true
+        }
+        .onChange(of: viewModel.processingComplete) { _, newValue in
+            if newValue {
+                navigateToFeedback = true
+            }
+        }
+        .navigationDestination(isPresented: $navigateToFeedback) {
             PerformanceFeedbackView(viewModel: viewModel)
         }
     }

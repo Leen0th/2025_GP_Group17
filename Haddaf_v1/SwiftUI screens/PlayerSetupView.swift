@@ -8,7 +8,7 @@ import UIKit
 struct PlayerSetupView: View {
 
     // MARK: - Fields (this screen only)
-    @State private var phone: String = ""           // phone goes here (no OTP)
+    @State private var phone: String = ""
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
@@ -27,7 +27,7 @@ struct PlayerSetupView: View {
     @State private var selectedImageData: Data?
     @State private var profileImage: Image?
     @State private var fileExt: String = "jpg"
-    @State private var downloadURL: URL?    // gets a value after upload completes
+    @State private var downloadURL: URL?
 
     // MARK: - Upload & flow state
     @State private var isUploading = false
@@ -36,8 +36,8 @@ struct PlayerSetupView: View {
     @State private var goToProfile = false
 
     // MARK: - Theme
-    private let primary = Color(hexV: "#36796C")
-    private let bg = Color(hexV: "#EFF5EC")
+    private let primary = Color("#36796C")
+    private let bg = Color("#EFF5EC")
 
     // MARK: - Validation (realistic ranges)
     private var weightInt: Int? { Int(weight) }
@@ -45,7 +45,7 @@ struct PlayerSetupView: View {
 
     private var isWeightValid: Bool {
         guard let w = weightInt else { return false }
-        return (15...200).contains(w)   // ✅ الآن يبدأ من 15
+        return (15...200).contains(w)
     }
     private var isHeightValid: Bool {
         guard let h = heightInt else { return false }
@@ -111,7 +111,6 @@ struct PlayerSetupView: View {
 
                     // ========= Phone (before Position) =========
                     fieldLabel("Phone Number")
-                    // 👇 صندوق فارغ بدون Placeholder
                     TextField("", text: $phone)
                         .keyboardType(.phonePad)
                         .textInputAutocapitalization(.never)
@@ -127,9 +126,11 @@ struct PlayerSetupView: View {
                                 .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
                         )
 
-                    // ========= Position =========
+                    // ========= Position (FIXED CALL) =========
                     fieldLabel("Position")
-                    buttonLikeField {
+                    buttonLikeField(action: {
+                        showPositionPicker = true
+                    }) {
                         HStack {
                             Text(position.isEmpty ? "Select position" : position)
                                 .font(.custom("Poppins", size: 16))
@@ -138,8 +139,6 @@ struct PlayerSetupView: View {
                             Image(systemName: "chevron.down")
                                 .foregroundColor(primary.opacity(0.85))
                         }
-                    } onTap: {
-                        showPositionPicker = true
                     }
                     .sheet(isPresented: $showPositionPicker) {
                         PositionWheelPickerSheet(
@@ -160,7 +159,6 @@ struct PlayerSetupView: View {
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
                             .onChange(of: weight) { new in
-                                // keep digits only, max 3
                                 let filtered = new.filter(\.isNumber)
                                 weight = String(filtered.prefix(3))
                             }
@@ -192,7 +190,6 @@ struct PlayerSetupView: View {
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
                             .onChange(of: height) { new in
-                                // keep digits only, max 3
                                 let filtered = new.filter(\.isNumber)
                                 height = String(filtered.prefix(3))
                             }
@@ -216,9 +213,12 @@ struct PlayerSetupView: View {
                         }
                     }
 
-                    // ========= Location (dropdown with search) =========
+                    // ========= Location (FIXED CALL) =========
                     fieldLabel("Location")
-                    buttonLikeField {
+                    buttonLikeField(action: {
+                        locationSearch = ""
+                        showLocationPicker = true
+                    }) {
                         HStack {
                             Text(location.isEmpty ? "Select city" : location)
                                 .font(.custom("Poppins", size: 16))
@@ -227,9 +227,6 @@ struct PlayerSetupView: View {
                             Image(systemName: "chevron.down")
                                 .foregroundColor(primary.opacity(0.85))
                         }
-                    } onTap: {
-                        locationSearch = ""
-                        showLocationPicker = true
                     }
                     .sheet(isPresented: $showLocationPicker) {
                         LocationPickerSheet(
@@ -274,7 +271,6 @@ struct PlayerSetupView: View {
                 .padding(.bottom, 24)
             }
         }
-        // When an image gets picked: preview then upload silently
         .onChange(of: selectedItem) { newItem in
             Task {
                 guard let item = newItem else { return }
@@ -290,10 +286,10 @@ struct PlayerSetupView: View {
                 }
             }
         }
-        // Navigate to profile
         .navigationDestination(isPresented: $goToProfile) {
-            PlayerProfileView()
+             PlayerProfileContentView()
         }
+        .navigationBarBackButtonHidden(true)
         .alert("Notice", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
         } message: { Text(alertMsg) }
@@ -322,16 +318,7 @@ struct PlayerSetupView: View {
         let meta = StorageMetadata()
         meta.contentType = "image/\(fileExt == "jpg" ? "jpeg" : fileExt)"
 
-        let task = ref.putData(data, metadata: meta) { _, _ in }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            task.observe(.success) { _ in continuation.resume() }
-            task.observe(.failure) { snap in
-                let err = snap.error ?? NSError(domain: "Upload", code: -1,
-                                                userInfo: [NSLocalizedDescriptionKey: "Unknown upload error"])
-                continuation.resume(throwing: err)
-            }
-        }
+        let _ = try await ref.putDataAsync(data, metadata: meta)
 
         let url = try await ref.downloadURL()
         self.downloadURL = url
@@ -351,10 +338,8 @@ struct PlayerSetupView: View {
 
         let db = Firestore.firestore()
 
-        // Update root user doc with phone + timestamp
-        let trimmedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Update root user doc with timestamp
         try await db.collection("users").document(uid).setData([
-            "phone": trimmedPhone,
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
 
@@ -364,11 +349,16 @@ struct PlayerSetupView: View {
             .collection("player")
             .document("profile")
 
+        let trimmedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        
         let payload: [String: Any] = [
             "position": position,
             "weight": weightInt ?? NSNull(),
             "height": heightInt ?? NSNull(),
             "location": location,
+            "phone": trimmedPhone,
+            "contactVisibility": false,
+            "isEmailVisible": false,
             "updatedAt": FieldValue.serverTimestamp()
         ]
 
@@ -380,11 +370,12 @@ struct PlayerSetupView: View {
         Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
     }
 
+    // ✅ FIXED HELPER FUNCTION
     private func buttonLikeField<Content: View>(
-        @ViewBuilder content: () -> Content,
-        onTap: @escaping () -> Void
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        Button(action: onTap) {
+        Button(action: action) {
             content()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -398,13 +389,14 @@ struct PlayerSetupView: View {
     }
 }
 
+
 // MARK: - Wheel sheet for Position
 private struct PositionWheelPickerSheet: View {
     let positions: [String]
     @Binding var selection: String
     @Binding var showSheet: Bool
     @State private var tempSelection: String = ""
-    private let primary = Color(hexV: "#36796C")
+    private let primary = Color("#36796C")
 
     var body: some View {
         VStack(spacing: 16) {
@@ -463,7 +455,7 @@ private struct LocationPickerSheet: View {
                         showSheet = false
                     } label: {
                         HStack {
-                            Text(city).foregroundColor(.black) // 👈 أسود بدل الأزرق
+                            Text(city).foregroundColor(.black)
                             Spacer()
                             if city == selection {
                                 Image(systemName: "checkmark.circle.fill")
@@ -472,7 +464,7 @@ private struct LocationPickerSheet: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain) // يمنع تلوين كنص رابط
+                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.plain)
@@ -516,8 +508,8 @@ private let SAUDI_CITIES: [String] = [
 
 // MARK: - Color hex init
 extension Color {
-    init(hexV: String) {
-        let s = hexV.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    init(_ hex: String) {
+        let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: s).scanHexInt64(&int)
         let a, r, g, b: UInt64
