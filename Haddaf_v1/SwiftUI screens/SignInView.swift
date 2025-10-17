@@ -1,8 +1,8 @@
-
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
+// Local color helper
 private func colorHex(_ hex: String) -> Color {
     let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     var int: UInt64 = 0
@@ -44,6 +44,10 @@ struct SignInView: View {
 
     @State private var goToProfile = false
     @State private var goToPlayerSetup = false
+
+    // Resend cooldown/backoff (email verification only)
+    @State private var resendBackoff = 60
+    private let resendBackoffMax = 15 * 60
 
     private let resendCooldownSeconds = 30
     private let lastSentKey = "signin_last_verification_email_sent_at"
@@ -117,7 +121,7 @@ struct SignInView: View {
                         .background(RoundedRectangle(cornerRadius: 14).fill(.white))
                     }
 
-                    // Forgot
+                    // Forgot password
                     HStack {
                         Spacer()
                         NavigationLink { ForgotPasswordView() } label: {
@@ -127,7 +131,7 @@ struct SignInView: View {
                         }
                     }
 
-                    // Button
+                    // Log in (no local cooldown; server enforces rate limits)
                     Button { Task { await handleSignIn() } } label: {
                         Text("Log in")
                             .foregroundColor(.white)
@@ -144,6 +148,7 @@ struct SignInView: View {
                         Text(signInError)
                             .foregroundColor(.red)
                             .font(.system(size: 13))
+                            .multilineTextAlignment(.center)
                     }
 
                     Spacer(minLength: 20)
@@ -151,7 +156,7 @@ struct SignInView: View {
                 .padding(.horizontal, 22)
             }
 
-            // Verify prompt
+            // Email verification popup
             if showVerifyPrompt {
                 Color.black.opacity(0.35).ignoresSafeArea()
                 UnifiedVerifySheetSI(
@@ -177,7 +182,7 @@ struct SignInView: View {
         .onDisappear { cleanupTasks() }
     }
 
-    // MARK: Sign In Logic
+    // MARK: - Sign In Logic
     private func handleSignIn() async {
         guard isFormValid else { return }
         signInError = nil
@@ -189,25 +194,21 @@ struct SignInView: View {
             try await user.reload()
 
             if user.isEmailVerified {
-                // ✅ NEW: بعد التأكد من التفعيل، نتحقق هل أكمل Player Setup
+                // Check if player profile is complete
                 do {
                     let complete = try await isPlayerProfileComplete(uid: user.uid)
                     await MainActor.run {
-                        if complete {
-                            goToProfile = true
-                        } else {
-                            goToPlayerSetup = true
-                        }
+                        if complete { goToProfile = true }
+                        else { goToPlayerSetup = true }
                     }
                 } catch {
-                    // لو صار خطأ بالتحقق، نوجّه المستخدم لإكمال Player Setup كخيار آمن
                     await MainActor.run { goToPlayerSetup = true }
                 }
             } else {
-                // غير مفعّل → أرسل بريد تحقق وابدأ نفس تجربة Sign Up
+                // Not verified → send verification email
                 try await sendVerificationEmail(to: user)
                 markVerificationSentNow()
-                startResendCooldown(seconds: resendCooldownSeconds)
+                startResendCooldown(seconds: max(resendCooldownSeconds, resendBackoff))
                 await MainActor.run { showVerifyPrompt = true }
                 startVerificationWatcher()
             }
@@ -215,12 +216,18 @@ struct SignInView: View {
             let ns = error as NSError
             if let authErr = AuthErrorCode(rawValue: ns.code) {
                 switch authErr {
-                case .invalidEmail:    signInError = "Invalid email format."
-                case .userNotFound:    signInError = "No user found for this email."
-                case .wrongPassword:   signInError = "Wrong password. Try again."
-                case .tooManyRequests: signInError = "Too many attempts. Try again later."
-                case .networkError:    signInError = "Network error. Check your connection."
-                default:               signInError = ns.localizedDescription
+                case .wrongPassword, .userNotFound, .invalidEmail:
+                    // Unified message for wrong email/password
+                    signInError = "Email or password is incorrect."
+                case .invalidCredential, .invalidUserToken, .userTokenExpired:
+                    // Friendlier message for the "malformed/expired credential" you saw
+                    signInError = "Your session has expired. Please try again or reset your password."
+                case .tooManyRequests:
+                    // Server-side rate limiting
+                    signInError = "Too many attempts. Try again later."
+                default:
+                    // Network error message intentionally not shown; show generic Firebase text otherwise
+                    signInError = ns.localizedDescription
                 }
             } else {
                 signInError = ns.localizedDescription
@@ -228,7 +235,7 @@ struct SignInView: View {
         }
     }
 
-    // ✅ NEW: يتحقق من اكتمال ملف اللاعب users/{uid}/player/profile
+    // MARK: - Player profile completion check
     private func isPlayerProfileComplete(uid: String) async throws -> Bool {
         let snap = try await Firestore.firestore()
             .collection("users").document(uid)
@@ -237,13 +244,11 @@ struct SignInView: View {
 
         guard snap.exists, let data = snap.data() else { return false }
 
-        // نعتبر الحقول الأساسية: position, weight, height, location
         let position = data["position"] as? String ?? ""
         let weight   = data["weight"] as? Int ?? -1
         let height   = data["height"] as? Int ?? -1
         let location = data["location"] as? String ?? ""
 
-        // التحقق من نطاقات منطقية + عدم الفراغ
         let hasPosition = !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasLocation = !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let weightOK = (15...200).contains(weight)
@@ -252,7 +257,7 @@ struct SignInView: View {
         return hasPosition && hasLocation && weightOK && heightOK
     }
 
-    // MARK: Verify watcher
+    // MARK: - Email verification watcher
     private func startVerificationWatcher() {
         verifyTask?.cancel()
         verifyTask = Task {
@@ -266,7 +271,7 @@ struct SignInView: View {
                         await finalizeAfterVerification(for: user)
                         break
                     }
-                } catch { /* ignore */ }
+                } catch { /* ignore polling errors */ }
             }
         }
     }
@@ -275,7 +280,7 @@ struct SignInView: View {
         verifyTask = nil
     }
 
-    // MARK: finalizeAfterVerification
+    // MARK: - Finalize after verification
     @MainActor
     private func finalizeAfterVerification(for user: User) async {
         if let draft = DraftStore.load() {
@@ -285,7 +290,6 @@ struct SignInView: View {
                 "firstName": first,
                 "lastName": lastOpt ?? NSNull(),
                 "role": draft.role,
-                // phone أزلناه من التدفق اللاحق، لكنه محفوظ هنا من درافت التسجيل إن وُجد
                 "phone": draft.phone,
                 "emailVerified": true,
                 "createdAt": FieldValue.serverTimestamp()
@@ -311,7 +315,6 @@ struct SignInView: View {
 
         inlineVerifyError = nil
         showVerifyPrompt = false
-        // بعد التفعيل مباشرة: نوجّه لإكمال Player Setup (سيعيد التوجيه للبروفايل إذا كان مكتملًا)
         Task {
             do {
                 let complete = try await isPlayerProfileComplete(uid: user.uid)
@@ -325,42 +328,29 @@ struct SignInView: View {
         stopVerificationWatcher()
     }
 
-    // (اختياري) زر "I verified"
-    private func checkIfVerifiedAndProceed() async {
-        guard let user = Auth.auth().currentUser else { return }
-        do {
-            try await user.reload()
-            if user.isEmailVerified {
-                await finalizeAfterVerification(for: user)
-            } else {
-                await MainActor.run {
-                    inlineVerifyError = "Still not verified. Open the link in your email, then try again."
-                }
-            }
-        } catch {
-            await MainActor.run {
-                inlineVerifyError = (error as NSError).localizedDescription
-            }
-        }
-    }
-
-    // MARK: Resend verification
+    // MARK: - Resend verification email with backoff (UI only)
     private func resendVerification() async {
         guard let user = Auth.auth().currentUser else { return }
         guard resendCooldown == 0 else { return }
         do {
             try await sendVerificationEmail(to: user)
             markVerificationSentNow()
-            startResendCooldown(seconds: resendCooldownSeconds)
+            // reset backoff on success
+            resendBackoff = 60
+            startResendCooldown(seconds: resendBackoff)
             await MainActor.run { inlineVerifyError = nil }
         } catch {
             let ns = error as NSError
-            if let code = AuthErrorCode(rawValue: ns.code) {
-                inlineVerifyError = (code == .tooManyRequests)
-                ? "Too many requests from this device. Please try again later."
-                : ns.localizedDescription
+            if let code = AuthErrorCode(rawValue: ns.code), code == .tooManyRequests {
+                // exponential backoff + small jitter
+                resendBackoff = min(resendBackoff * 2, resendBackoffMax)
+                let jitter = Int.random(in: 5...15)
+                startResendCooldown(seconds: resendBackoff + jitter)
+                await MainActor.run {
+                    inlineVerifyError = "Too many requests. Try again in ~\(resendBackoff + jitter)s."
+                }
             } else {
-                inlineVerifyError = ns.localizedDescription
+                await MainActor.run { inlineVerifyError = ns.localizedDescription }
             }
         }
     }
@@ -379,7 +369,7 @@ struct SignInView: View {
         }
     }
 
-    // MARK: Helpers
+    // MARK: - Helpers
     private func isValidEmail(_ value: String) -> Bool {
         let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
         return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
@@ -418,7 +408,7 @@ struct SignInView: View {
     }
 }
 
-// MARK: - Unified Verify Sheet (unchanged)
+// MARK: - Unified Verify Sheet
 struct UnifiedVerifySheetSI: View {
     let email: String
     let primary: Color
@@ -487,4 +477,3 @@ struct UnifiedVerifySheetSI: View {
         .background(Color.clear)
     }
 }
-
