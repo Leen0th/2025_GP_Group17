@@ -17,12 +17,14 @@ struct PlayerProfileContentView: View {
 
     var body: some View {
         NavigationStack {
-            Color.white.ignoresSafeArea()
+            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
                 .overlay(
                     ScrollView {
                         if viewModel.isLoading {
-                            ProgressView().padding(.top, 50)
+                            ProgressView()
+                                .padding(.top, 50)
                         } else {
+                            // ✅ FIX: Layout reverted to have everything inside the ScrollView
                             VStack(spacing: 24) {
                                 TopNavigationBar(userProfile: viewModel.userProfile)
                                 ProfileHeaderView(userProfile: viewModel.userProfile)
@@ -33,28 +35,18 @@ struct PlayerProfileContentView: View {
                                 case .posts:
                                     postsGrid
                                 case .progress:
-                                    progressView
+                                    ProgressTabView()
                                 case .endorsements:
                                     EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
                                 }
                             }
-                            .padding()
+                            .padding() // ✅ FIX: Padding restored to the container VStack
                             .padding(.bottom, 100)
                         }
                     }
                 )
                 .task {
                     await viewModel.fetchAllData()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { note in
-                    if let post = note.userInfo?["post"] as? Post {
-                        viewModel.posts.insert(post, at: 0)
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
-                    if let postId = note.userInfo?["postId"] as? String {
-                        viewModel.posts.removeAll { $0.id == postId }
-                    }
                 }
         }
     }
@@ -63,42 +55,31 @@ struct PlayerProfileContentView: View {
         LazyVGrid(columns: postColumns, spacing: 12) {
             ForEach(viewModel.posts) { post in
                 NavigationLink(destination: PostDetailView(post: post)) {
-                    ZStack(alignment: .topTrailing) {
-                        AsyncImage(url: URL(string: post.imageName)) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(1, contentMode: .fill)
-                                .frame(minWidth: 0, maxWidth: .infinity)
-                                .clipped()
-                        } placeholder: {
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.black.opacity(0.05))
-                                .frame(height: 110)
-                        }
-                        
-                        Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(post.isPrivate ? .red : Color(hex: "#36796C"))
-                            .padding(6)
-                            .background(.thinMaterial, in: Circle())
-                            .padding(6)
+                    AsyncImage(url: URL(string: post.imageName)) { image in
+                        image
+                            .resizable().aspectRatio(1, contentMode: .fill)
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.05))
                     }
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fill)
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                    // ✅ FIX: Lock icon is back on the grid view
+                    .overlay(alignment: .topTrailing) {
+                        if post.isPrivate {
+                            Image(systemName: "lock.fill")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .padding(5)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                                .padding(8)
+                        }
+                    }
                 }
             }
         }
-        .refreshable { await viewModel.fetchAllData() }
-    }
-
-    private var progressView: some View {
-        VStack {
-            Text("Progress Content Here")
-                .font(.title2)
-                .foregroundColor(.secondary)
-                .padding(.top, 40)
-            Spacer()
-        }
-        .frame(minHeight: 300)
     }
 }
 
