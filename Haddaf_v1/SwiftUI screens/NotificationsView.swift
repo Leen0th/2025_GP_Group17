@@ -8,9 +8,11 @@ struct NotificationsView: View {
     @State private var newChallenge = true
     @State private var upcomingMatch = true
     @State private var goalAchievement1 = false
-    @State private var newChallenge2 = false
-    @State private var goalAchievement2 = true
-    @State private var goalAchievement3 = true
+
+    // ✅ بعد Goal Achievement: Endorsements → Likes → Comments
+    @State private var endorsements = false
+    @State private var likes = true
+    @State private var comments = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: Tab = .profile
@@ -44,7 +46,7 @@ struct NotificationsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
 
-                // ✅ قائمة النوتفيكيشن مرتبة مع مسافات أكبر ومحاذاة بالنص
+                // ✅ قائمة النوتفيكيشن
                 VStack(spacing: 18) {
                     notifRow(title: "New Challenge", isOn: $newChallenge)
                     divider
@@ -52,11 +54,12 @@ struct NotificationsView: View {
                     divider
                     notifRow(title: "Goal Achievement", isOn: $goalAchievement1)
                     divider
-                    notifRow(title: "New Challenge", isOn: $newChallenge2)
+                    // ✅ الترتيب المطلوب تحت Goal Achievement
+                    notifRow(title: "Endorsements", isOn: $endorsements)
                     divider
-                    notifRow(title: "Goal Achievement", isOn: $goalAchievement2)
+                    notifRow(title: "Likes", isOn: $likes)
                     divider
-                    notifRow(title: "Goal Achievement", isOn: $goalAchievement3)
+                    notifRow(title: "Comments", isOn: $comments)
                 }
                 .padding(.horizontal, 28)
                 .padding(.top, 16)
@@ -99,5 +102,3 @@ struct NotificationsView: View {
         .padding(.horizontal, 8)
     }
 }
-
-
