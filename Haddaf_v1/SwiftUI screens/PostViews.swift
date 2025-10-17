@@ -216,15 +216,27 @@ struct PostDetailView: View {
         }
     }
 
+    // MARK: - Static Placeholder Stats Section
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let stats = post.stats, !stats.isEmpty {
-                ForEach(stats) { stat in PostStatBarView(stat: stat, accentColor: accentColor) }
-            } else {
-                Text("No performance stats available for this post.").font(.caption).foregroundColor(.secondary)
+            ForEach(placeholderStats) { stat in
+                PostStatBarView(stat: stat, accentColor: accentColor)
             }
         }
     }
+
+    // MARK: - Placeholder Stats (Fixed Values)
+    private var placeholderStats: [PostStat] {
+        [
+            PostStat(label: "GOALS",           value: 4),
+            PostStat(label: "TOTAL ATTEMPTS",  value: 5),
+            PostStat(label: "BLOCKED",         value: 3),
+            PostStat(label: "SHOTS ON TARGET", value: 13),
+            PostStat(label: "CORNERS",         value: 13),
+            PostStat(label: "OFFSIDES",        value: 3)
+        ]
+    }
+
 
     private func formatNumber(_ number: Int) -> String {
         if number >= 1000 {
@@ -351,17 +363,24 @@ struct VideoPlayerPlaceholderView: View {
 struct PostStatBarView: View {
     let stat: PostStat
     let accentColor: Color
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(stat.label).font(.caption).foregroundColor(.secondary)
+                Text(stat.label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 Spacer()
-                Text(String(format: "%.1f", stat.value)).font(.caption).fontWeight(.bold)
+                Text("\(Int(stat.value))")
+                    .font(.caption)
+                    .fontWeight(.bold)
             }
-            ProgressView(value: stat.value, total: 100).tint(accentColor)
+            ProgressView(value: stat.value)
+                .tint(accentColor)
         }
     }
 }
+
 
 struct PrivacyWarningPopupView: View {
     @Binding var isPresented: Bool

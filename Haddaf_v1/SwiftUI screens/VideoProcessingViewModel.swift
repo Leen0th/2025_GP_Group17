@@ -29,11 +29,15 @@ class VideoProcessingViewModel: ObservableObject {
         do {
             processingStateMessage = "Accessing video file..."
             guard let url = await getURL(from: item) else {
-                throw NSError(domain: "VideoProcessing", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."])
+                throw NSError(
+                    domain: "VideoProcessing",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."]
+                )
             }
             self.videoURL = url
 
+            // Do thumbnail and (mock) stats in parallel
             async let thumb = generateThumbnail(for: url)
             async let stats = generateMockStatsAfterDelay()
 
@@ -43,8 +47,11 @@ class VideoProcessingViewModel: ObservableObject {
             processingStateMessage = "Analyzing performance..."
             self.performanceStats = await stats
 
+            // Keep spinner visible for at least a few seconds
             let elapsed = Date().timeIntervalSince(start)
-            if elapsed < 5 { try await Task.sleep(nanoseconds: UInt64((5 - elapsed) * 1_000_000_000)) }
+            if elapsed < 5 {
+                try await Task.sleep(nanoseconds: UInt64((5 - elapsed) * 1_000_000_000))
+            }
 
             processingComplete = true
         } catch {
@@ -56,20 +63,30 @@ class VideoProcessingViewModel: ObservableObject {
     // MARK: - Create post
     func createPost(caption: String, isPrivate: Bool) async throws {
         guard let uid = Auth.auth().currentUser?.uid else {
-            throw NSError(domain: "Auth", code: 0,
-                          userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+            throw NSError(
+                domain: "Auth",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]
+            )
         }
         guard let localVideoURL = videoURL, let thumb = thumbnail else {
-            throw NSError(domain: "Upload", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."])
+            throw NSError(
+                domain: "Upload",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."]
+            )
         }
 
+        // 1) Upload files
         let postID = UUID().uuidString
-        let (videoDL, thumbDL) = try await uploadFiles(videoURL: localVideoURL,
-                                                       thumbnail: thumb,
-                                                       userID: uid,
-                                                       postID: postID)
+        let (videoDL, thumbDL) = try await uploadFiles(
+            videoURL: localVideoURL,
+            thumbnail: thumb,
+            userID: uid,
+            postID: postID
+        )
 
+        // 2) Author metadata
         let userRef = db.collection("users").document(uid)
         let userDoc = try await userRef.getDocument()
         let data = userDoc.data() ?? [:]
@@ -78,6 +95,7 @@ class VideoProcessingViewModel: ObservableObject {
         let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
         let profilePic = (data["profilePic"] as? String) ?? ""
 
+        // 3) Create Firestore post document
         let postRef = db.collection("videoPosts").document(postID)
         let postData: [String: Any] = [
             "authorId": userRef,
@@ -87,23 +105,62 @@ class VideoProcessingViewModel: ObservableObject {
             "url": videoDL.absoluteString,
             "thumbnailURL": thumbDL.absoluteString,
             "uploadDateTime": Timestamp(date: Date()),
-            "visibility": !isPrivate,
+            "visibility": !isPrivate,   // true = public, false = private
             "likeCount": 0,
             "commentCount": 0
         ]
         try await postRef.setData(postData)
 
+        // 4) Store performance stats (values only) under performanceFeedback/feedback
         let perfRef = postRef.collection("performanceFeedback").document("feedback")
-        let perfData = Dictionary(uniqueKeysWithValues: self.performanceStats.map {
-            ($0.label, ["value": $0.value, "maxValue": $0.maxValue])
-        })
-        try await perfRef.setData(["stats": perfData])
-        
-        let postStats: [PostStat] = self.performanceStats.map { pfStat in
-            let normalizedValue = Double(pfStat.maxValue) > 0 ? (Double(pfStat.value) / Double(pfStat.maxValue)) * 100.0 : 0.0
-            return PostStat(label: pfStat.label, value: normalizedValue)
+        let perfData: [String: Any]
+        if !self.performanceStats.isEmpty {
+            // Use actual values from the processing screen
+            perfData = [
+                "stats": Dictionary(uniqueKeysWithValues: self.performanceStats.map {
+                    ($0.label, ["value": $0.value])
+                })
+            ]
+        } else {
+            // Fallback placeholder (values only)
+            let placeholder: [[String: Any]] = [
+                ["label": "GOALS",           "value": 0],
+                ["label": "TOTAL ATTEMPTS",  "value": 0],
+                ["label": "BLOCKED",         "value": 0],
+                ["label": "SHOTS ON TARGET", "value": 0],
+                ["label": "CORNERS",         "value": 0],
+                ["label": "OFFSIDES",        "value": 0]
+            ]
+            // Store as a dictionary keyed by label for consistency
+            var dict: [String: [String: Any]] = [:]
+            for item in placeholder {
+                if let label = item["label"] as? String,
+                   let value = item["value"] as? Int {
+                    dict[label] = ["value": value]
+                }
+            }
+            perfData = ["stats": dict]
         }
-        
+        try await perfRef.setData(perfData)
+
+        // 5) Build UI Post object with values only (no max, no normalization)
+        let postStats: [PostStat]
+        if !self.performanceStats.isEmpty {
+            postStats = self.performanceStats.map { s in
+                PostStat(label: s.label, value: Double(s.value))
+            }
+        } else {
+            postStats = [
+                PostStat(label: "GOALS",           value: 0),
+                PostStat(label: "TOTAL ATTEMPTS",  value: 0),
+                PostStat(label: "BLOCKED",         value: 0),
+                PostStat(label: "SHOTS ON TARGET", value: 0),
+                PostStat(label: "CORNERS",         value: 0),
+                PostStat(label: "OFFSIDES",        value: 0)
+            ]
+        }
+
+        // 6) Notify UI with a ready-to-render Post (optimistic UI)
         let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
         let newPost = Post(
             id: postID,
@@ -119,7 +176,11 @@ class VideoProcessingViewModel: ObservableObject {
             isLikedByUser: false,
             stats: postStats
         )
-        NotificationCenter.default.post(name: .postCreated, object: nil, userInfo: ["post": newPost])
+        NotificationCenter.default.post(
+            name: .postCreated,
+            object: nil,
+            userInfo: ["post": newPost]
+        )
     }
 
     func resetAfterPosting() {
@@ -145,17 +206,22 @@ class VideoProcessingViewModel: ObservableObject {
         return UIImage(cgImage: cgimg)
     }
 
-    private func uploadFiles(videoURL: URL,
-                             thumbnail: UIImage,
-                             userID: String,
-                             postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
+    private func uploadFiles(
+        videoURL: URL,
+        thumbnail: UIImage,
+        userID: String,
+        postID: String
+    ) async throws -> (videoURL: URL, thumbnailURL: URL) {
         let videoRef = self.storage.reference().child("posts/\(userID)/\(postID).mov")
         _ = try await videoRef.putFileAsync(from: videoURL)
         let videoDownloadURL = try await videoRef.downloadURL()
 
         guard let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) else {
-            throw NSError(domain: "Upload", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
+            throw NSError(
+                domain: "Upload",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."]
+            )
         }
         let thumbRef = self.storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
         _ = try await thumbRef.putDataAsync(thumbnailData)
@@ -164,6 +230,7 @@ class VideoProcessingViewModel: ObservableObject {
         return (videoDownloadURL, thumbnailDownloadURL)
     }
 
+    // Mock generator for the feedback screen (kept as-is; not stored with max in Firestore)
     private func generateMockStatsAfterDelay() async -> [PFPostStat] {
         return [
             .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),

@@ -25,12 +25,40 @@ final class PlayerProfileViewModel: ObservableObject {
     private var postsListener: ListenerRegistration?
     private let df = DateFormatter()
 
+    // Observers for post create/delete events
+    private var postCreatedObs: NSObjectProtocol?
+    private var postDeletedObs: NSObjectProtocol?
+
     init() {
         df.dateFormat = "dd/MM/yyyy HH:mm"
+
+        // Insert new post immediately into My posts (optimistic UI)
+        postCreatedObs = NotificationCenter.default.addObserver(
+            forName: .postCreated, object: nil, queue: .main
+        ) { [weak self] note in
+            guard
+                let self,
+                let newPost = note.userInfo?["post"] as? Post
+            else { return }
+            self.posts.insert(newPost, at: 0)
+        }
+
+        // Remove post from UI when it gets deleted
+        postDeletedObs = NotificationCenter.default.addObserver(
+            forName: .postDeleted, object: nil, queue: .main
+        ) { [weak self] note in
+            guard
+                let self,
+                let postId = note.userInfo?["postId"] as? String
+            else { return }
+            self.posts.removeAll { $0.id == postId }
+        }
     }
     
     deinit {
         postsListener?.remove()
+        if let t = postCreatedObs { NotificationCenter.default.removeObserver(t) }
+        if let t = postDeletedObs { NotificationCenter.default.removeObserver(t) }
     }
 
     func fetchAllData() async {
@@ -90,6 +118,7 @@ final class PlayerProfileViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Posts (with static placeholder stats)
     func listenToMyPosts() {
         postsListener?.remove()
 
@@ -108,32 +137,18 @@ final class PlayerProfileViewModel: ObservableObject {
                 Task {
                     let mappedPosts: [Post] = await docs.asyncMap { doc in
                         let d = doc.data()
-                        
-                        var postStats: [PostStat]?
-                        do {
-                            let feedbackSnap = try await self.db.collection("videoPosts").document(doc.documentID).collection("performanceFeedback").document("feedback").getDocument()
-                            if let feedbackData = feedbackSnap.data()?["stats"] as? [String: [String: Any]] {
-                                var tempStats: [PostStat] = []
-                                for (label, values) in feedbackData {
-                                    if let value = values["value"] as? Double,
-                                       let maxValue = values["maxValue"] as? Double,
-                                       maxValue > 0 {
-                                        let normalizedValue = (value / maxValue) * 100.0
-                                        tempStats.append(PostStat(label: label, value: normalizedValue))
-                                    }
-                                }
-                                postStats = tempStats
-                            }
-                        } catch {
-                            print("Could not fetch stats for post \(doc.documentID): \(error.localizedDescription)")
-                        }
-                        
+
+                        // Always show the fixed placeholder stats in UI
+                        let postStats: [PostStat] = self.placeholderStats
+
                         return Post(
                             id: doc.documentID,
                             imageName: (d["thumbnailURL"] as? String) ?? "",
                             videoURL: (d["url"] as? String) ?? "",
                             caption: (d["caption"] as? String) ?? "",
-                            timestamp: self.df.string(from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()),
+                            timestamp: self.df.string(
+                                from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()
+                            ),
                             isPrivate: !((d["visibility"] as? Bool) ?? true),
                             authorName: (d["authorUsername"] as? String) ?? "",
                             authorImageName: (d["profilePic"] as? String) ?? "",
@@ -150,4 +165,17 @@ final class PlayerProfileViewModel: ObservableObject {
                 }
             }
     }
+
+    // Fixed placeholder stats used for every post
+    private var placeholderStats: [PostStat] {
+        [
+            PostStat(label: "GOALS",           value: 4),
+            PostStat(label: "TOTAL ATTEMPTS",  value: 5),
+            PostStat(label: "BLOCKED",         value: 3),
+            PostStat(label: "SHOTS ON TARGET", value: 13),
+            PostStat(label: "CORNERS",         value: 13),
+            PostStat(label: "OFFSIDES",        value: 3)
+        ]
+    }
 }
+
