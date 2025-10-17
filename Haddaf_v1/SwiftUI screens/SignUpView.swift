@@ -43,7 +43,7 @@ struct SignUpView: View {
     // Must match Firebase Auth email action URL
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
-    // Fields (phone removed here)
+    // Fields
     @State private var role: UserRole = .player
     @State private var fullName = ""
     @State private var email = ""
@@ -70,12 +70,17 @@ struct SignUpView: View {
     // Loading state
     @State private var isSubmitting = false
 
+    // Email-exists inline check (no spinner)
+    @State private var emailExists = false
+    @State private var emailCheckError: String? = nil
+    @State private var emailCheckTask: Task<Void, Never>? = nil
+
     // Validation
     private var isNameValid: Bool { isValidFullName(fullName) }
     private var isPasswordValid: Bool { isValidPassword(password) }
-    private var isEmailValid: Bool { isValidEmail(email) } // exact regex you provided
+    private var isEmailValid: Bool { isValidEmail(email) }   // متغيّر محسوب للـ UI فقط
     private var isFormValid: Bool {
-        isNameValid && isPasswordValid && isEmailValid && dob != nil
+        isNameValid && isPasswordValid && isEmailValid && dob != nil && !emailExists
     }
 
     var body: some View {
@@ -119,11 +124,24 @@ struct SignUpView: View {
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
                             .tint(primary)
+                            .onChange(of: email) { _ in debouncedEmailCheck() } // يتحقق بدون سبينر
                     }
-                    if !email.isEmpty && !isEmailValid {
-                        Text("Please enter a valid email address.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
+
+                    // Inline email state (بدون "Checking email…")
+                    Group {
+                        if !email.isEmpty && !isEmailValid {
+                            Text("Please enter a valid email address.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.red)
+                        } else if emailExists {
+                            Text("This email is already registered. Please sign in.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.red)
+                        } else if let err = emailCheckError, !err.isEmpty {
+                            Text(err)
+                                .font(.system(size: 13))
+                                .foregroundColor(.red)
+                        }
                     }
 
                     // DOB
@@ -218,7 +236,7 @@ struct SignUpView: View {
                 .padding(.bottom, 24)
             }
 
-            // Simple verify popup with only Resend (smaller button height)
+            // Verify popup
             if showVerifyPrompt {
                 Color.black.opacity(0.35).ignoresSafeArea()
                 SimpleVerifySheet(
@@ -244,11 +262,47 @@ struct SignUpView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
-        .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel() }
+        .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
+    }
+
+    // MARK: - Email existence check (debounced, no spinner)
+    private func debouncedEmailCheck() {
+        emailCheckTask?.cancel()
+        emailExists = false
+        emailCheckError = nil
+
+        // ✅ استخدم الدالة الصحيحة بدلاً من المتغيّر المحسوب
+        guard isValidEmail(email) else { return }
+
+        let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        emailCheckTask = Task {
+            // تهدئة بسيطة لتقليل الطلبات أثناء الكتابة
+            try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s
+            do {
+                let methods = try await fetchSignInMethods(for: mail)
+                await MainActor.run {
+                    emailExists = !methods.isEmpty
+                }
+            } catch {
+                await MainActor.run {
+                    emailCheckError = "Couldn't check this email. Please try again."
+                }
+            }
+        }
+    }
+
+    private func fetchSignInMethods(for email: String) async throws -> [String] {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[String], Error>) in
+            Auth.auth().fetchSignInMethods(forEmail: email) { methods, error in
+                if let error = error { cont.resume(throwing: error) }
+                else { cont.resume(returning: methods ?? []) }
+            }
+        }
     }
 
     // MARK: - Actions
     private func handleSignUp() async {
+        if emailExists { return }
         guard isFormValid else { return }
         isSubmitting = true
         inlineVerifyError = nil
@@ -269,9 +323,9 @@ struct SignUpView: View {
                 }
             }
 
-            // 3) Save local draft (phone removed -> store empty string)
+            // 3) Save local draft
             let draft = ProfileDraft(fullName: name,
-                                     phone: "", // phone now collected in PlayerSetup
+                                     phone: "",
                                      role: role.rawValue.lowercased(),
                                      dob: dob,
                                      email: mail)
@@ -287,8 +341,15 @@ struct SignUpView: View {
             startVerificationWatcher()
 
         } catch {
-            inlineVerifyError = (error as NSError).localizedDescription
-            showVerifyPrompt = true
+            let ns = error as NSError
+            if ns.code == AuthErrorCode.emailAlreadyInUse.rawValue {
+                emailExists = true
+                showVerifyPrompt = false
+                inlineVerifyError = nil
+            } else {
+                inlineVerifyError = ns.localizedDescription
+                showVerifyPrompt = true
+            }
         }
 
         isSubmitting = false
@@ -303,7 +364,7 @@ struct SignUpView: View {
                 guard let user = Auth.auth().currentUser else { break }
                 try? await user.reload()
                 if user.isEmailVerified {
-                    await finalizeAndGo(for: user) // <-- save draft to Firestore, then navigate
+                    await finalizeAndGo(for: user)
                     break
                 }
             }
@@ -326,7 +387,6 @@ struct SignUpView: View {
             try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
             DraftStore.clear()
         } else {
-            // Safety fallback
             try? await Firestore.firestore().collection("users").document(user.uid).setData([
                 "email": user.email ?? "",
                 "emailVerified": true,
@@ -396,7 +456,6 @@ struct SignUpView: View {
         let pattern = #"^[\p{L}][\p{L}\s.'-]*$"#
         return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
-    // EXACT function you provided
     private func isValidEmail(_ value: String) -> Bool {
         let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
         return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
@@ -460,7 +519,6 @@ struct SignUpView: View {
 }
 
 // MARK: - Simple Verify Sheet (Resend only, smaller)
-// كان: private struct SimpleVerifySheet
 struct SimpleVerifySheet: View {
     let email: String
     let primary: Color
@@ -504,7 +562,6 @@ struct SimpleVerifySheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .disabled(resendCooldown > 0)
-
 
                 if let errorText, !errorText.isEmpty {
                     Text(errorText)

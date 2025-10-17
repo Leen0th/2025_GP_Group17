@@ -8,7 +8,7 @@ import UIKit
 struct PlayerSetupView: View {
 
     // MARK: - Fields (this screen only)
-    @State private var phone: String = ""
+    // ❌ phone: أزلناه بناءً على طلبك
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
@@ -51,11 +51,10 @@ struct PlayerSetupView: View {
         guard let h = heightInt else { return false }
         return (100...230).contains(h)
     }
-    private var isPhoneValid: Bool {
-        !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+
+    // ❌ isPhoneValid أزيلت
     private var fieldsFilled: Bool {
-        isPhoneValid &&
+        // بدون phone
         !position.isEmpty &&
         !location.isEmpty &&
         isWeightValid &&
@@ -109,24 +108,10 @@ struct PlayerSetupView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 6)
 
-                    // ========= Phone (before Position) =========
-                    fieldLabel("Phone Number")
-                    TextField("", text: $phone)
-                        .keyboardType(.phonePad)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .font(.custom("Poppins", size: 16))
-                        .foregroundColor(primary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(.white)
-                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-                        )
+                    // ========= (Phone removed) =========
+                    // (لا يوجد حقل هاتف هنا بناءً على طلبك)
 
-                    // ========= Position (FIXED CALL) =========
+                    // ========= Position =========
                     fieldLabel("Position")
                     buttonLikeField(action: {
                         showPositionPicker = true
@@ -213,7 +198,7 @@ struct PlayerSetupView: View {
                         }
                     }
 
-                    // ========= Location (FIXED CALL) =========
+                    // ========= Location =========
                     fieldLabel("Location")
                     buttonLikeField(action: {
                         locationSearch = ""
@@ -349,14 +334,12 @@ struct PlayerSetupView: View {
             .collection("player")
             .document("profile")
 
-        let trimmedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+        // ❌ phone تمت إزالته من الحمولة
         let payload: [String: Any] = [
             "position": position,
             "weight": weightInt ?? NSNull(),
             "height": heightInt ?? NSNull(),
             "location": location,
-            "phone": trimmedPhone,
             "contactVisibility": false,
             "isEmailVisible": false,
             "updatedAt": FieldValue.serverTimestamp()
@@ -370,7 +353,6 @@ struct PlayerSetupView: View {
         Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
     }
 
-    // ✅ FIXED HELPER FUNCTION
     private func buttonLikeField<Content: View>(
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content
@@ -533,3 +515,13 @@ extension Color {
                   opacity: Double(a) / 255)
     }
 }
+
+
+
+
+
+
+
+
+
+

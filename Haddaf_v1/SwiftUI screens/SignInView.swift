@@ -1,3 +1,4 @@
+
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -79,8 +80,8 @@ struct SignInView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
                             .font(.custom("Poppins", size: 16))
-                            .foregroundColor(primary)           // ✅ لون النص أخضر
-                            .tint(primary)                      // ✅ لون المؤشر أخضر
+                            .foregroundColor(primary)
+                            .tint(primary)
                             .padding()
                             .background(RoundedRectangle(cornerRadius: 14).fill(.white))
                     }
@@ -98,12 +99,12 @@ struct SignInView: View {
                         HStack {
                             if isHidden {
                                 SecureField("", text: $password)
-                                    .foregroundColor(primary)   // ✅ لون النص أخضر
-                                    .tint(primary)               // ✅ لون المؤشر أخضر
+                                    .foregroundColor(primary)
+                                    .tint(primary)
                             } else {
                                 TextField("", text: $password)
-                                    .foregroundColor(primary)   // ✅ لون النص أخضر
-                                    .tint(primary)               // ✅ لون المؤشر أخضر
+                                    .foregroundColor(primary)
+                                    .tint(primary)
                             }
                             Button { isHidden.toggle() } label: {
                                 Image(systemName: "eye\(isHidden ? ".slash" : "")")
@@ -150,7 +151,7 @@ struct SignInView: View {
                 .padding(.horizontal, 22)
             }
 
-            // ✅ نافذة تحقق موحّدة (Resend فقط) بنفس شكل Sign Up
+            // Verify prompt
             if showVerifyPrompt {
                 Color.black.opacity(0.35).ignoresSafeArea()
                 UnifiedVerifySheetSI(
@@ -188,7 +189,20 @@ struct SignInView: View {
             try await user.reload()
 
             if user.isEmailVerified {
-                goToProfile = true
+                // ✅ NEW: بعد التأكد من التفعيل، نتحقق هل أكمل Player Setup
+                do {
+                    let complete = try await isPlayerProfileComplete(uid: user.uid)
+                    await MainActor.run {
+                        if complete {
+                            goToProfile = true
+                        } else {
+                            goToPlayerSetup = true
+                        }
+                    }
+                } catch {
+                    // لو صار خطأ بالتحقق، نوجّه المستخدم لإكمال Player Setup كخيار آمن
+                    await MainActor.run { goToPlayerSetup = true }
+                }
             } else {
                 // غير مفعّل → أرسل بريد تحقق وابدأ نفس تجربة Sign Up
                 try await sendVerificationEmail(to: user)
@@ -212,6 +226,30 @@ struct SignInView: View {
                 signInError = ns.localizedDescription
             }
         }
+    }
+
+    // ✅ NEW: يتحقق من اكتمال ملف اللاعب users/{uid}/player/profile
+    private func isPlayerProfileComplete(uid: String) async throws -> Bool {
+        let snap = try await Firestore.firestore()
+            .collection("users").document(uid)
+            .collection("player").document("profile")
+            .getDocument()
+
+        guard snap.exists, let data = snap.data() else { return false }
+
+        // نعتبر الحقول الأساسية: position, weight, height, location
+        let position = data["position"] as? String ?? ""
+        let weight   = data["weight"] as? Int ?? -1
+        let height   = data["height"] as? Int ?? -1
+        let location = data["location"] as? String ?? ""
+
+        // التحقق من نطاقات منطقية + عدم الفراغ
+        let hasPosition = !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasLocation = !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let weightOK = (15...200).contains(weight)
+        let heightOK = (100...230).contains(height)
+
+        return hasPosition && hasLocation && weightOK && heightOK
     }
 
     // MARK: Verify watcher
@@ -247,6 +285,7 @@ struct SignInView: View {
                 "firstName": first,
                 "lastName": lastOpt ?? NSNull(),
                 "role": draft.role,
+                // phone أزلناه من التدفق اللاحق، لكنه محفوظ هنا من درافت التسجيل إن وُجد
                 "phone": draft.phone,
                 "emailVerified": true,
                 "createdAt": FieldValue.serverTimestamp()
@@ -272,11 +311,21 @@ struct SignInView: View {
 
         inlineVerifyError = nil
         showVerifyPrompt = false
-        goToPlayerSetup = true
+        // بعد التفعيل مباشرة: نوجّه لإكمال Player Setup (سيعيد التوجيه للبروفايل إذا كان مكتملًا)
+        Task {
+            do {
+                let complete = try await isPlayerProfileComplete(uid: user.uid)
+                await MainActor.run {
+                    if complete { goToProfile = true } else { goToPlayerSetup = true }
+                }
+            } catch {
+                await MainActor.run { goToPlayerSetup = true }
+            }
+        }
         stopVerificationWatcher()
     }
 
-    // MARK: (لو احتجتي زر "I verified" مستقبلاً، الدالة موجودة)
+    // (اختياري) زر "I verified"
     private func checkIfVerifiedAndProceed() async {
         guard let user = Auth.auth().currentUser else { return }
         do {
@@ -369,7 +418,7 @@ struct SignInView: View {
     }
 }
 
-// MARK: - Unified Verify Sheet (Sign In نسخة مستقلة لتجنب أي تعارض أسماء)
+// MARK: - Unified Verify Sheet (unchanged)
 struct UnifiedVerifySheetSI: View {
     let email: String
     let primary: Color
@@ -438,3 +487,4 @@ struct UnifiedVerifySheetSI: View {
         .background(Color.clear)
     }
 }
+
