@@ -97,12 +97,29 @@ struct PerformanceFeedbackView: View {
         } message: { Text(postingError ?? "Unknown error occurred") }
     }
     
+    // MODIFIED: Header now contains a cancel button and updated back button logic.
     private var header: some View {
         ZStack {
             Text("Performance Feedback").font(.custom("Poppins", size: 28)).fontWeight(.medium).foregroundColor(primary).offset(y: 6)
             HStack {
-                Button { dismiss() } label: { Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold)).foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05))) }
+                // Both the back and cancel buttons now dismiss the entire upload flow
+                // to prevent getting stuck on the processing screen.
+                Button { cancelAndDismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(primary)
+                        .padding(10)
+                        .background(Circle().fill(Color.black.opacity(0.05)))
+                }
                 Spacer()
+                Button { cancelAndDismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(Circle())
+                }
             }
         }.padding(.bottom, 8)
     }
@@ -157,7 +174,8 @@ struct PerformanceFeedbackView: View {
                     do {
                         try await viewModel.createPost(caption: caption, isPrivate: isPrivate)
                         viewModel.resetAfterPosting()
-                        await MainActor.run { dismiss() }
+                        // Instead of just dismissing this view, we dismiss the whole flow via notification.
+                        NotificationCenter.default.post(name: .cancelUploadFlow, object: nil)
                     } catch {
                         postingError = error.localizedDescription
                     }
@@ -181,5 +199,10 @@ struct PerformanceFeedbackView: View {
         }
         .background(.white)
     }
-}
 
+    // ADDED: Helper function to clean up state and post notification.
+    private func cancelAndDismiss() {
+        viewModel.resetAfterPosting()
+        NotificationCenter.default.post(name: .cancelUploadFlow, object: nil)
+    }
+}

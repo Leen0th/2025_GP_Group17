@@ -242,21 +242,3 @@ class VideoProcessingViewModel: ObservableObject {
         ]
     }
 }
-
-struct VideoPickerTransferable: Transferable {
-    let videoURL: URL
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .movie) { movie in
-            SentTransferredFile(movie.videoURL)
-        } importing: { received in
-            let fileName = received.file.lastPathComponent
-            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            if FileManager.default.fileExists(atPath: copy.path) {
-                try FileManager.default.removeItem(at: copy)
-            }
-            try FileManager.default.copyItem(at: received.file, to: copy)
-            return Self.init(videoURL: copy)
-        }
-    }
-}

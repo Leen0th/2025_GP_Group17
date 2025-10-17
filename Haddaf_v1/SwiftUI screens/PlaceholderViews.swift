@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import AVKit
 
 // MARK: - Placeholder Tab Screens
 struct DiscoveryView: View {
@@ -30,90 +31,194 @@ struct ChallengeView: View {
 }
 
 
-// MARK: - Video Upload View (Trimming Removed)
+// MARK: - Video Upload View (Validation Added)
 struct VideoUploadView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedVideoItem: PhotosPickerItem?
     
-    // Simplified navigation state
+    // Navigation state
     @State private var navigateToProcessing = false
     
+    // Validation state
+    @State private var showDurationAlert = false
+    @State private var isCheckingDuration = false
+
     let accentColor = Color(hex: "#36796C")
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Header
-                ZStack {
-                    Text("Upload Your Video")
-                        .font(.custom("Poppins", size: 28))
-                        .fontWeight(.medium)
-                        .foregroundColor(accentColor)
-                    
-                    HStack {
-                        Spacer()
-                        Button { dismiss() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .padding(8)
-                                .background(Color.secondary.opacity(0.1))
-                                .clipShape(Circle())
+            ZStack {
+                VStack(spacing: 0) {
+                    // Header
+                    ZStack {
+                        Text("Upload Your Video")
+                            .font(.custom("Poppins", size: 28))
+                            .fontWeight(.medium)
+                            .foregroundColor(accentColor)
+                        
+                        HStack {
+                            Spacer()
+                            Button { dismiss() } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .padding(8)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .clipShape(Circle())
+                            }
                         }
                     }
-                }
-                .padding(.horizontal)
-                .padding(.top, 20)
+                    .padding(.horizontal)
+                    .padding(.top, 20)
 
-                Spacer()
-
-                // Main upload area
-                VStack {
                     Spacer()
-                    Image(systemName: "arrow.down.to.line.circle.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(accentColor.opacity(0.7))
-                    Spacer()
-                    PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
-                        Text("Choose Video")
-                            .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
-                            .foregroundColor(.white).padding(.horizontal, 40)
-                            .padding(.vertical, 12).background(accentColor)
-                            .clipShape(Capsule())
-                    }
-                    Spacer().frame(height: 30)
-                }
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1.0, contentMode: .fit)
-                .background(
-                    ZStack {
-                        Image("upload_background").resizable().aspectRatio(contentMode: .fill).clipped()
-                        Color.white.opacity(0.3)
-                    }
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [10]))
-                        .foregroundColor(accentColor.opacity(0.4))
-                )
-                .cornerRadius(20)
-                .padding(.horizontal)
 
-                Spacer()
-                Spacer()
+                    // Main upload area
+                    VStack {
+                        Spacer()
+                        Image(systemName: "arrow.down.to.line.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(accentColor.opacity(0.7))
+                        Spacer()
+                        PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
+                            Text("Choose Video")
+                                .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
+                                .foregroundColor(.white).padding(.horizontal, 40)
+                                .padding(.vertical, 12).background(accentColor)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(isCheckingDuration) // Disable while checking
+                        Spacer().frame(height: 30)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1.0, contentMode: .fit)
+                    .background(
+                        ZStack {
+                            Image("upload_background").resizable().aspectRatio(contentMode: .fill).clipped()
+                            Color.white.opacity(0.3)
+                        }
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [10]))
+                            .foregroundColor(accentColor.opacity(0.4))
+                    )
+                    .cornerRadius(20)
+                    .padding(.horizontal)
+
+                    Spacer()
+                    Spacer()
+                }
+                
+                // Loading overlay while checking duration
+                if isCheckingDuration {
+                    Color.black.opacity(0.4).ignoresSafeArea()
+                    VStack {
+                        ProgressView()
+                            .tint(.white)
+                        Text("Checking video duration...")
+                            .foregroundColor(.white)
+                            .padding(.top, 8)
+                    }
+                    .padding(30)
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(16)
+                    .transition(.opacity)
+                }
+
+                // MODIFIED: Custom overlay for the duration warning
+                if showDurationAlert {
+                    DurationWarningOverlay(isPresented: $showDurationAlert, accentColor: accentColor)
+                }
             }
+            .animation(.easeInOut, value: isCheckingDuration)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showDurationAlert)
             .onChange(of: selectedVideoItem) { _, newItem in
-                // When a video is picked, navigate directly
-                if newItem != nil {
-                    navigateToProcessing = true
+                // Perform async validation when a video is selected
+                guard let item = newItem else { return }
+                Task {
+                    isCheckingDuration = true
+                    defer { isCheckingDuration = false }
+                    
+                    do {
+                        // 1. Get the video's URL
+                        guard let transferable = try? await item.loadTransferable(type: VideoPickerTransferable.self) else {
+                            print("Failed to load video URL from picker item.")
+                            await MainActor.run { selectedVideoItem = nil }
+                            return
+                        }
+                        let videoURL = transferable.videoURL
+                        
+                        // 2. Load the video asset and get its duration
+                        let asset = AVURLAsset(url: videoURL)
+                        let duration = try await asset.load(.duration)
+                        let durationInSeconds = CMTimeGetSeconds(duration)
+                        
+                        // 3. Validate the duration
+                        if durationInSeconds <= 30.0 {
+                            // If valid, proceed to the next screen
+                            navigateToProcessing = true
+                        } else {
+                            // If invalid, show the custom alert and reset the picker
+                            showDurationAlert = true
+                            selectedVideoItem = nil
+                        }
+                    } catch {
+                        print("Error getting video duration: \(error.localizedDescription)")
+                        await MainActor.run { selectedVideoItem = nil }
+                    }
                 }
             }
             .navigationDestination(isPresented: $navigateToProcessing) {
-                // Pass the selected item to the processing view
                 if let item = selectedVideoItem {
                     ProcessingVideoView(selectedVideoItem: item)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .cancelUploadFlow)) { _ in
+                dismiss()
+            }
+        }
+    }
+}
+
+
+// MARK: - Custom Warning Overlay View
+private struct DurationWarningOverlay: View {
+    @Binding var isPresented: Bool
+    let accentColor: Color
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4).ignoresSafeArea()
+                .onTapGesture { isPresented = false }
+
+            VStack(spacing: 20) {
+                Text("Video Too Long")
+                    .font(.title3).fontWeight(.semibold)
+
+                Text("Please select a video that is 30 seconds or shorter.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                Button("OK") {
+                    isPresented = false
+                }
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(accentColor)
+                .cornerRadius(10)
+                .padding(.top, 4)
+            }
+            .padding(EdgeInsets(top: 30, leading: 20, bottom: 20, trailing: 20))
+            .frame(width: 320)
+            .background(Color.white)
+            .cornerRadius(20)
+            .shadow(radius: 12)
+            .transition(.scale.combined(with: .opacity))
         }
     }
 }

@@ -2,6 +2,28 @@ import SwiftUI
 import Combine
 import PhotosUI
 
+// MARK: - Video Transferable
+// This struct helps transfer the video from the PhotosPicker to the app.
+// It has been moved here from the ViewModel to be more accessible.
+struct VideoPickerTransferable: Transferable {
+    let videoURL: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.videoURL)
+        } importing: { received in
+            let fileName = received.file.lastPathComponent
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.removeItem(at: copy)
+            }
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return Self.init(videoURL: copy)
+        }
+    }
+}
+
+
 // MARK: - View Model (Observable Object)
 // This class is now primarily a data holder. The fetching logic is in PlayerProfileViewModel.
 class UserProfile: ObservableObject {
