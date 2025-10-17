@@ -24,6 +24,46 @@ struct PlayerProfileContentView: View {
     @State private var showDeleteAlert = false
     @State private var postToDelete: Post? = nil
     @State private var showEditProfile = false
+    
+    // MARK: - Filter and Sort States
+    enum PostFilter: String, CaseIterable {
+        case all = "All"
+        case `public` = "Public"
+        case `private` = "Private"
+    }
+    
+    enum PostSort: String, CaseIterable {
+        case newestFirst = "Newest"
+        case oldestFirst = "Oldest"
+    }
+
+    @State private var postFilter: PostFilter = .all
+    @State private var postSort: PostSort = .newestFirst
+
+    // MARK: - MODIFIED: Replaced state variable with a computed property
+    private var filteredAndSortedPosts: [Post] {
+        // Apply filter
+        let filtered: [Post]
+        switch postFilter {
+        case .all:
+            filtered = viewModel.posts
+        case .public:
+            filtered = viewModel.posts.filter { !$0.isPrivate }
+        case .private:
+            filtered = viewModel.posts.filter { $0.isPrivate }
+        }
+
+        // Apply sort
+        let sorted: [Post]
+        switch postSort {
+        case .newestFirst:
+            sorted = filtered
+        case .oldestFirst:
+            sorted = filtered.reversed()
+        }
+        
+        return sorted
+    }
 
     var body: some View {
         NavigationStack {
@@ -41,9 +81,10 @@ struct PlayerProfileContentView: View {
 
                                 switch selectedContent {
                                 case .posts:
+                                    postControls
                                     postsGrid
                                 case .progress:
-                                    ProgressTabView()
+                                    ProgressTabView() // Placeholder view
                                 case .endorsements:
                                     EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
                                 }
@@ -56,11 +97,9 @@ struct PlayerProfileContentView: View {
                 .task {
                     await viewModel.fetchAllData()
                 }
+                // MODIFIED: Removed all .onChange modifiers for posts, as this is now handled by view modifiers
                 .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { note in
                     if let post = note.userInfo?["post"] as? Post {
-                        // By wrapping the data change in an animation block,
-                        // we give SwiftUI a clearer instruction on how to handle the UI update,
-                        // which often resolves complex layout glitches in LazyVGrid.
                         withAnimation {
                             viewModel.posts.insert(post, at: 0)
                         }
@@ -78,10 +117,56 @@ struct PlayerProfileContentView: View {
                 }
         }
     }
+    
+    private var postControls: some View {
+        HStack {
+            Menu {
+                Picker("Filter", selection: $postFilter) {
+                    ForEach(PostFilter.allCases, id: \.self) { filterOption in
+                        Text(filterOption.rawValue).tag(filterOption)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Text("Filter: \(postFilter.rawValue)")
+                }
+                .font(.caption)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.05))
+                .clipShape(Capsule())
+            }
+            
+            Menu {
+                Picker("Sort", selection: $postSort) {
+                    ForEach(PostSort.allCases, id: \.self) { sortOption in
+                        Text(sortOption.rawValue).tag(sortOption)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down.circle")
+                    Text("Sort: \(postSort.rawValue)")
+                }
+                .font(.caption)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.05))
+                .clipShape(Capsule())
+            }
+            
+            Spacer()
+        }
+        .padding(.top, 8)
+    }
 
     private var postsGrid: some View {
         LazyVGrid(columns: postColumns, spacing: 12) {
-            ForEach(viewModel.posts) { post in
+            // Use the computed property directly
+            ForEach(filteredAndSortedPosts) { post in
                 NavigationLink(destination: PostDetailView(post: post)) {
                     ZStack(alignment: .topTrailing) {
                         AsyncImage(url: URL(string: post.imageName)) { image in
@@ -105,12 +190,18 @@ struct PlayerProfileContentView: View {
                 }
             }
         }
-        .animation(.default, value: viewModel.posts) // This modifier explicitly tells the grid to animate changes
+        // MARK: - MODIFIED: New animation logic
+        // This animates the contents of the grid when the filter changes.
+        .animation(.default, value: postFilter)
+        // This creates a fade transition when the whole grid is replaced.
+        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+        // By changing the grid's ID when the sort order changes, we tell SwiftUI to replace it, triggering the transition above.
+        .id(postSort)
         .refreshable { await viewModel.fetchAllData() }
     }
 }
 
-// MARK: - Edit Profile View
+// MARK: - Edit Profile View (Unchanged)
 struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var userProfile: UserProfile
@@ -385,7 +476,7 @@ struct EditProfileView: View {
 }
 
 
-// MARK: - Profile Helper Views
+// MARK: - Profile Helper Views (Unchanged)
 struct TopNavigationBar: View {
     @ObservedObject var userProfile: UserProfile
     @Binding var showEditProfile: Bool
@@ -530,7 +621,7 @@ struct EndorsementCardView: View {
     }
 }
 
-// MARK: - Custom Overlay for Notices
+// MARK: - Custom Overlay for Notices (Unchanged)
 struct InfoOverlay: View {
     let primary: Color
     let title: String
@@ -550,7 +641,7 @@ struct InfoOverlay: View {
     }
 }
 
-// MARK: - Picker Sheets
+// MARK: - Picker Sheets (Unchanged)
 private struct PositionWheelPickerSheet: View {
     let positions: [String]
     @Binding var selection: String
