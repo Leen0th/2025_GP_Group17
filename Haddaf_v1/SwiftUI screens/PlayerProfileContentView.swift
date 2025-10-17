@@ -58,12 +58,19 @@ struct PlayerProfileContentView: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { note in
                     if let post = note.userInfo?["post"] as? Post {
-                        viewModel.posts.insert(post, at: 0)
+                        // By wrapping the data change in an animation block,
+                        // we give SwiftUI a clearer instruction on how to handle the UI update,
+                        // which often resolves complex layout glitches in LazyVGrid.
+                        withAnimation {
+                            viewModel.posts.insert(post, at: 0)
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
                     if let postId = note.userInfo?["postId"] as? String {
-                        viewModel.posts.removeAll { $0.id == postId }
+                        withAnimation {
+                            viewModel.posts.removeAll { $0.id == postId }
+                        }
                     }
                 }
                 .fullScreenCover(isPresented: $showEditProfile) {
@@ -98,6 +105,7 @@ struct PlayerProfileContentView: View {
                 }
             }
         }
+        .animation(.default, value: viewModel.posts) // This modifier explicitly tells the grid to animate changes
         .refreshable { await viewModel.fetchAllData() }
     }
 }
@@ -617,4 +625,3 @@ private struct DateWheelPickerSheet: View {
 private let SAUDI_CITIES: [String] = [
     "Riyadh", "Jeddah", "Mecca", "Medina", "Dammam", "Khobar", "Dhahran", "Taif", "Tabuk", "Abha", "Khamis Mushait", "Jizan", "Najran", "Hail", "Buraydah", "Unaizah", "Al Hofuf", "Al Mubarraz", "Jubail", "Yanbu", "Rabigh", "Al Baha", "Bisha", "Al Majmaah", "Al Zulfi", "Sakaka", "Arar", "Qurayyat", "Rafha", "Turaif", "Tarut", "Qatif", "Safwa", "Saihat", "Al Khafji", "Al Ahsa", "Al Qassim", "Al Qaisumah", "Sharurah", "Tendaha", "Wadi ad-Dawasir", "Al Qurayyat", "Tayma", "Umluj", "Haql", "Al Wajh", "Al Lith", "Al Qunfudhah", "Sabya", "Abu Arish", "Samtah", "Baljurashi", "Al Mandaq", "Qilwah", "Al Namas", "Tanomah", "Mahd adh Dhahab", "Badr", "Al Ula", "Khaybar", "Al Bukayriyah", "Riyadh Al Khabra", "Al Rass", "Diriyah", "Al Kharj", "Hotat Bani Tamim", "Al Hariq", "Wadi Al Dawasir", "Afif", "Dawadmi", "Shaqra", "Thadig", "Muzahmiyah", "Rumah", "Ad Dilam", "Al Quwayiyah", "Duba", "Turaif", "Ar Ruwais", "Farasan", "Al Dayer", "Fifa", "Al Aridhah", "Al Bahah City", "King Abdullah Economic City", "Al Uyaynah", "Al Badayea", "Al Uwayqilah", "Bathaa", "Al Jafr", "Thuqbah", "Buqayq (Abqaiq)", "Ain Dar", "Nairyah", "Al Hassa", "Salwa", "Ras Tanura", "Khafji", "Manfouha", "Al Muzahmiyah"
 ].sorted()
-

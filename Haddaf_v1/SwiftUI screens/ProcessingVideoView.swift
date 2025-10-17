@@ -52,9 +52,5 @@ struct ProcessingVideoView: View {
         .navigationDestination(isPresented: $navigateToFeedback) {
             PerformanceFeedbackView(viewModel: viewModel)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
-            // Close processing screen after successful Post
-            dismiss()
-        }
     }
 }

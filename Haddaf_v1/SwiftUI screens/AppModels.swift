@@ -46,7 +46,7 @@ struct CoachEndorsement: Identifiable {
 }
 
 // MODIFIED: This now aligns with the 'performanceFeedback' subcollection
-struct PostStat: Identifiable {
+struct PostStat: Identifiable, Equatable {
     let id = UUID()
     let label: String
     let value: Double
@@ -60,11 +60,11 @@ struct Comment: Identifiable {
     let timestamp: String
 }
 
-// MODIFIED: Post struct updated for Firebase data
-struct Post: Identifiable {
+// MODIFIED: Post struct updated for Firebase data and made Equatable
+struct Post: Identifiable, Equatable {
     var id: String? // Firestore Document ID
     var imageName: String // Thumbnail URL
-    var videoURL: String? // Video URL
+    var videoURL: String?
     var caption: String
     var timestamp: String
     var isPrivate: Bool
