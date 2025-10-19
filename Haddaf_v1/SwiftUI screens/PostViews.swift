@@ -72,6 +72,14 @@ struct PostDetailView: View {
                 CommentsView(postId: postId)
             }
         }
+        // --- ADD THE MODIFIER BELOW ---
+        .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
+            // Check if the notification is for the post we are currently viewing
+            if let userInfo = notification.userInfo, let updatedPostId = userInfo["postId"] as? String, updatedPostId == post.id {
+                // Increment the comment count in our local state to match the database
+                post.commentCount += 1
+            }
+        }
         .animation(.easeInOut, value: showPrivacyAlert)
         .animation(.easeInOut, value: showDeleteConfirmation)
     }
@@ -318,9 +326,26 @@ final class CommentsViewModel: ObservableObject {
             let u = userDoc.data() ?? [:]
             let first = (u["firstName"] as? String) ?? ""; let last  = (u["lastName"]  as? String) ?? ""
             let username = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
-            try await db.collection("videoPosts").document(postId).collection("comments").document().setData(["text": trimmed, "username": username.isEmpty ? "Unknown" : username, "userImage": (u["profilePic"] as? String) ?? "", "userId": uid, "createdAt": FieldValue.serverTimestamp()])
+            
+            // Add comment to subcollection
+            try await db.collection("videoPosts").document(postId).collection("comments").document().setData([
+                "text": trimmed,
+                "username": username.isEmpty ? "Unknown" : username,
+                "userImage": (u["profilePic"] as? String) ?? "",
+                "userId": uid,
+                "createdAt": FieldValue.serverTimestamp()
+            ])
+            
+            // Increment the parent document's comment count
             try await db.collection("videoPosts").document(postId).updateData(["commentCount": FieldValue.increment(Int64(1))])
-        } catch { print("Failed to add comment: \(error)") }
+            
+            // --- ADD THIS LINE ---
+            // Notify the app that this post's data has changed
+            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: ["postId": postId])
+            
+        } catch {
+            print("Failed to add comment: \(error)")
+        }
     }
 }
 
