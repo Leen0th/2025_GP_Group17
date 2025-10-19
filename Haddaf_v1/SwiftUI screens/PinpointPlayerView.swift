@@ -176,7 +176,7 @@ struct PinpointPlayerView: View {
                 .font(.title2)
                 .foregroundColor(accentColor)
             
-            Text(isFrameConfirmed ? "Now, tap your position on the video." : "Use the timeline to find the perfect frame.")
+            Text(isFrameConfirmed ? "Now, Spot yourself in the video." : "Use the timeline to find a clear moment where you’re visible.")
                 .font(.custom("Poppins", size: 16))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -242,7 +242,7 @@ struct PinpointPlayerView: View {
     private var footerButtons: some View {
         VStack(spacing: 15) {
             if !isFrameConfirmed {
-                Button("Confirm Frame") {
+                Button("Confirm Moment") {
                     withAnimation {
                         isFrameConfirmed = true
                         viewModel.player.pause()
@@ -255,7 +255,7 @@ struct PinpointPlayerView: View {
                 .background(RoundedRectangle(cornerRadius: 25.0).stroke(accentColor, lineWidth: 2))
                 .padding(.horizontal)
             } else {
-                Button("Edit Frame") {
+                Button("Edit Moment") {
                     withAnimation {
                         isFrameConfirmed = false
                         selectedPoint = nil
