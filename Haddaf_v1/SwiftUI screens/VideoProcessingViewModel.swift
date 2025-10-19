@@ -20,21 +20,20 @@ class VideoProcessingViewModel: ObservableObject {
     let storage = Storage.storage()
 
     // MARK: - Processing pipeline
-    func processVideo(item: PhotosPickerItem) async {
+    // MODIFIED: The main function now takes the URL and pinpoint directly
+    func processVideo(url: URL, pinpoint: CGPoint) async {
         isProcessing = true
         defer { isProcessing = false }
+        
+        // ADDED: You can now use the pinpoint coordinates
+        print("Player pinpointed at (x,y): (\(pinpoint.x), \(pinpoint.y))")
+        // TODO: Send these coordinates to your AI model here.
 
         let start = Date()
 
         do {
             processingStateMessage = "Accessing video file..."
-            guard let url = await getURL(from: item) else {
-                throw NSError(
-                    domain: "VideoProcessing",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Could not retrieve video URL."]
-                )
-            }
+            // MODIFIED: The URL is now passed in directly
             self.videoURL = url
 
             // Do thumbnail and (mock) stats in parallel
@@ -192,11 +191,6 @@ class VideoProcessingViewModel: ObservableObject {
     }
 
     // MARK: - Private helpers
-    private func getURL(from item: PhotosPickerItem) async -> URL? {
-        let r = try? await item.loadTransferable(type: VideoPickerTransferable.self)
-        return r?.videoURL
-    }
-
     private func generateThumbnail(for url: URL) async throws -> UIImage {
         let asset = AVAsset(url: url)
         let gen = AVAssetImageGenerator(asset: asset)

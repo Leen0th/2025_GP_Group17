@@ -36,8 +36,11 @@ struct VideoUploadView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedVideoItem: PhotosPickerItem?
     
-    // Navigation state
-    @State private var navigateToProcessing = false
+    // MODIFIED: State to hold the URL for the next view
+    @State private var videoURLForNextView: URL?
+    
+    // MODIFIED: Renamed for clarity
+    @State private var navigateToPinpointing = false
     
     // Validation state
     @State private var showDurationAlert = false
@@ -126,7 +129,7 @@ struct VideoUploadView: View {
                     .transition(.opacity)
                 }
 
-                // MODIFIED: Custom overlay for the duration warning
+                // Custom overlay for the duration warning
                 if showDurationAlert {
                     DurationWarningOverlay(isPresented: $showDurationAlert, accentColor: accentColor)
                 }
@@ -156,8 +159,9 @@ struct VideoUploadView: View {
                         
                         // 3. Validate the duration
                         if durationInSeconds <= 30.0 {
-                            // If valid, proceed to the next screen
-                            navigateToProcessing = true
+                            // If valid, proceed to the pinpointing screen
+                            self.videoURLForNextView = videoURL
+                            navigateToPinpointing = true
                         } else {
                             // If invalid, show the custom alert and reset the picker
                             showDurationAlert = true
@@ -169,9 +173,9 @@ struct VideoUploadView: View {
                     }
                 }
             }
-            .navigationDestination(isPresented: $navigateToProcessing) {
-                if let item = selectedVideoItem {
-                    ProcessingVideoView(selectedVideoItem: item)
+            .navigationDestination(isPresented: $navigateToPinpointing) {
+                if let url = videoURLForNextView {
+                    PinpointPlayerView(videoURL: url)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelUploadFlow)) { _ in

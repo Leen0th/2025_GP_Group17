@@ -6,10 +6,14 @@ struct ProcessingVideoView: View {
     @StateObject private var viewModel: VideoProcessingViewModel
     @Environment(\.dismiss) private var dismiss
 
-    let selectedVideoItem: PhotosPickerItem
+    // MODIFIED: Update the inputs for this view
+    let videoURL: URL
+    let pinpoint: CGPoint
 
-    init(selectedVideoItem: PhotosPickerItem) {
-        self.selectedVideoItem = selectedVideoItem
+    // MODIFIED: Update the initializer
+    init(videoURL: URL, pinpoint: CGPoint) {
+        self.videoURL = videoURL
+        self.pinpoint = pinpoint
         _viewModel = StateObject(wrappedValue: VideoProcessingViewModel())
     }
 
@@ -44,7 +48,8 @@ struct ProcessingVideoView: View {
         .background(Color.white)
         .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
-        .task { await viewModel.processVideo(item: selectedVideoItem) }
+        // MODIFIED: Call the updated processing function in the viewModel
+        .task { await viewModel.processVideo(url: videoURL, pinpoint: pinpoint) }
         .onAppear { isAnimating = true }
         .onChange(of: viewModel.processingComplete) { _, v in
             if v { navigateToFeedback = true }
