@@ -8,22 +8,18 @@ struct NotificationsView: View {
     @State private var newChallenge = true
     @State private var upcomingMatch = true
     @State private var goalAchievement1 = false
-
-    // ✅ بعد Goal Achievement: Endorsements → Likes → Comments
     @State private var endorsements = false
     @State private var likes = true
     @State private var comments = true
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedTab: Tab = .profile
-    @State private var showVideoUpload = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // ✅ العنوان بالنص تمامًا
+                // Header
                 ZStack {
                     Text("Notification")
                         .font(.custom("Poppins", size: 28))
@@ -46,7 +42,7 @@ struct NotificationsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
 
-                // ✅ قائمة النوتفيكيشن
+                // قائمة النوتفيكيشن
                 VStack(spacing: 18) {
                     notifRow(title: "New Challenge", isOn: $newChallenge)
                     divider
@@ -54,7 +50,6 @@ struct NotificationsView: View {
                     divider
                     notifRow(title: "Goal Achievement", isOn: $goalAchievement1)
                     divider
-                    // ✅ الترتيب المطلوب تحت Goal Achievement
                     notifRow(title: "Endorsements", isOn: $endorsements)
                     divider
                     notifRow(title: "Likes", isOn: $likes)
@@ -64,15 +59,9 @@ struct NotificationsView: View {
                 .padding(.horizontal, 28)
                 .padding(.top, 16)
 
-                Spacer(minLength: 0)
-                    .padding(.bottom, 100)
+                Spacer()
             }
-
-            // ✅ Footer
-            CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
         }
-        .sheet(isPresented: $showVideoUpload) { VideoUploadView() }
-        .ignoresSafeArea(.all, edges: .bottom)
         .navigationBarBackButtonHidden(true)
     }
 
@@ -83,7 +72,6 @@ struct NotificationsView: View {
             .padding(.leading, 6)
     }
 
-    // ✅ صف واحد لكل نوتفيكيشن (مع تصغير السويتش)
     @ViewBuilder
     private func notifRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
@@ -97,8 +85,11 @@ struct NotificationsView: View {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(SwitchToggleStyle(tint: primary))
-                .scaleEffect(0.8) // 👈 تصغير السويتش
+                .scaleEffect(0.8)
         }
         .padding(.horizontal, 8)
     }
 }
+
+
+

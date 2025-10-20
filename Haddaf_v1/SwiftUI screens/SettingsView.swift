@@ -5,12 +5,8 @@ import FirebaseMessaging
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // نستخدم دالة محلية للّون لتفادي تكرار الامتدادات
     private let primary = colorHex("#36796C")
     private let dividerColor = Color.black.opacity(0.15)
-
-    @State private var selectedTab: Tab = .profile
-    @State private var showVideoUpload = false
 
     @State private var showLogoutPopup = false
     @State private var goToWelcome = false
@@ -20,7 +16,7 @@ struct SettingsView: View {
     @State private var signOutError: String?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -74,12 +70,8 @@ struct SettingsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal, 16)
 
-                Spacer(minLength: 0)
-                    .padding(.bottom, 100)
+                Spacer()
             }
-
-            // Footer TabBar
-            CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
 
             // Logout Popup (centered)
             if showLogoutPopup {
@@ -150,8 +142,6 @@ struct SettingsView: View {
             }
         }
         .animation(.easeInOut, value: showLogoutPopup)
-        .sheet(isPresented: $showVideoUpload) { VideoUploadView() }
-        .ignoresSafeArea(.all, edges: .bottom)
         .navigationDestination(isPresented: $goToWelcome) {
             WelcomeView()
         }
@@ -163,25 +153,16 @@ struct SettingsView: View {
         isSigningOut = true
         signOutError = nil
 
-        // أوقفي أي Listeners قبل الخروج (مثال)
-        // postsListener?.remove()
-
-        // نظّفي الكاش/الداتا المحلية
         clearLocalCaches()
 
-        // 1) حذف توكن الإشعارات لهذا الجهاز (FCM)
         Messaging.messaging().deleteToken { _ in
-            // حتى لو صار خطأ في حذف التوكن، بنكمل تسجيل الخروج
             self.signOutFirebase()
         }
     }
 
     private func signOutFirebase() {
         do {
-            // 2) Firebase Auth signOut
             try Auth.auth().signOut()
-
-            // 3) الانتقال لواجهة الترحيب
             withAnimation {
                 isSigningOut = false
                 showLogoutPopup = false
@@ -197,10 +178,8 @@ struct SettingsView: View {
         UserDefaults.standard.removeObject(forKey: "signup_profile_draft")
         UserDefaults.standard.removeObject(forKey: "current_user_profile")
         UserDefaults.standard.synchronize()
-        // امسحي أي مفاتيح/كاش إضافي تستخدمينه هنا
     }
 
-    // MARK: - Settings Row
     private func settingsRow(icon: String, title: String,
                              iconColor: Color, showChevron: Bool, showDivider: Bool) -> some View {
         VStack(spacing: 0) {
@@ -235,36 +214,23 @@ struct SettingsView: View {
     }
 }
 
-//
-// MARK: - Local hex color helper (لتجنب التضارب مع أي امتداد آخر)
-//
+// Local hex color helper
 private func colorHex(_ hex: String) -> Color {
     let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     var int: UInt64 = 0
     Scanner(string: s).scanHexInt64(&int)
     let a, r, g, b: UInt64
     switch s.count {
-    case 3: // RGB (12-bit)
-        (a, r, g, b) = (255,
-                        (int >> 8) * 17,
-                        (int >> 4 & 0xF) * 17,
-                        (int & 0xF) * 17)
-    case 6: // RGB (24-bit)
-        (a, r, g, b) = (255,
-                        int >> 16,
-                        int >> 8 & 0xFF,
-                        int & 0xFF)
-    case 8: // ARGB (32-bit)
-        (a, r, g, b) = (int >> 24,
-                        int >> 16 & 0xFF,
-                        int >> 8 & 0xFF,
-                        int & 0xFF)
-    default:
-        (a, r, g, b) = (255, 0, 0, 0)
+    case 3: (a, r, g, b) = (255,(int>>8)*17,(int>>4 & 0xF)*17,(int & 0xF)*17)
+    case 6: (a, r, g, b) = (255, int>>16, int>>8 & 0xFF, int & 0xFF)
+    case 8: (a, r, g, b) = (int>>24, int>>16 & 0xFF, int>>8 & 0xFF, int & 0xFF)
+    default: (a, r, g, b) = (255,0,0,0)
     }
     return Color(.sRGB,
-                 red: Double(r) / 255.0,
-                 green: Double(g) / 255.0,
-                 blue: Double(b) / 255.0,
-                 opacity: Double(a) / 255.0)
+                 red: Double(r)/255, green: Double(g)/255,
+                 blue: Double(b)/255, opacity: Double(a)/255)
 }
+
+
+
+

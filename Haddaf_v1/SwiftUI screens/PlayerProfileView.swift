@@ -46,7 +46,7 @@ struct CustomTabBar: View {
             HStack {
                 TabButton(tab: .discovery, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .teams, selectedTab: $selectedTab, accentColor: accentColor)
-                Spacer().frame(width: 80)
+                Spacer().frame(width: 80) // مساحة زر الوسط
                 TabButton(tab: .challenge, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .profile, selectedTab: $selectedTab, accentColor: accentColor)
             }
@@ -54,18 +54,20 @@ struct CustomTabBar: View {
             .frame(height: 80)
             .padding(.top, 5)
             
+            // ✅ زر الوسط: علامة + باللون الأخضر
             Button(action: { showVideoUpload = true }) {
                 ZStack {
                     Circle()
                         .fill(Color.white)
                         .frame(width: 68, height: 68)
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 5)
-                    Image("Haddaf_logo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 40, height: 70)
+                    
+                    Image(systemName: "plus")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(accentColor)   // نفس الأخضر
                 }
             }
+            .buttonStyle(.plain)
             .offset(y: -30)
         }
     }
@@ -92,3 +94,4 @@ fileprivate struct TabButton: View {
 #Preview {
     PlayerProfileView()
 }
+

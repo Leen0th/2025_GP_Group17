@@ -176,8 +176,16 @@ struct SignInView: View {
                 .zIndex(1)
             }
         }
-        .navigationDestination(isPresented: $goToProfile) { PlayerProfileView() }
-        .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
+        .fullScreenCover(isPresented: $goToProfile) {
+            PlayerProfileView()
+                .toolbar(.hidden, for: .navigationBar)
+        }
+
+        .fullScreenCover(isPresented: $goToPlayerSetup) {
+            NavigationStack {
+                PlayerSetupView()
+            }
+        }
         .onAppear { restoreCooldownIfAny() }
         .onDisappear { cleanupTasks() }
     }
@@ -477,3 +485,6 @@ struct UnifiedVerifySheetSI: View {
         .background(Color.clear)
     }
 }
+
+
+

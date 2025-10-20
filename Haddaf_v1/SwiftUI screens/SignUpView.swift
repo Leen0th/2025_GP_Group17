@@ -271,12 +271,10 @@ struct SignUpView: View {
         emailExists = false
         emailCheckError = nil
 
-        // ✅ استخدم الدالة الصحيحة بدلاً من المتغيّر المحسوب
         guard isValidEmail(email) else { return }
 
         let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         emailCheckTask = Task {
-            // تهدئة بسيطة لتقليل الطلبات أثناء الكتابة
             try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s
             do {
                 let methods = try await fetchSignInMethods(for: mail)
@@ -456,10 +454,16 @@ struct SignUpView: View {
         let pattern = #"^[\p{L}][\p{L}\s.'-]*$"#
         return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
-    private func isValidEmail(_ value: String) -> Bool {
-        let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
-        return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    private func isValidEmail(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+
+        if value.contains("..") { return false } // يمنع النقط المكررة
+
+        let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
+        return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
     }
+
     private func isValidPassword(_ pass: String) -> Bool {
         guard pass.count >= 8 else { return false }
         let hasUpper   = pass.range(of: "[A-Z]", options: .regularExpression) != nil

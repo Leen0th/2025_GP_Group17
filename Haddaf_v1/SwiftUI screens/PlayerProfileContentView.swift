@@ -1,15 +1,25 @@
+
 import SwiftUI
 import PhotosUI
 import FirebaseFirestore
 import FirebaseAuth
 import FirebaseStorage
 
-// MARK: - Validation Helper
-private func isValidEmail(_ value: String) -> Bool {
-    let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
-    return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-}
+// MARK: - Validation Helper (Stricter Email)
+private func isValidEmail(_ raw: String) -> Bool {
+    // Remove leading and trailing spaces
+    let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return false }
 
+    // Disallow consecutive dots anywhere in the email
+    if value.contains("..") { return false }
+
+    // Local part: 1–64 chars, cannot start/end with a dot
+    // Domain: one or more labels separated by dots (1–63 chars each)
+    // TLD: only letters, length between 2 and 63
+    let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
+    return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
+}
 // MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
     @StateObject private var viewModel = PlayerProfileViewModel()
@@ -24,6 +34,12 @@ struct PlayerProfileContentView: View {
     @State private var showDeleteAlert = false
     @State private var postToDelete: Post? = nil
     @State private var showEditProfile = false
+    
+    // ✅ نستخدم الـ item API: عندنا بوست محدد فقط
+    @State private var selectedPost: Post? = nil
+
+    // ✅ جديد: تنقّل برمجي إلى Settings
+    @State private var goToSettings = false
     
     // MARK: - Filter and Sort States
     enum PostFilter: String, CaseIterable {
@@ -40,33 +56,24 @@ struct PlayerProfileContentView: View {
     @State private var postFilter: PostFilter = .all
     @State private var postSort: PostSort = .newestFirst
 
-    // MARK: - MODIFIED: Replaced state variable with a computed property
+    // MARK: - Computed posts (filter + sort)
     private var filteredAndSortedPosts: [Post] {
-        // Apply filter
         let filtered: [Post]
         switch postFilter {
-        case .all:
-            filtered = viewModel.posts
-        case .public:
-            filtered = viewModel.posts.filter { !$0.isPrivate }
-        case .private:
-            filtered = viewModel.posts.filter { $0.isPrivate }
+        case .all:     filtered = viewModel.posts
+        case .public:  filtered = viewModel.posts.filter { !$0.isPrivate }
+        case .private: filtered = viewModel.posts.filter { $0.isPrivate }
         }
-
-        // Apply sort
         let sorted: [Post]
         switch postSort {
-        case .newestFirst:
-            sorted = filtered
-        case .oldestFirst:
-            sorted = filtered.reversed()
+        case .newestFirst: sorted = filtered
+        case .oldestFirst: sorted = filtered.reversed()
         }
-        
         return sorted
     }
 
     var body: some View {
-        NavigationStack {
+        ZStack {
             Color.white.ignoresSafeArea()
                 .overlay(
                     ScrollView {
@@ -74,7 +81,11 @@ struct PlayerProfileContentView: View {
                             ProgressView().padding(.top, 50)
                         } else {
                             VStack(spacing: 24) {
-                                TopNavigationBar(userProfile: viewModel.userProfile, showEditProfile: $showEditProfile)
+                                // ✅ مرّرنا goToSettings كـ binding
+                                TopNavigationBar(userProfile: viewModel.userProfile,
+                                                 showEditProfile: $showEditProfile,
+                                                 goToSettings: $goToSettings)
+                                
                                 ProfileHeaderView(userProfile: viewModel.userProfile)
                                 StatsGridView(userProfile: viewModel.userProfile)
                                 ContentTabView(selectedContent: $selectedContent)
@@ -84,7 +95,7 @@ struct PlayerProfileContentView: View {
                                     postControls
                                     postsGrid
                                 case .progress:
-                                    ProgressTabView() // Placeholder view
+                                    ProgressTabView()
                                 case .endorsements:
                                     EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
                                 }
@@ -94,26 +105,35 @@ struct PlayerProfileContentView: View {
                         }
                     }
                 )
-                .task {
-                    await viewModel.fetchAllData()
-                }
-                // MODIFIED: Removed all .onChange modifiers for posts, as this is now handled by view modifiers
+                .task { await viewModel.fetchAllData() }
                 .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { note in
                     if let post = note.userInfo?["post"] as? Post {
-                        withAnimation {
-                            viewModel.posts.insert(post, at: 0)
-                        }
+                        withAnimation { viewModel.posts.insert(post, at: 0) }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
                     if let postId = note.userInfo?["postId"] as? String {
-                        withAnimation {
-                            viewModel.posts.removeAll { $0.id == postId }
-                        }
+                        withAnimation { viewModel.posts.removeAll { $0.id == postId } }
                     }
                 }
+
+                // نافذة تعديل البروفايل
                 .fullScreenCover(isPresented: $showEditProfile) {
                     EditProfileView(userProfile: viewModel.userProfile)
+                }
+
+                // ✅ وجهة التنقّل للـ Settings
+                .fullScreenCover(isPresented: $goToSettings) {
+                    NavigationStack {
+                        SettingsView()
+                    }
+                }
+
+                // ✅ عرض تفاصيل البوست بالـ item API (لا يوجد شاشة بيضاء)
+                .fullScreenCover(item: $selectedPost) { post in
+                    NavigationStack {
+                        PostDetailView(post: post)
+                    }
                 }
         }
     }
@@ -122,8 +142,8 @@ struct PlayerProfileContentView: View {
         HStack {
             Menu {
                 Picker("Filter", selection: $postFilter) {
-                    ForEach(PostFilter.allCases, id: \.self) { filterOption in
-                        Text(filterOption.rawValue).tag(filterOption)
+                    ForEach(PostFilter.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
                     }
                 }
             } label: {
@@ -141,8 +161,8 @@ struct PlayerProfileContentView: View {
             
             Menu {
                 Picker("Sort", selection: $postSort) {
-                    ForEach(PostSort.allCases, id: \.self) { sortOption in
-                        Text(sortOption.rawValue).tag(sortOption)
+                    ForEach(PostSort.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
                     }
                 }
             } label: {
@@ -165,17 +185,21 @@ struct PlayerProfileContentView: View {
 
     private var postsGrid: some View {
         LazyVGrid(columns: postColumns, spacing: 12) {
-            // Use the computed property directly
             ForEach(filteredAndSortedPosts) { post in
-                NavigationLink(destination: PostDetailView(post: post)) {
+                Button {
+                    selectedPost = post          // ✅ فقط نحدد العنصر
+                } label: {
                     ZStack(alignment: .topTrailing) {
                         AsyncImage(url: URL(string: post.imageName)) { image in
                             image.resizable().aspectRatio(1, contentMode: .fill)
                         } placeholder: {
-                            RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.05)).frame(height: 110)
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.black.opacity(0.05))
+                                .frame(height: 110)
                         }
-                        .frame(minWidth: 0, maxWidth: .infinity).clipped()
-                        
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .clipped()
+
                         if post.isPrivate {
                             Image(systemName: "lock.fill")
                                 .font(.caption)
@@ -188,20 +212,18 @@ struct PlayerProfileContentView: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+                .buttonStyle(.plain)
             }
         }
-        // MARK: - MODIFIED: New animation logic
-        // This animates the contents of the grid when the filter changes.
         .animation(.default, value: postFilter)
-        // This creates a fade transition when the whole grid is replaced.
         .transition(.opacity.animation(.easeInOut(duration: 0.2)))
-        // By changing the grid's ID when the sort order changes, we tell SwiftUI to replace it, triggering the transition above.
         .id(postSort)
         .refreshable { await viewModel.fetchAllData() }
     }
+
 }
 
-// MARK: - Edit Profile View (Unchanged)
+// MARK: - Edit Profile View
 struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var userProfile: UserProfile
@@ -232,8 +254,36 @@ struct EditProfileView: View {
     private let db = Firestore.firestore()
     private let positions = ["Attacker", "Midfielder", "Defender"]
     
+    
+    // MARK: - Validation Properties (NEW)
     private var isEmailFieldValid: Bool { isValidEmail(email) }
-    private var isFormValid: Bool { isEmailFieldValid && !name.isEmpty && !position.isEmpty }
+    
+    private var isNameValid: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        // Allows letters, spaces, and common name characters like apostrophes or hyphens
+        let pattern = #"^[\p{L}][\p{L}\s.'-]*$"#
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private var isWeightValid: Bool {
+        guard let w = Int(weight) else { return false }
+        return (15...200).contains(w) // Realistic weight in kg
+    }
+
+    private var isHeightValid: Bool {
+        guard let h = Int(height) else { return false }
+        return (100...230).contains(h) // Realistic height in cm
+    }
+
+    // Main form validation check (UPDATED)
+    private var isFormValid: Bool {
+        isNameValid &&
+        isEmailFieldValid &&
+        isWeightValid &&
+        isHeightValid &&
+        !position.isEmpty
+    }
     
     init(userProfile: UserProfile) {
         self.userProfile = userProfile
@@ -271,17 +321,24 @@ struct EditProfileView: View {
             }
             
             if showInfoOverlay {
-                InfoOverlay(primary: primary, title: overlayMessage, isError: overlayIsError, onOk: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showInfoOverlay = false }
-                    if !overlayIsError { dismiss() }
-                })
-                .transition(.scale.combined(with: .opacity)).zIndex(1)
+                InfoOverlay(primary: primary,
+                            title: overlayMessage,
+                            isError: overlayIsError,
+                            onOk: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    showInfoOverlay = false
+                                }
+                                if !overlayIsError { dismiss() }
+                            })
+                .transition(.scale.combined(with: .opacity))
+                .zIndex(1)
             }
         }
         .navigationBarBackButtonHidden(true)
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self), let newImage = UIImage(data: data) {
+                if let data = try? await newItem?.loadTransferable(type: Data.self),
+                   let newImage = UIImage(data: data) {
                     await MainActor.run { self.profileImage = newImage }
                 }
             }
@@ -291,82 +348,120 @@ struct EditProfileView: View {
 
     private var header: some View {
         ZStack {
-            Text("Edit Profile").font(.custom("Poppins", size: 28)).fontWeight(.medium).foregroundColor(primary)
+            Text("Edit Profile")
+                .font(.custom("Poppins", size: 28))
+                .fontWeight(.medium)
+                .foregroundColor(primary)
             HStack {
                 Button { dismiss() } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold)).foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05)))
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(primary)
+                        .padding(10)
+                        .background(Circle().fill(Color.black.opacity(0.05)))
                 }
                 Spacer()
             }
-        }.padding(.top)
+        }
+        .padding(.top)
     }
 
     private var profilePictureSection: some View {
         VStack {
             Image(uiImage: profileImage ?? UIImage(systemName: "person.circle.fill")!)
-                .resizable().aspectRatio(contentMode: .fill).frame(width: 100, height: 100).clipShape(Circle()).foregroundColor(.gray.opacity(0.5))
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 100, height: 100)
+                .clipShape(Circle())
+                .foregroundColor(.gray.opacity(0.5))
             PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                Text("Change Picture").font(.custom("Poppins", size: 16)).fontWeight(.semibold).foregroundColor(primary)
-            }.padding(.top, 4)
-        }.frame(maxWidth: .infinity)
+                Text("Change Picture")
+                    .font(.custom("Poppins", size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundColor(primary)
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
     }
 
-    private var formFields: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            field(label: "Name", text: $name)
-            
-            fieldLabel("Position")
-            buttonLikeField {
-                HStack {
-                    Text(position.isEmpty ? "Select position" : position).font(.custom("Poppins", size: 16)).foregroundColor(position.isEmpty ? .gray : primary)
-                    Spacer()
-                    Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
-                }
-            } onTap: { showPositionPicker = true }
-            .sheet(isPresented: $showPositionPicker) {
-                PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
-                    .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
-            }
-            
-            field(label: "Height (cm)", text: $height, keyboardType: .numberPad)
-            field(label: "Weight (kg)", text: $weight, keyboardType: .numberPad)
-            
-            fieldLabel("Date of birth")
-            buttonLikeField {
-                HStack {
-                    Text(dob.map { formatDate($0) } ?? "Select date").font(.custom("Poppins", size: 16)).foregroundColor(dob == nil ? .gray : primary)
-                    Spacer()
-                    Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
-                }
-            } onTap: {
-                tempDOB = dob ?? Date(); showDOBPicker = true
-            }
-            .sheet(isPresented: $showDOBPicker) {
-                DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
-                    .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
-            }
-            
-            fieldLabel("Location")
-            buttonLikeField {
-                HStack {
-                    Text(location.isEmpty ? "Select city" : location).font(.custom("Poppins", size: 16)).foregroundColor(location.isEmpty ? .gray : primary)
-                    Spacer()
-                    Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
-                }
-            } onTap: {
-                locationSearch = ""; showLocationPicker = true
-            }
-            .sheet(isPresented: $showLocationPicker) {
-                LocationPickerSheet(title: "Select your city", allCities: SAUDI_CITIES, selection: $location, searchText: $locationSearch, showSheet: $showLocationPicker, accent: primary)
-                    .presentationDetents([.large]).presentationBackground(.white).presentationCornerRadius(28)
-            }
-            
-            field(label: "Email", text: $email, keyboardType: .emailAddress)
-            if !email.isEmpty && !isEmailFieldValid {
-                Text("Please enter a valid email address.").font(.system(size: 13)).foregroundColor(.red)
-            }
-        }
-    }
+    // MODIFIED: Added validation UI to form fields
+       private var formFields: some View {
+           VStack(alignment: .leading, spacing: 20) {
+               // --- NAME ---
+               field(label: "Name", text: $name, isValid: isNameValid)
+               if !name.isEmpty && !isNameValid {
+                   Text("Please enter a valid name (letters and spaces only).")
+                       .font(.caption).foregroundColor(.red)
+               }
+
+               // --- POSITION ---
+               fieldLabel("Position")
+               buttonLikeField {
+                   HStack {
+                       Text(position.isEmpty ? "Select position" : position).font(.custom("Poppins", size: 16)).foregroundColor(position.isEmpty ? .gray : primary)
+                       Spacer()
+                       Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
+                   }
+               } onTap: { showPositionPicker = true }
+               .sheet(isPresented: $showPositionPicker) {
+                   PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
+                       .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
+               }
+               
+               // --- HEIGHT ---
+               field(label: "Height (cm)", text: $height, keyboardType: .numberPad, isValid: isHeightValid)
+               if !height.isEmpty && !isHeightValid {
+                   Text("Enter a realistic height between 100–230 cm.")
+                       .font(.caption).foregroundColor(.red)
+               }
+               
+               // --- WEIGHT ---
+               field(label: "Weight (kg)", text: $weight, keyboardType: .numberPad, isValid: isWeightValid)
+               if !weight.isEmpty && !isWeightValid {
+                   Text("Enter a realistic weight between 15–200 kg.")
+                       .font(.caption).foregroundColor(.red)
+               }
+               
+               // --- DATE OF BIRTH ---
+               fieldLabel("Date of birth")
+               buttonLikeField {
+                   HStack {
+                       Text(dob.map { formatDate($0) } ?? "Select date").font(.custom("Poppins", size: 16)).foregroundColor(dob == nil ? .gray : primary)
+                       Spacer()
+                       Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
+                   }
+               } onTap: {
+                   tempDOB = dob ?? Date(); showDOBPicker = true
+               }
+               .sheet(isPresented: $showDOBPicker) {
+                   DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
+                       .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
+               }
+               
+               // --- LOCATION ---
+               fieldLabel("Location")
+               buttonLikeField {
+                   HStack {
+                       Text(location.isEmpty ? "Select city" : location).font(.custom("Poppins", size: 16)).foregroundColor(location.isEmpty ? .gray : primary)
+                       Spacer()
+                       Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
+                   }
+               } onTap: {
+                   locationSearch = ""; showLocationPicker = true
+               }
+               .sheet(isPresented: $showLocationPicker) {
+                   LocationPickerSheet(title: "Select your city", allCities: SAUDI_CITIES, selection: $location, searchText: $locationSearch, showSheet: $showLocationPicker, accent: primary)
+                       .presentationDetents([.large]).presentationBackground(.white).presentationCornerRadius(28)
+               }
+               
+               // --- EMAIL ---
+               field(label: "Email", text: $email, keyboardType: .emailAddress, isValid: isEmailFieldValid)
+               if !email.isEmpty && !isEmailFieldValid {
+                   Text("Please enter a valid email address.").font(.system(size: 13)).foregroundColor(.red)
+               }
+           }
+       }
 
     private var togglesSection: some View {
         VStack(spacing: 16) {
@@ -378,10 +473,15 @@ struct EditProfileView: View {
     private var updateButton: some View {
         Button { Task { await saveChanges() } } label: {
             HStack {
-                Text("Update").font(.custom("Poppins", size: 18)).foregroundColor(.white)
+                Text("Update")
+                    .font(.custom("Poppins", size: 18))
+                    .foregroundColor(.white)
                 if isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule())
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(primary)
+            .clipShape(Capsule())
         }
         .disabled(!isFormValid || isSaving)
         .opacity((!isFormValid || isSaving) ? 0.6 : 1.0)
@@ -389,11 +489,13 @@ struct EditProfileView: View {
 
     private func saveChanges() async {
         guard let uid = Auth.auth().currentUser?.uid else {
-            overlayMessage = "User not authenticated"; overlayIsError = true; showInfoOverlay = true; return
+            overlayMessage = "User not authenticated"
+            overlayIsError = true
+            showInfoOverlay = true
+            return
         }
         
         isSaving = true
-        
         do {
             var userUpdates: [String: Any] = [
                 "firstName": name.split(separator: " ").first.map(String.init) ?? name,
@@ -402,7 +504,10 @@ struct EditProfileView: View {
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             
-            if let newImage = profileImage, let oldImage = userProfile.profileImage, newImage != oldImage, let imageData = newImage.jpegData(compressionQuality: 0.8) {
+            if let newImage = profileImage,
+               let oldImage = userProfile.profileImage,
+               newImage != oldImage,
+               let imageData = newImage.jpegData(compressionQuality: 0.8) {
                 let fileName = "\(UUID().uuidString).jpg"
                 let ref = Storage.storage().reference().child("profile/\(uid)/\(fileName)")
                 _ = try await ref.putDataAsync(imageData)
@@ -413,82 +518,158 @@ struct EditProfileView: View {
             try await db.collection("users").document(uid).setData(userUpdates, merge: true)
             
             var profileUpdates: [String: Any] = [
-                "position": position, "weight": Int(weight) ?? 0, "height": Int(height) ?? 0,
-                "location": location, "isEmailVisible": isEmailVisible,
+                "position": position,
+                "weight": Int(weight) ?? 0,
+                "height": Int(height) ?? 0,
+                "location": location,
+                "isEmailVisible": isEmailVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             if let dob = dob { profileUpdates["dateOfBirth"] = Timestamp(date: dob) }
             
-            try await db.collection("users").document(uid).collection("player").document("profile").setData(profileUpdates, merge: true)
+            try await db.collection("users").document(uid)
+                .collection("player").document("profile")
+                .setData(profileUpdates, merge: true)
             
             await MainActor.run {
-                userProfile.name = name; userProfile.position = position; userProfile.weight = "\(weight)kg"
-                userProfile.height = "\(height)cm"; userProfile.location = location; userProfile.email = email
+                userProfile.name = name
+                userProfile.position = position
+                userProfile.weight = "\(weight)kg"
+                userProfile.height = "\(height)cm"
+                userProfile.location = location
+                userProfile.email = email
                 userProfile.isEmailVisible = isEmailVisible
                 if let dob = dob {
-                    let ageComponents = Calendar.current.dateComponents([.year], from: dob, to: Date())
-                    userProfile.age = "\(ageComponents.year ?? 0)"
+                    let comps = Calendar.current.dateComponents([.year], from: dob, to: Date())
+                    userProfile.age = "\(comps.year ?? 0)"
                 }
                 if let img = profileImage { userProfile.profileImage = img }
-                
-                overlayMessage = "Profile updated successfully"; overlayIsError = false; showInfoOverlay = true
+                overlayMessage = "Profile updated successfully"
+                overlayIsError = false
+                showInfoOverlay = true
             }
         } catch {
-            overlayMessage = "Failed to update profile: \(error.localizedDescription)"; overlayIsError = true; showInfoOverlay = true
+            overlayMessage = "Failed to update profile: \(error.localizedDescription)"
+            overlayIsError = true
+            showInfoOverlay = true
         }
         isSaving = false
     }
     
-    private func field(label: String, text: Binding<String>, keyboardType: UIKeyboardType = .default) -> some View {
+    // MODIFIED: Added `isValid` parameter for red border overlay
+    private func field(label: String, text: Binding<String>, keyboardType: UIKeyboardType = .default, isValid: Bool) -> some View {
         VStack(alignment: .leading) {
             fieldLabel(label)
             roundedField {
-                TextField("", text: text).font(.custom("Poppins", size: 16)).foregroundColor(primary).tint(primary).keyboardType(keyboardType)
+                TextField("", text: text)
+                    .font(.custom("Poppins", size: 16))
+                    .foregroundColor(primary)
+                    .tint(primary)
+                    .keyboardType(keyboardType)
+                    // Only filter numbers for number pad fields
+                    .onChange(of: text.wrappedValue) { newValue in
+                        if keyboardType == .numberPad {
+                            text.wrappedValue = newValue.filter(\.isNumber)
+                        }
+                    }
             }
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(isValid || text.wrappedValue.isEmpty ? Color.clear : Color.red, lineWidth: 1)
+            )
         }
     }
-
     private func toggleRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Text(title).font(.custom("Poppins", size: 16)).foregroundColor(.black)
+            Text(title)
+                .font(.custom("Poppins", size: 16))
+                .foregroundColor(.black)
             Spacer()
-            Toggle("", isOn: isOn).labelsHidden().tint(primary)
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .tint(primary)
         }
     }
 
     private func fieldLabel(_ title: String) -> some View {
-        Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
+        Text(title)
+            .font(.custom("Poppins", size: 14))
+            .foregroundColor(.gray)
     }
 
     private func roundedField<Content: View>(@ViewBuilder c: () -> Content) -> some View {
-        c().padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity).background(RoundedRectangle(cornerRadius: 14).fill(.white).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.2), lineWidth: 1)))
+        c()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
+            )
     }
     
-    private func buttonLikeField<Content: View>(@ViewBuilder content: () -> Content, onTap: @escaping () -> Void) -> some View {
+    private func buttonLikeField<Content: View>(@ViewBuilder content: () -> Content,
+                                                onTap: @escaping () -> Void) -> some View {
         Button(action: onTap) {
-            content().padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity).background(RoundedRectangle(cornerRadius: 14).fill(.white).shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2))
+            content()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                )
         }
     }
     
     private func formatDate(_ date: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "dd/MM/yyyy"; return f.string(from: date)
+        let f = DateFormatter()
+        f.dateFormat = "dd/MM/yyyy"
+        return f.string(from: date)
     }
 }
 
-
-// MARK: - Profile Helper Views (Unchanged)
+// MARK: - Profile Helper Views
 struct TopNavigationBar: View {
     @ObservedObject var userProfile: UserProfile
     @Binding var showEditProfile: Bool
-    
+    @Binding var goToSettings: Bool
+
     var body: some View {
         HStack {
-            NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
-            Spacer()
-            Button(action: { showEditProfile = true }) {
-                Image(systemName: "square.and.pencil")
+            // Settings
+            Button {
+                goToSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.title2)
+                    .foregroundColor(.primary)
+                    .padding(8) // مساحة لمس فقط - بدون أي خلفية
             }
-        }.font(.title2).foregroundColor(.primary).padding(.top, -15)
+            .buttonStyle(.plain)         // يمنع أي تأثير خلفية افتراضي
+            .contentShape(Rectangle())   // يوسّع منطقة اللمس
+
+            Spacer()
+
+            // Edit profile
+            Button {
+                showEditProfile = true
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.title2)
+                    .foregroundColor(.primary)
+                    .padding(8) // بدون أي خلفية
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
     }
 }
 
@@ -497,8 +678,17 @@ struct ProfileHeaderView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(uiImage: userProfile.profileImage ?? UIImage(systemName: "person.circle.fill")!)
-                .resizable().aspectRatio(contentMode: .fill).frame(width: 100, height: 100).clipShape(Circle()).overlay(Circle().stroke(Color.white, lineWidth: 4)).shadow(radius: 5).foregroundColor(.gray.opacity(0.5))
-            Text(userProfile.name).font(.title2).fontWeight(.bold).foregroundColor(Color(hex: "#36796C"))
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 100, height: 100)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white, lineWidth: 4))
+                .shadow(radius: 5)
+                .foregroundColor(.gray.opacity(0.5))
+            Text(userProfile.name)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(Color(hex: "#36796C"))
         }
     }
 }
@@ -506,7 +696,18 @@ struct ProfileHeaderView: View {
 struct StatsGridView: View {
     @ObservedObject var userProfile: UserProfile
     @State private var showContactInfo = false
-    private var mainStats: [PlayerStat] { [.init(title: "Position", value: userProfile.position), .init(title: "Age", value: userProfile.age), .init(title: "Weight", value: userProfile.weight), .init(title: "Height", value: userProfile.height), .init(title: "Team", value: userProfile.team), .init(title: "Rank", value: userProfile.rank), .init(title: "Score", value: userProfile.score), .init(title: "Location", value: userProfile.location)] }
+    private var mainStats: [PlayerStat] {
+        [
+            .init(title: "Position", value: userProfile.position),
+            .init(title: "Age", value: userProfile.age),
+            .init(title: "Weight", value: userProfile.weight),
+            .init(title: "Height", value: userProfile.height),
+            .init(title: "Team", value: userProfile.team),
+            .init(title: "Rank", value: userProfile.rank),
+            .init(title: "Score", value: userProfile.score),
+            .init(title: "Location", value: userProfile.location)
+        ]
+    }
     private var contactStats: [PlayerStat] {
         var stats: [PlayerStat] = []
         if userProfile.isEmailVisible {
@@ -514,7 +715,12 @@ struct StatsGridView: View {
         }
         return stats
     }
-    private let mainGridColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible())]
+    private let mainGridColumns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible())
+    ]
     let accentColor = Color(hex: "#36796C")
 
     var body: some View {
@@ -529,7 +735,11 @@ struct StatsGridView: View {
                     HStack(spacing: 4) {
                         Text(showContactInfo ? "Show less" : "Show contact info")
                         Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
-                    }.font(.caption).fontWeight(.bold).foregroundColor(accentColor).padding(.top, 8)
+                    }
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(accentColor)
+                    .padding(.top, 8)
                 }
                 if showContactInfo {
                     VStack(alignment: .leading, spacing: 20) {
@@ -546,10 +756,16 @@ struct StatsGridView: View {
 
     private func statItemView(for stat: PlayerStat, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 4) {
-            Text(stat.title).font(.caption).foregroundColor(accentColor)
-            Text(stat.value).font(.headline).fontWeight(.semibold).multilineTextAlignment(alignment == .leading ? .leading : .center)
+            Text(stat.title)
+                .font(.caption)
+                .foregroundColor(accentColor)
+            Text(stat.value)
+                .font(.headline)
+                .fontWeight(.semibold)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
         }
-        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+        .frame(maxWidth: .infinity,
+               alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 }
 
@@ -560,11 +776,12 @@ struct ContentTabView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ContentTabButton(title: "My posts", type: .posts, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-            ContentTabButton(title: "My progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-            ContentTabButton(title: "Endorsements", type: .endorsements, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "My posts",      type: .posts,       selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "My progress",   type: .progress,    selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "Endorsements",  type: .endorsements,selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
-        .font(.headline).fontWeight(.medium)
+        .font(.headline)
+        .fontWeight(.medium)
     }
 }
 
@@ -578,14 +795,19 @@ fileprivate struct ContentTabButton: View {
     var body: some View {
         Button(action: { withAnimation(.easeInOut) { selectedContent = type } }) {
             VStack(spacing: 8) {
-                Text(title).foregroundColor(selectedContent == type ? accentColor : .secondary)
+                Text(title)
+                    .foregroundColor(selectedContent == type ? accentColor : .secondary)
                 if selectedContent == type {
-                    Rectangle().frame(height: 2).foregroundColor(accentColor).matchedGeometryEffect(id: "underline", in: animation)
+                    Rectangle()
+                        .frame(height: 2)
+                        .foregroundColor(accentColor)
+                        .matchedGeometryEffect(id: "underline", in: animation)
                 } else {
                     Color.clear.frame(height: 2)
                 }
             }
-        }.frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -594,9 +816,14 @@ struct EndorsementsListView: View {
     var body: some View {
         VStack(spacing: 16) {
             if endorsements.isEmpty {
-                Text("No endorsements yet.").font(.headline).foregroundColor(.secondary).padding(.top, 40)
+                Text("No endorsements yet.")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 40)
             } else {
-                ForEach(endorsements) { endorsement in EndorsementCardView(endorsement: endorsement) }
+                ForEach(endorsements) { endorsement in
+                    EndorsementCardView(endorsement: endorsement)
+                }
             }
         }
     }
@@ -607,21 +834,38 @@ struct EndorsementCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(endorsement.coachImage).resizable().aspectRatio(contentMode: .fill).frame(width: 44, height: 44).clipShape(Circle())
+                Image(endorsement.coachImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 44, height: 44)
+                    .clipShape(Circle())
                 VStack(alignment: .leading) {
-                    Text(endorsement.coachName).font(.headline).fontWeight(.bold)
+                    Text(endorsement.coachName)
+                        .font(.headline)
+                        .fontWeight(.bold)
                     HStack(spacing: 2) {
-                        ForEach(0..<5) { index in Image(systemName: index < endorsement.rating ? "star.fill" : "star").font(.caption).foregroundColor(.yellow) }
+                        ForEach(0..<5) { i in
+                            Image(systemName: i < endorsement.rating ? "star.fill" : "star")
+                                .font(.caption)
+                                .foregroundColor(.yellow)
+                        }
                     }
                 }
             }
-            Text(endorsement.endorsementText).font(.subheadline).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(endorsement.endorsementText)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding().frame(maxWidth: .infinity, alignment: .leading).background(Color.white).cornerRadius(12).shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 }
 
-// MARK: - Custom Overlay for Notices (Unchanged)
+// MARK: - Custom Overlay for Notices
 struct InfoOverlay: View {
     let primary: Color
     let title: String
@@ -632,16 +876,31 @@ struct InfoOverlay: View {
         ZStack {
             Color.black.opacity(0.4).ignoresSafeArea()
             VStack(spacing: 20) {
-                Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill").font(.system(size: 50)).foregroundColor(isError ? .red : primary)
-                Text(title).font(.custom("Poppins", size: 16)).multilineTextAlignment(.center).padding(.horizontal)
-                Button("OK") { onOk() }.font(.custom("Poppins", size: 18)).foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 12).background(primary).clipShape(Capsule())
+                Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundColor(isError ? .red : primary)
+                Text(title)
+                    .font(.custom("Poppins", size: 16))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                Button("OK") { onOk() }
+                    .font(.custom("Poppins", size: 18))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(primary)
+                    .clipShape(Capsule())
             }
-            .padding(EdgeInsets(top: 30, leading: 20, bottom: 20, trailing: 20)).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous)).shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10).padding(.horizontal, 40)
+            .padding(EdgeInsets(top: 30, leading: 20, bottom: 20, trailing: 20))
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+            .padding(.horizontal, 40)
         }
     }
 }
 
-// MARK: - Picker Sheets (Unchanged)
+// MARK: - Picker Sheets
 private struct PositionWheelPickerSheet: View {
     let positions: [String]
     @Binding var selection: String
@@ -651,13 +910,35 @@ private struct PositionWheelPickerSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Select your position").font(.custom("Poppins", size: 18)).foregroundColor(primary).frame(maxWidth: .infinity).padding(.top, 16)
+            Text("Select your position")
+                .font(.custom("Poppins", size: 18))
+                .foregroundColor(primary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
             Picker("", selection: $tempSelection) {
-                ForEach(positions, id: \.self) { pos in Text(pos).tag(pos) }
-            }.pickerStyle(.wheel).labelsHidden().frame(height: 180)
-            Button("Done") { selection = tempSelection; showSheet = false }.font(.custom("Poppins", size: 18)).foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 12).background(primary).clipShape(Capsule()).padding(.bottom, 16)
+                ForEach(positions, id: \.self) { pos in
+                    Text(pos).tag(pos)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(height: 180)
+            Button("Done") {
+                selection = tempSelection
+                showSheet = false
+            }
+            .font(.custom("Poppins", size: 18))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(primary)
+            .clipShape(Capsule())
+            .padding(.bottom, 16)
         }
-        .onAppear { tempSelection = selection.isEmpty ? (positions.first ?? "") : selection }.padding(.horizontal, 20)
+        .onAppear {
+            tempSelection = selection.isEmpty ? (positions.first ?? "") : selection
+        }
+        .padding(.horizontal, 20)
     }
 }
 
@@ -678,19 +959,34 @@ private struct LocationPickerSheet: View {
         NavigationStack {
             List {
                 ForEach(filtered, id: \.self) { city in
-                    Button { selection = city; showSheet = false } label: {
+                    Button {
+                        selection = city
+                        showSheet = false
+                    } label: {
                         HStack {
                             Text(city).foregroundColor(.black)
                             Spacer()
-                            if city == selection { Image(systemName: "checkmark.circle.fill").foregroundColor(accent) }
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+                            if city == selection {
+                                Image(systemName: "checkmark.circle.fill").foregroundColor(accent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .listStyle(.plain).searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search city").navigationTitle(Text(title))
+            .listStyle(.plain)
+            .searchable(text: $searchText,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search city")
+            .navigationTitle(Text(title))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showSheet = false } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 20, weight: .semibold)).foregroundColor(.secondary) }
+                    Button { showSheet = false } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -705,14 +1001,49 @@ private struct DateWheelPickerSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Select your birth date").font(.custom("Poppins", size: 18)).foregroundColor(primary).frame(maxWidth: .infinity).padding(.top, 16)
-            DatePicker("", selection: $tempSelection, in: ...Date(), displayedComponents: .date).datePickerStyle(.wheel).labelsHidden().tint(primary).frame(height: 180)
-            Button("Done") { selection = tempSelection; showSheet = false }.font(.custom("Poppins", size: 18)).foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 12).background(primary).clipShape(Capsule()).padding(.bottom, 16)
-        }.padding(.horizontal, 20)
+            Text("Select your birth date")
+                .font(.custom("Poppins", size: 18))
+                .foregroundColor(primary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+            DatePicker("",
+                       selection: $tempSelection,
+                       in: ...Date(),
+                       displayedComponents: .date)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .tint(primary)
+                .frame(height: 180)
+            Button("Done") {
+                selection = tempSelection
+                showSheet = false
+            }
+            .font(.custom("Poppins", size: 18))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(primary)
+            .clipShape(Capsule())
+            .padding(.bottom, 16)
+        }
+        .padding(.horizontal, 20)
     }
 }
 
 // MARK: - Saudi cities (English)
 private let SAUDI_CITIES: [String] = [
-    "Riyadh", "Jeddah", "Mecca", "Medina", "Dammam", "Khobar", "Dhahran", "Taif", "Tabuk", "Abha", "Khamis Mushait", "Jizan", "Najran", "Hail", "Buraydah", "Unaizah", "Al Hofuf", "Al Mubarraz", "Jubail", "Yanbu", "Rabigh", "Al Baha", "Bisha", "Al Majmaah", "Al Zulfi", "Sakaka", "Arar", "Qurayyat", "Rafha", "Turaif", "Tarut", "Qatif", "Safwa", "Saihat", "Al Khafji", "Al Ahsa", "Al Qassim", "Al Qaisumah", "Sharurah", "Tendaha", "Wadi ad-Dawasir", "Al Qurayyat", "Tayma", "Umluj", "Haql", "Al Wajh", "Al Lith", "Al Qunfudhah", "Sabya", "Abu Arish", "Samtah", "Baljurashi", "Al Mandaq", "Qilwah", "Al Namas", "Tanomah", "Mahd adh Dhahab", "Badr", "Al Ula", "Khaybar", "Al Bukayriyah", "Riyadh Al Khabra", "Al Rass", "Diriyah", "Al Kharj", "Hotat Bani Tamim", "Al Hariq", "Wadi Al Dawasir", "Afif", "Dawadmi", "Shaqra", "Thadig", "Muzahmiyah", "Rumah", "Ad Dilam", "Al Quwayiyah", "Duba", "Turaif", "Ar Ruwais", "Farasan", "Al Dayer", "Fifa", "Al Aridhah", "Al Bahah City", "King Abdullah Economic City", "Al Uyaynah", "Al Badayea", "Al Uwayqilah", "Bathaa", "Al Jafr", "Thuqbah", "Buqayq (Abqaiq)", "Ain Dar", "Nairyah", "Al Hassa", "Salwa", "Ras Tanura", "Khafji", "Manfouha", "Al Muzahmiyah"
+    "Riyadh", "Jeddah", "Mecca", "Medina", "Dammam", "Khobar", "Dhahran", "Taif", "Tabuk",
+    "Abha", "Khamis Mushait", "Jizan", "Najran", "Hail", "Buraydah", "Unaizah", "Al Hofuf",
+    "Al Mubarraz", "Jubail", "Yanbu", "Rabigh", "Al Baha", "Bisha", "Al Majmaah", "Al Zulfi",
+    "Sakaka", "Arar", "Qurayyat", "Rafha", "Turaif", "Tarut", "Qatif", "Safwa", "Saihat",
+    "Al Khafji", "Al Ahsa", "Al Qassim", "Al Qaisumah", "Sharurah", "Tendaha", "Wadi ad-Dawasir",
+    "Al Qurayyat", "Tayma", "Umluj", "Haql", "Al Wajh", "Al Lith", "Al Qunfudhah", "Sabya",
+    "Abu Arish", "Samtah", "Baljurashi", "Al Mandaq", "Qilwah", "Al Namas", "Tanomah",
+    "Mahd adh Dhahab", "Badr", "Al Ula", "Khaybar", "Al Bukayriyah", "Riyadh Al Khabra",
+    "Al Rass", "Diriyah", "Al Kharj", "Hotat Bani Tamim", "Al Hariq", "Wadi Al Dawasir",
+    "Afif", "Dawadmi", "Shaqra", "Thadig", "Muzahmiyah", "Rumah", "Ad Dilam", "Al Quwayiyah",
+    "Duba", "Turaif", "Ar Ruwais", "Farasan", "Al Dayer", "Fifa", "Al Aridhah", "Al Bahah City",
+    "King Abdullah Economic City", "Al Uyaynah", "Al Badayea", "Al Uwayqilah", "Bathaa",
+    "Al Jafr", "Thuqbah", "Buqayq (Abqaiq)", "Ain Dar", "Nairyah", "Al Hassa", "Salwa",
+    "Ras Tanura", "Khafji", "Manfouha", "Al Muzahmiyah"
 ].sorted()

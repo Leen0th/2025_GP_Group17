@@ -8,7 +8,6 @@ import UIKit
 struct PlayerSetupView: View {
 
     // MARK: - Fields (this screen only)
-    // ❌ phone: أزلناه بناءً على طلبك
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
@@ -52,9 +51,7 @@ struct PlayerSetupView: View {
         return (100...230).contains(h)
     }
 
-    // ❌ isPhoneValid أزيلت
     private var fieldsFilled: Bool {
-        // بدون phone
         !position.isEmpty &&
         !location.isEmpty &&
         isWeightValid &&
@@ -271,9 +268,10 @@ struct PlayerSetupView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $goToProfile) {
-             PlayerProfileContentView()
+        .fullScreenCover(isPresented: $goToProfile) {
+            PlayerProfileView()
         }
+
         .navigationBarBackButtonHidden(true)
         .alert("Notice", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
