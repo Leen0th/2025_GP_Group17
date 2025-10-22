@@ -201,38 +201,76 @@ class VideoProcessingViewModel: ObservableObject {
     }
 
     private func uploadFiles(
-        videoURL: URL,
-        thumbnail: UIImage,
-        userID: String,
-        postID: String
-    ) async throws -> (videoURL: URL, thumbnailURL: URL) {
-        let videoRef = self.storage.reference().child("posts/\(userID)/\(postID).mov")
-        _ = try await videoRef.putFileAsync(from: videoURL)
-        let videoDownloadURL = try await videoRef.downloadURL()
+            videoURL: URL,
+            thumbnail: UIImage,
+            userID: String,
+            postID: String
+        ) async throws -> (videoURL: URL, thumbnailURL: URL) {
 
-        guard let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) else {
-            throw NSError(
-                domain: "Upload",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."]
-            )
+            let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
+            let thumbRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
+
+            let metaVideo = StorageMetadata()
+            metaVideo.contentType = "video/mp4"
+            let metaThumb = StorageMetadata()
+            metaThumb.contentType = "image/jpeg"
+
+            // helper retry func
+            func retry<T>(_ task: @escaping () async throws -> T) async throws -> T {
+                var attempt = 0
+                while true {
+                    do {
+                        return try await task()
+                    } catch {
+                        let nsErr = error as NSError
+                        if nsErr.code == -1017, attempt < 3 {
+                            attempt += 1
+                            print("⚠️ Retry #\(attempt) for Firebase transient error (-1017)")
+                            try await Task.sleep(nanoseconds: UInt64(1_000_000_000 * UInt64(attempt)))
+                            continue
+                        }
+                        throw error
+                    }
+                }
+            }
+
+            // Upload video (using Data, not file)
+            let videoData = try Data(contentsOf: videoURL)
+            try await retry {
+                _ = try await videoRef.putDataAsync(videoData, metadata: metaVideo)
+            }
+
+            // Delay before fetching download URL (Firebase sometimes needs time)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            let videoDownloadURL = try await retry {
+                try await videoRef.downloadURL()
+            }
+
+            // Upload thumbnail
+            guard let thumbData = thumbnail.jpegData(compressionQuality: 0.8) else {
+                throw NSError(domain: "Upload", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
+            }
+            try await retry {
+                _ = try await thumbRef.putDataAsync(thumbData, metadata: metaThumb)
+            }
+
+            try await Task.sleep(nanoseconds: 500_000_000)
+            let thumbDownloadURL = try await retry {
+                try await thumbRef.downloadURL()
+            }
+
+            return (videoDownloadURL, thumbDownloadURL)
         }
-        let thumbRef = self.storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
-        _ = try await thumbRef.putDataAsync(thumbnailData)
-        let thumbnailDownloadURL = try await thumbRef.downloadURL()
 
-        return (videoDownloadURL, thumbnailDownloadURL)
+        private func generateMockStatsAfterDelay() async -> [PFPostStat] {
+            [
+                .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
+                .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
+                .init(label: "BLOCKED", value: Int.random(in: 0...10), maxValue: 10),
+                .init(label: "SHOTS ON TARGET", value: Int.random(in: 1...15), maxValue: 20),
+                .init(label: "CORNERS", value: Int.random(in: 0...15), maxValue: 15),
+                .init(label: "OFFSIDES", value: Int.random(in: 0...8), maxValue: 10)
+            ]
+        }
     }
-
-    // Mock generator for the feedback screen (kept as-is; not stored with max in Firestore)
-    private func generateMockStatsAfterDelay() async -> [PFPostStat] {
-        return [
-            .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
-            .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
-            .init(label: "BLOCKED", value: Int.random(in: 0...10), maxValue: 10),
-            .init(label: "SHOTS ON TARGET", value: Int.random(in: 1...15), maxValue: 20),
-            .init(label: "CORNERS", value: Int.random(in: 0...15), maxValue: 15),
-            .init(label: "OFFSIDES", value: Int.random(in: 0...8), maxValue: 10),
-        ]
-    }
-}

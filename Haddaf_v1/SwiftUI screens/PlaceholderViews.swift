@@ -73,15 +73,60 @@ struct VideoUploadView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 20)
+                    .padding(.bottom, 50)
+
+                    // --- ADDED GUIDELINES ---
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(accentColor)
+                                .font(.headline)
+                                .padding(.top, 2) // Aligns icon with first line of text
+                            Text("Upload a video of you playing.")
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(accentColor)
+                                .font(.headline)
+                                .padding(.top, 2)
+                            Text("Ensure you are clearly visible from the start.")
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(accentColor)
+                                .font(.headline)
+                                .padding(.top, 2)
+                            Text("The maximum video duration is 30 seconds.")
+                                .font(.custom("Poppins", size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 30)
+                    .padding(.vertical, 20)
+                    // --- END ADDED GUIDELINES ---
 
                     Spacer()
 
                     // Main upload area
                     VStack {
                         Spacer()
-                        Image(systemName: "arrow.down.to.line.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(accentColor.opacity(0.7))
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 90, height: 90)
+                                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 3)
+
+                            Image(systemName: "video.badge.plus")
+                                .font(.system(size: 50, weight: .medium))
+                                .foregroundColor(accentColor.opacity(0.9))
+                        }
                         Spacer()
                         PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
                             Text("Choose Video")
@@ -173,9 +218,21 @@ struct VideoUploadView: View {
                     }
                 }
             }
+            // MODIFIED: Pass the binding here
             .navigationDestination(isPresented: $navigateToPinpointing) {
                 if let url = videoURLForNextView {
-                    PinpointPlayerView(videoURL: url)
+                    // Pass the binding so the child view can dismiss itself
+                    PinpointPlayerView(videoURL: url, isPresented: $navigateToPinpointing)
+                }
+            }
+            // ADDED: This modifier is the key
+            .onChange(of: navigateToPinpointing) { _, isNavigating in
+                // When 'isNavigating' becomes false, it means the user
+                // has dismissed PinpointPlayerView by tapping "back".
+                // We reset the state so they can pick a new video.
+                if !isNavigating {
+                    selectedVideoItem = nil
+                    videoURLForNextView = nil
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelUploadFlow)) { _ in
@@ -184,7 +241,6 @@ struct VideoUploadView: View {
         }
     }
 }
-
 
 // MARK: - Custom Warning Overlay View
 private struct DurationWarningOverlay: View {

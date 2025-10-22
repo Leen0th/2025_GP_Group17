@@ -9,7 +9,7 @@ import SwiftUI
 import AVKit
 import Combine
 
-// MARK: - Player View Model (The Fix)
+// MARK: - Player View Model
 @MainActor
 class PlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer
@@ -25,8 +25,6 @@ class PlayerViewModel: NSObject, ObservableObject {
         setupPlayer()
     }
 
-    // MODIFIED: deinit removed and replaced with this cleanup function.
-    // This function will be called from the view to safely remove observers.
     func cleanup() {
         if let timeObserver = timeObserver {
             player.removeTimeObserver(timeObserver)
@@ -37,19 +35,16 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
 
     private func setupPlayer() {
-        // Get video duration asynchronously
         Task {
             if let duration = try? await player.currentItem?.asset.load(.duration) {
                 self.duration = duration.seconds
             }
         }
 
-        // Listen for time updates
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
             self?.currentTime = time.seconds
         }
 
-        // Listen for play/pause state using KVO
         player.addObserver(self, forKeyPath: "timeControlStatus", options: [.new], context: nil)
     }
 
@@ -69,20 +64,18 @@ class PlayerViewModel: NSObject, ObservableObject {
 
     func seek(to time: TimeInterval) {
         let targetTime = CMTime(seconds: time, preferredTimescale: 600)
-        player.seek(to: targetTime)
+        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 }
 
-
-// A helper view to format the video time (e.g., 00:15)
+// Helper: Time Label
 fileprivate struct TimeLabel: View {
     let time: TimeInterval
-    
-    private static var formatter: DateComponentsFormatter = {
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = [.minute, .second]
-        formatter.zeroFormattingBehavior = .pad
-        return formatter
+    private static let formatter: DateComponentsFormatter = {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.minute, .second]
+        f.zeroFormattingBehavior = .pad
+        return f
     }()
     
     var body: some View {
@@ -92,12 +85,10 @@ fileprivate struct TimeLabel: View {
     }
 }
 
-
-// MARK: - Main View (Updated)
+// MARK: - Main View
 struct PinpointPlayerView: View {
-    // Inputs & Environment
     let videoURL: URL
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
     
     @StateObject private var viewModel: PlayerViewModel
     
@@ -105,37 +96,38 @@ struct PinpointPlayerView: View {
     @State private var isFrameConfirmed = false
     @State private var selectedPoint: CGPoint?
     @State private var navigateToProcessing = false
-
+    
     private let accentColor = Color(hex: "#36796C")
-
-    init(videoURL: URL) {
+    
+    init(videoURL: URL, isPresented: Binding<Bool>) {
         self.videoURL = videoURL
+        self._isPresented = isPresented
         _viewModel = StateObject(wrappedValue: PlayerViewModel(videoURL: videoURL))
     }
-
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 headerView
                 instructionsView
                 
-                videoPlayerWithTapArea
+                videoPlayerWithOverlay
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .padding(.horizontal)
-
-                customControlsView
-                    .padding(.horizontal)
-                    .disabled(isFrameConfirmed)
-                    .opacity(isFrameConfirmed ? 0.5 : 1.0)
+                
+                // Only show controls when NOT in pinpoint mode
+                if !isFrameConfirmed {
+                    customControlsView
+                        .padding(.horizontal)
+                        .transition(.opacity)
+                }
                 
                 Spacer()
-                
                 footerButtons
             }
             .background(Color.white)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
-            // MODIFIED: .onDisappear now calls the safe cleanup() function.
             .onDisappear { viewModel.cleanup() }
             .navigationDestination(isPresented: $navigateToProcessing) {
                 if let point = selectedPoint {
@@ -146,16 +138,16 @@ struct PinpointPlayerView: View {
     }
     
     // MARK: - Subviews
-
+    
     private var headerView: some View {
         ZStack {
-            Text("Pinpoint Position")
+            Text("Spot Yourself in Action")
                 .font(.custom("Poppins", size: 28))
                 .fontWeight(.medium)
                 .foregroundColor(accentColor)
             
             HStack {
-                Button { dismiss() } label: {
+                Button { isPresented = false } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(accentColor)
@@ -167,16 +159,18 @@ struct PinpointPlayerView: View {
         }
         .padding(.horizontal)
         .padding(.top, 20)
-        .padding(.bottom, 8)
+        .padding(.bottom, 30)
     }
-
+    
     private var instructionsView: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: isFrameConfirmed ? "2.circle.fill" : "1.circle.fill")
                 .font(.title2)
                 .foregroundColor(accentColor)
             
-            Text(isFrameConfirmed ? "Now, Spot yourself in the video." : "Use the timeline to find a clear moment where you’re visible.")
+            Text(isFrameConfirmed
+                ? "Tap on yourself in the video to mark your position clearly. Then click Continue to proceed."
+                : "Use the timeline below to find a scene where you are fully visible. Then click Confirm Scene.")
                 .font(.custom("Poppins", size: 16))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,29 +179,35 @@ struct PinpointPlayerView: View {
         .padding(.bottom, 20)
         .animation(.easeInOut, value: isFrameConfirmed)
     }
-
-    private var videoPlayerWithTapArea: some View {
+    
+    // MARK: - Video Player with Smart Overlay
+    // MARK: - Video Player with Smart Overlay
+    private var videoPlayerWithOverlay: some View {
         ZStack {
+            // Use VideoPlayer but disable native controls
             VideoPlayer(player: viewModel.player)
+                .disabled(true)                     // prevents native controls
                 .aspectRatio(9/16, contentMode: .fit)
-                .onTapGesture {
-                    guard isFrameConfirmed else { return }
-                    viewModel.player.pause()
-                }
-
+                .allowsHitTesting(false)           // let our overlay handle taps
+            
+            // Only allow tap-to-select when confirmed
             if isFrameConfirmed {
                 GeometryReader { geometry in
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { location in
-                            self.selectedPoint = location
+                            selectedPoint = location
                         }
-
+                    
                     if let point = selectedPoint {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "hand.point.up.left.fill")
                             .font(.title2)
                             .foregroundColor(.white)
-                            .background(Circle().stroke(accentColor, lineWidth: 2))
+                            .background(
+                                Circle()
+                                    .stroke(accentColor, lineWidth: 2)
+                                    .background(Circle().fill(Color.black.opacity(0.3)))
+                            )
                             .position(x: point.x, y: point.y)
                             .shadow(radius: 5)
                             .allowsHitTesting(false)
@@ -215,8 +215,9 @@ struct PinpointPlayerView: View {
                 }
             }
         }
+        .padding(.bottom, 12) 
     }
-
+    
     private var customControlsView: some View {
         HStack(spacing: 12) {
             Button { viewModel.togglePlayPause() } label: {
@@ -224,56 +225,79 @@ struct PinpointPlayerView: View {
                     .font(.title2)
                     .foregroundColor(accentColor)
             }
-
+            
             TimeLabel(time: viewModel.currentTime)
-
-            Slider(value: Binding(get: {
-                viewModel.currentTime
-            }, set: { newTime in
-                viewModel.seek(to: newTime)
-            }), in: 0...viewModel.duration)
+            
+            Slider(value: Binding(
+                get: { viewModel.currentTime },
+                set: { newTime in
+                    viewModel.seek(to: newTime)
+                    viewModel.player.pause() // Pause when scrubbing
+                }
+            ), in: 0...max(viewModel.duration, 0.1))
             .tint(accentColor)
             
             TimeLabel(time: viewModel.duration)
         }
         .padding(.vertical, 8)
     }
-
+    
     private var footerButtons: some View {
         VStack(spacing: 15) {
             if !isFrameConfirmed {
-                Button("Confirm Moment") {
+                Button {
                     withAnimation {
                         isFrameConfirmed = true
                         viewModel.player.pause()
                     }
+                } label: {
+                    HStack {
+                        Text("Confirm Scene")
+                            .font(.custom("Poppins", size: 18))
+                            .fontWeight(.semibold)
+                        Image(systemName: "checkmark")
+                    }
+                    .foregroundColor(accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 25)
+                            .stroke(accentColor, lineWidth: 2)
+                    )
                 }
-                .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
-                .foregroundColor(accentColor)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 25.0).stroke(accentColor, lineWidth: 2))
                 .padding(.horizontal)
             } else {
-                Button("Edit Moment") {
+                Button {
                     withAnimation {
                         isFrameConfirmed = false
                         selectedPoint = nil
                     }
+                } label: {
+                    HStack {
+                        Text("Change Scene")
+                            .font(.custom("Poppins", size: 18))
+                            .fontWeight(.semibold)
+                        Image(systemName: "arrow.left")
+                    }
+                    .foregroundColor(.secondary)
                 }
-                .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
-                .foregroundColor(.secondary)
             }
             
-            Button("Continue") {
+            Button {
                 navigateToProcessing = true
+            } label: {
+                HStack {
+                    Text("Continue")
+                        .font(.custom("Poppins", size: 18))
+                        .fontWeight(.semibold)
+                    Image(systemName: "arrow.right")
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(accentColor)
+                .clipShape(Capsule())
             }
-            .font(.custom("Poppins", size: 18)).fontWeight(.semibold)
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(accentColor)
-            .clipShape(Capsule())
             .padding(.horizontal)
             .disabled(selectedPoint == nil)
             .opacity(selectedPoint == nil ? 0.6 : 1.0)
