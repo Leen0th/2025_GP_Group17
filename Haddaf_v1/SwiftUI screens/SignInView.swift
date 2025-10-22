@@ -224,17 +224,17 @@ struct SignInView: View {
             let ns = error as NSError
             if let authErr = AuthErrorCode(rawValue: ns.code) {
                 switch authErr {
-                case .wrongPassword, .userNotFound, .invalidEmail:
+                case .wrongPassword, .userNotFound, .invalidEmail, .invalidCredential:
                     // Unified message for wrong email/password
-                    signInError = "Email or password is incorrect."
-                case .invalidCredential, .invalidUserToken, .userTokenExpired:
-                    // Friendlier message for the "malformed/expired credential" you saw
+                    signInError = "Email or password is incorrect. Please make sure you entered them correctly."
+                case .invalidUserToken, .userTokenExpired:
+                    // Friendlier message for expired sessions
                     signInError = "Your session has expired. Please try again or reset your password."
                 case .tooManyRequests:
                     // Server-side rate limiting
                     signInError = "Too many attempts. Try again later."
                 default:
-                    // Network error message intentionally not shown; show generic Firebase text otherwise
+                    // Generic Firebase error
                     signInError = ns.localizedDescription
                 }
             } else {
@@ -444,7 +444,7 @@ struct UnifiedVerifySheetSI: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.primary)
 
-                Text("We’ve sent a verification link to \(email).\n")
+                Text("We've sent a verification link to \(email).\n")
                     .font(.system(size: 14))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -485,6 +485,3 @@ struct UnifiedVerifySheetSI: View {
         .background(Color.clear)
     }
 }
-
-
-

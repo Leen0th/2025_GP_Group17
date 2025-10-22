@@ -7,7 +7,11 @@ struct ForgotPasswordView: View {
     // UI state
     @State private var email: String = ""
     @State private var isLoading: Bool = false
-    @State private var message: String? = nil   // success or error under the button
+
+    // Alert state
+    @State private var showAlert: Bool = false
+    @State private var alertTitle: String = ""
+    @State private var alertMessage: String = ""
 
     // Local color (scoped extension name to avoid collisions)
     private let primary = Color(hexVal_fp: "#36796C")
@@ -62,17 +66,8 @@ struct ForgotPasswordView: View {
                         .background(primary)
                         .clipShape(Capsule())
                     }
-                    .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity((isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? 0.6 : 1)
-
-                    // Inline result
-                    if let message {
-                        let isSuccess = message.lowercased().hasPrefix("a reset link has been sent")
-                        Text(message)
-                            .font(.system(size: 14))
-                            .foregroundColor(isSuccess ? .green : .red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    .disabled(isLoading || emailTrimmed.isEmpty)
+                    .opacity((isLoading || emailTrimmed.isEmpty) ? 0.6 : 1)
 
                     Spacer(minLength: 40)
                 }
@@ -90,42 +85,54 @@ struct ForgotPasswordView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .alert(alertTitle, isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    // MARK: - Computed
+
+    private var emailTrimmed: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Reset Logic
 
-    /// Sends a password reset email and maps Firebase errors by domain + code (version-agnostic).
+    /// Sends a password reset email and shows result in a popup alert.
     private func sendResetEmail() async {
-        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidEmail(trimmed) else {
-            message = "Please enter a valid email address."
+        let value = emailTrimmed
+        guard isValidEmail(value) else {
+            presentAlert(title: "Invalid Email", message: "Please enter a valid email address.")
             return
         }
 
         isLoading = true
-        message = nil
 
         do {
-            try await Auth.auth().sendPasswordReset(withEmail: trimmed)
-            message = "A reset link has been sent to your email."
+            try await Auth.auth().sendPasswordReset(withEmail: value)
+            presentAlert(
+                title: "Email Sent",
+                message: "A reset link has been sent to your email. Please set a new password and try to sign in again."
+            )
         } catch {
             let ns = error as NSError
-            // Handle only Firebase Auth errors; otherwise show system message.
             if ns.domain == AuthErrorDomain {
                 switch ns.code {
                 case AuthErrorCode.userNotFound.rawValue:
-                    message = "No account found with this email."
+                    presentAlert(title: "Reset Failed", message: "No account found with this email.")
                 case AuthErrorCode.invalidEmail.rawValue:
-                    message = "The email address is invalid."
+                    presentAlert(title: "Reset Failed", message: "The email address is invalid.")
                 case AuthErrorCode.tooManyRequests.rawValue:
-                    message = "Too many attempts. Try again later."
+                    presentAlert(title: "Too Many Attempts", message: "Please try again later.")
                 case AuthErrorCode.networkError.rawValue:
-                    message = "Network error. Please check your connection."
+                    presentAlert(title: "Network Error", message: "Please check your connection and try again.")
                 default:
-                    message = ns.localizedDescription
+                    presentAlert(title: "Reset Failed", message: ns.localizedDescription)
                 }
             } else {
-                message = ns.localizedDescription
+                presentAlert(title: "Reset Failed", message: ns.localizedDescription)
             }
         }
 
@@ -133,6 +140,12 @@ struct ForgotPasswordView: View {
     }
 
     // MARK: - Helpers
+
+    private func presentAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        showAlert = true
+    }
 
     /// Simple email validation.
     private func isValidEmail(_ value: String) -> Bool {

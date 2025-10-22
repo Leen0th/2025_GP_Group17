@@ -20,16 +20,6 @@ private func hex(_ hex: String) -> Color {
                  opacity: Double(a)/255)
 }
 
-// MARK: - Password Validation
-private func isValidPassword(_ pass: String) -> Bool {
-    guard pass.count >= 8 else { return false }
-    let hasUpper   = pass.range(of: "[A-Z]", options: .regularExpression) != nil
-    let hasLower   = pass.range(of: "[a-z]", options: .regularExpression) != nil
-    let hasDigit   = pass.range(of: "[0-9]", options: .regularExpression) != nil
-    let hasSpecial = pass.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil
-    return hasUpper && hasLower && hasDigit && hasSpecial
-}
-
 struct ChangePasswordView: View {
     // MARK: - Theme
     private let primary = hex("#36796C")
@@ -58,6 +48,11 @@ struct ChangePasswordView: View {
         !current.isEmpty && !newPass.isEmpty && !confirm.isEmpty &&
         newPass == confirm && isValidPassword(newPass)
     }
+    
+    // Check if passwords don't match (for inline error)
+    private var passwordsDontMatch: Bool {
+        !confirm.isEmpty && !newPass.isEmpty && newPass != confirm
+    }
 
     var body: some View {
         ZStack {
@@ -84,23 +79,33 @@ struct ChangePasswordView: View {
                     fieldLabel("New Password")
                     passwordField(text: $newPass,
                                   isShown: $showNew,
-                                  contentType: .password) // 👈 لا نستخدم .newPassword
+                                  contentType: .password)
 
-                    // One-line red rules
-                    if !newPass.isEmpty && !isValidPassword(newPass) {
-                        Text("Password must be at least 8 characters and include uppercase and lowercase letters, a number, and a special symbol.")
-                            .font(.custom("Poppins", size: 12))
-                            .foregroundColor(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 4)
-                            .padding(.top, -6)
+                    // Password requirements bullets - UNDER the field
+                    VStack(alignment: .leading, spacing: 6) {
+                        requirementRow("At least 8 characters", met: hasMinLength(newPass))
+                        requirementRow("At least one uppercase letter (A-Z)", met: hasUppercase(newPass))
+                        requirementRow("At least one lowercase letter (a-z)", met: hasLowercase(newPass))
+                        requirementRow("At least one number (0-9)", met: hasDigit(newPass))
+                        requirementRow("At least one special symbol", met: hasSpecialChar(newPass))
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 6)
 
                     // Confirm
                     fieldLabel("Confirm Password")
                     passwordField(text: $confirm,
                                   isShown: $showConfirm,
                                   contentType: .password)
+                    
+                    // Passwords don't match error
+                    if passwordsDontMatch {
+                        Text("Passwords do not match.")
+                            .font(.custom("Poppins", size: 13))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 4)
+                            .padding(.top, -14)
+                    }
 
                     // Change Button
                     Button(action: changePassword) {
@@ -151,6 +156,22 @@ struct ChangePasswordView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.9), value: showSuccessOverlay)
     }
 
+    // MARK: - Password Validation
+    private func isValidPassword(_ pass: String) -> Bool {
+        guard pass.count >= 8 else { return false }
+        let hasUpper   = pass.range(of: "[A-Z]", options: .regularExpression) != nil
+        let hasLower   = pass.range(of: "[a-z]", options: .regularExpression) != nil
+        let hasDigit   = pass.range(of: "[0-9]", options: .regularExpression) != nil
+        let hasSpecial = pass.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil
+        return hasUpper && hasLower && hasDigit && hasSpecial
+    }
+
+    private func hasMinLength(_ pass: String) -> Bool { pass.count >= 8 }
+    private func hasUppercase(_ pass: String) -> Bool { pass.range(of: "[A-Z]", options: .regularExpression) != nil }
+    private func hasLowercase(_ pass: String) -> Bool { pass.range(of: "[a-z]", options: .regularExpression) != nil }
+    private func hasDigit(_ pass: String) -> Bool { pass.range(of: "[0-9]", options: .regularExpression) != nil }
+    private func hasSpecialChar(_ pass: String) -> Bool { pass.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
+
     // MARK: - UI Parts
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
@@ -159,7 +180,19 @@ struct ChangePasswordView: View {
             .foregroundColor(.black.opacity(0.65))
     }
 
-    /// Password/Text field with eye toggle and NO strong-password yellow overlay
+    private func requirementRow(_ text: String, met: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: met ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 16))
+                .foregroundColor(met ? primary : .gray.opacity(0.4))
+            
+            Text(text)
+                .font(.custom("Poppins", size: 13))
+                .foregroundColor(met ? primary : .gray.opacity(0.6))
+        }
+    }
+
+    /// Password field with eye toggle
     private func passwordField(text: Binding<String>,
                                isShown: Binding<Bool>,
                                contentType: UITextContentType = .password) -> some View {
@@ -167,16 +200,16 @@ struct ChangePasswordView: View {
             Group {
                 if isShown.wrappedValue {
                     TextField("", text: text)
-                        .keyboardType(.asciiCapable)                 // 👈 يمنع الاقتراحات الغريبة
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                        .textContentType(.password)                  // 👈 لا نستخدم .newPassword
+                        .textContentType(.password)
                 } else {
                     SecureField("", text: text)
-                        .keyboardType(.asciiCapable)                 // 👈
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                        .textContentType(.password)                  // 👈
+                        .textContentType(.password)
                 }
             }
             .font(.custom("Poppins", size: 16))
@@ -231,7 +264,7 @@ struct ChangePasswordView: View {
         let credential = EmailAuthProvider.credential(withEmail: email, password: current)
         user.reauthenticate(with: credential) { _, error in
             if let error = error {
-                alertMessage = "Current password is incorrect: \(error.localizedDescription)"
+                alertMessage = "Current password is incorrect. Please make sure you entered it correctly."
                 showErrorAlert = true
                 return
             }

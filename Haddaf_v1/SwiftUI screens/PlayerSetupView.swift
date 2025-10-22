@@ -195,8 +195,8 @@ struct PlayerSetupView: View {
                         }
                     }
 
-                    // ========= Location =========
-                    fieldLabel("Location")
+                    // ========= residence =========
+                    fieldLabel("residence")
                     buttonLikeField(action: {
                         locationSearch = ""
                         showLocationPicker = true

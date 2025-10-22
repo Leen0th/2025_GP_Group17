@@ -3,60 +3,87 @@ import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 
-// MARK: - Local color helper
+// MARK: - Color helper
 private func colorHex(_ hex: String) -> Color {
     let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     var int: UInt64 = 0
     Scanner(string: s).scanHexInt64(&int)
     let a, r, g, b: UInt64
     switch s.count {
-    case 3: (a, r, g, b) = (255, (int >> 8) * 17,
-                            (int >> 4 & 0xF) * 17,
-                            (int & 0xF) * 17)
-    case 6: (a, r, g, b) = (255, int >> 16,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-    case 8: (a, r, g, b) = (int >> 24,
-                            int >> 16 & 0xFF,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
+    case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+    case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+    case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
     default:(a, r, g, b) = (255, 0, 0, 0)
     }
-    return Color(.sRGB,
-                 red:   Double(r)/255,
-                 green: Double(g)/255,
-                 blue:  Double(b)/255,
-                 opacity: Double(a)/255)
+    return Color(.sRGB, red: Double(r)/255, green: Double(g)/255, blue: Double(b)/255, opacity: Double(a)/255)
 }
 
-// MARK: - User Role Enum
+// MARK: - User Role
 enum UserRole: String { case player = "Player", coach = "Coach" }
 
-// MARK: - Sign Up Screen
+// MARK: - Country code model/data
+struct CountryDialCode: Identifiable { let id = UUID(); let name: String; let code: String }
+private let countryCodes: [CountryDialCode] = [
+    .init(name: "Saudi Arabia", code: "+966"),
+    .init(name: "Qatar", code: "+974"),
+    .init(name: "United Arab Emirates", code: "+971"),
+    .init(name: "Kuwait", code: "+965"),
+    .init(name: "Bahrain", code: "+973"),
+    .init(name: "Oman", code: "+968"),
+    .init(name: "Jordan", code: "+962"),
+    .init(name: "Egypt", code: "+20"),
+    .init(name: "United States", code: "+1"),
+    .init(name: "United Kingdom", code: "+44"),
+    .init(name: "Germany", code: "+49"),
+    .init(name: "France", code: "+33"),
+    .init(name: "Spain", code: "+34"),
+    .init(name: "Italy", code: "+39"),
+    .init(name: "India", code: "+91"),
+    .init(name: "Pakistan", code: "+92"),
+    .init(name: "Philippines", code: "+63"),
+    .init(name: "Indonesia", code: "+62"),
+    .init(name: "Malaysia", code: "+60"),
+    .init(name: "South Africa", code: "+27"),
+    .init(name: "Canada", code: "+1"),
+    .init(name: "Mexico", code: "+52"),
+    .init(name: "Brazil", code: "+55"),
+    .init(name: "Argentina", code: "+54"),
+    .init(name: "Nigeria", code: "+234"),
+    .init(name: "Russia", code: "+7"),
+    .init(name: "China", code: "+86"),
+    .init(name: "Japan", code: "+81"),
+    .init(name: "South Korea", code: "+82")
+]
+
+// MARK: - Sign Up
 struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // Theme
     private let primary = colorHex("#36796C")
     private let bg = colorHex("#EFF5EC")
-
-    // Must match Firebase Auth email action URL
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     // Fields
     @State private var role: UserRole = .player
     @State private var fullName = ""
     @State private var email = ""
+    @State private var selectedDialCode: CountryDialCode = countryCodes.first { $0.code == "+966" } ?? countryCodes[0]
+    @State private var showDialPicker = false
+    @State private var phoneLocal = ""                 // digits only
+    @State private var phoneNonDigitError = false
     @State private var password = ""
     @State private var isHidden = true
     @State private var dob: Date? = nil
     @State private var showDOBPicker = false
     @State private var tempDOB = Date()
 
+    // Focus
+    @FocusState private var emailFocused: Bool
+
     // Navigation
     @State private var goToPlayerSetup = false
 
-    // Email verification UI/logic
+    // Verify email UI/logic
     @State private var showVerifyPrompt = false
     @State private var verifyTask: Task<Void, Never>? = nil
     @State private var inlineVerifyError: String? = nil
@@ -64,23 +91,32 @@ struct SignUpView: View {
     // Resend cooldown
     @State private var resendCooldown = 0
     @State private var resendTimerTask: Task<Void, Never>? = nil
-    private let resendCooldownSeconds = 30
+    private let resendCooldownSeconds = 60
     private let lastSentKey = "last_verification_email_sent_at"
 
-    // Loading state
+    // Loading / email-exists
     @State private var isSubmitting = false
-
-    // Email-exists inline check (no spinner)
     @State private var emailExists = false
     @State private var emailCheckError: String? = nil
     @State private var emailCheckTask: Task<Void, Never>? = nil
 
+    // Password criteria
+    private var pHasLen: Bool { password.count >= 8 }
+    private var pHasUpper: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
+    private var pHasLower: Bool { password.range(of: "[a-z]", options: .regularExpression) != nil }
+    private var pHasDigit: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
+    private var pHasSpec: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
+
+    // Full name validation/error (last name optional)
+    private var nameError: String? { fullNameValidationError(fullName) }
+
     // Validation
-    private var isNameValid: Bool { isValidFullName(fullName) }
-    private var isPasswordValid: Bool { isValidPassword(password) }
-    private var isEmailValid: Bool { isValidEmail(email) }   // متغيّر محسوب للـ UI فقط
+    private var isNameValid: Bool { nameError == nil && !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isPasswordValid: Bool { pHasLen && pHasUpper && pHasLower && pHasDigit && pHasSpec }
+    private var isEmailValid: Bool { isValidEmail(email) }
+    private var isPhoneValid: Bool { isValidPhone(code: selectedDialCode.code, local: phoneLocal) }
     private var isFormValid: Bool {
-        isNameValid && isPasswordValid && isEmailValid && dob != nil && !emailExists
+        isNameValid && isPasswordValid && isEmailValid && isPhoneValid && dob != nil && !emailExists
     }
 
     var body: some View {
@@ -90,17 +126,30 @@ struct SignUpView: View {
                 VStack(alignment: .leading, spacing: 20) {
 
                     Text("Sign Up")
-                        .font(.custom("Poppins", size: 34))
-                        .fontWeight(.medium)
+                        .font(.custom("Poppins", size: 34)).fontWeight(.medium)
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    HStack(spacing: 28) { rolePill(.player); rolePill(.coach) }
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    // --- ADJUSTED ROLE SELECTION (Pill Segmented Control Style) ---
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("Profile Category", required: true)
+                        
+                        // Role Selection: Player and Coach as segmented buttons
+                        HStack(spacing: 0) {
+                            roleSegmentPill(.player)
+                            roleSegmentPill(.coach)
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.gray.opacity(0.1)) // Light background for the control itself
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    // -------------------------------------------------------------
 
                     // Full Name
-                    fieldLabel("Full Name")
+                    fieldLabel("Full Name", required: true)
                     roundedField {
                         TextField("", text: $fullName)
                             .font(.custom("Poppins", size: 16))
@@ -108,14 +157,12 @@ struct SignUpView: View {
                             .tint(primary)
                             .textInputAutocapitalization(.words)
                     }
-                    if !fullName.isEmpty && !isNameValid {
-                        Text("Please enter a real name (letters only). Numbers are not allowed.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
+                    if let err = nameError, !fullName.isEmpty {
+                        Text(err).font(.system(size: 13)).foregroundColor(.red)
                     }
 
                     // Email
-                    fieldLabel("Email")
+                    fieldLabel("Email", required: true)
                     roundedField {
                         TextField("", text: $email)
                             .keyboardType(.emailAddress)
@@ -124,53 +171,90 @@ struct SignUpView: View {
                             .font(.custom("Poppins", size: 16))
                             .foregroundColor(primary)
                             .tint(primary)
-                            .onChange(of: email) { _ in debouncedEmailCheck() } // يتحقق بدون سبينر
+                            .focused($emailFocused)
+                            .onChange(of: email) { _ in debouncedEmailCheck() }
+                            .onSubmit { checkEmailImmediately() }
                     }
+                    .onChange(of: emailFocused) { focused in if !focused { checkEmailImmediately() } }
 
-                    // Inline email state (بدون "Checking email…")
                     Group {
                         if !email.isEmpty && !isEmailValid {
                             Text("Please enter a valid email address.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.red)
+                                .font(.system(size: 13)).foregroundColor(.red)
                         } else if emailExists {
-                            Text("This email is already registered. Please sign in.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.red)
+                            Text("You already have an account. Please sign in.")
+                                .font(.system(size: 13)).foregroundColor(.red)
                         } else if let err = emailCheckError, !err.isEmpty {
-                            Text(err)
-                                .font(.system(size: 13))
-                                .foregroundColor(.red)
+                            Text(err).font(.system(size: 13)).foregroundColor(.red)
                         }
                     }
 
+                    // PHONE
+                    fieldLabel("Phone number", required: true)
+                    roundedField {
+                        HStack(spacing: 10) {
+                            Button { showDialPicker = true } label: {
+                                HStack(spacing: 6) {
+                                    Text(selectedDialCode.code)
+                                        .font(.custom("Poppins", size: 16))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(primary)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(primary.opacity(0.08))
+                                )
+                            }
+
+                            TextField("", text: Binding(
+                                get: { phoneLocal },
+                                set: { val in
+                                    phoneNonDigitError = val.contains { !$0.isNumber }
+                                    phoneLocal = val.filter { $0.isNumber }
+                                }
+                            ))
+                            .keyboardType(.numberPad)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            .font(.custom("Poppins", size: 16))
+                            .foregroundColor(primary)
+                            .tint(primary)
+                        }
+                    }
+                    if phoneNonDigitError {
+                        Text("Numbers only (0–9).").font(.system(size: 13)).foregroundColor(.red)
+                    } else if !phoneLocal.isEmpty && !isPhoneValid {
+                        Text("Enter a valid phone number.").font(.system(size: 13)).foregroundColor(.red)
+                    }
+
                     // DOB
-                    fieldLabel("Date of birth")
+                    fieldLabel("Date of birth", required: true)
                     buttonLikeField(action: {
                         tempDOB = dob ?? Date()
                         showDOBPicker = true
                     }) {
                         HStack {
-                            Text(dob.map { formatDate($0) } ?? "Select date")
+                            Text(dob.map { formatDate($0) } ?? "")
                                 .font(.custom("Poppins", size: 16))
-                                .foregroundColor(dob == nil ? .gray : primary)
+                                .foregroundColor(primary)
                             Spacer()
-                            Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
+                            Image(systemName: "calendar")
+                                .foregroundColor(primary.opacity(0.85))
                         }
+                        .frame(height: 22)
                     }
                     .sheet(isPresented: $showDOBPicker) {
-                        DateWheelPickerSheet(
-                            selection: $dob,
-                            tempSelection: $tempDOB,
-                            showSheet: $showDOBPicker
-                        )
-                        .presentationDetents([.height(300)])
-                        .presentationBackground(.white)
-                        .presentationCornerRadius(28)
+                        DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
+                            .presentationDetents([.height(300)])
+                            .presentationBackground(.white)
+                            .presentationCornerRadius(28)
                     }
 
                     // Password
-                    fieldLabel("Password")
+                    fieldLabel("Password", required: true)
                     roundedField {
                         ZStack(alignment: .trailing) {
                             if isHidden {
@@ -189,23 +273,26 @@ struct SignUpView: View {
                                     .padding(.trailing, 44)
                             }
                             Button { withAnimation { isHidden.toggle() } } label: {
-                                Image(systemName: isHidden ? "eye.slash" : "eye").foregroundColor(.gray)
+                                Image(systemName: isHidden ? "eye.slash" : "eye")
+                                    .foregroundColor(primary.opacity(0.6))
                             }
                         }
                     }
-                    if !password.isEmpty && !isPasswordValid {
-                        Text("Password must be at least 8 characters and include uppercase and lowercase letters, a number, and a special symbol.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
-                            .fixedSize(horizontal: false, vertical: true)
+
+                    // Password criteria bullets (gray → green)
+                    VStack(alignment: .leading, spacing: 6) {
+                        passwordRuleRow("At least 8 characters", satisfied: pHasLen)
+                        passwordRuleRow("At least one uppercase letter (A–Z)", satisfied: pHasUpper)
+                        passwordRuleRow("At least one lowercase letter (a–z)", satisfied: pHasLower)
+                        passwordRuleRow("At least one number (0–9)", satisfied: pHasDigit)
+                        passwordRuleRow("At least one special symbol", satisfied: pHasSpec)
                     }
+                    .padding(.top, -8)
 
                     // Submit
                     Button { Task { await handleSignUp() } } label: {
                         HStack(spacing: 10) {
-                            Text("Sign Up")
-                                .font(.custom("Poppins", size: 18))
-                                .foregroundColor(.white)
+                            Text("Sign Up").font(.custom("Poppins", size: 18)).foregroundColor(.white)
                             if isSubmitting { ProgressView().scaleEffect(0.9) }
                         }
                         .frame(maxWidth: .infinity)
@@ -221,12 +308,10 @@ struct SignUpView: View {
                     HStack(spacing: 6) {
                         Text("Already have an account?")
                             .font(.custom("Poppins", size: 15))
-                            .foregroundColor(.gray)
-                        NavigationLink { SignInView() } label: {
+                            .foregroundColor(primary.opacity(0.7))
+                        NavigationLink { EmptyView() /*SignInView()*/ } label: {
                             Text("Sign in")
-                                .font(.custom("Poppins", size: 15))
-                                .fontWeight(.semibold)
-                                .foregroundColor(primary)
+                                .font(.custom("Poppins", size: 15)).fontWeight(.semibold).foregroundColor(primary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -236,7 +321,6 @@ struct SignUpView: View {
                 .padding(.bottom, 24)
             }
 
-            // Verify popup
             if showVerifyPrompt {
                 Color.black.opacity(0.35).ignoresSafeArea()
                 SimpleVerifySheet(
@@ -261,39 +345,73 @@ struct SignUpView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
+        .navigationDestination(isPresented: $goToPlayerSetup) {PlayerSetupView() }
         .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
-    }
-
-    // MARK: - Email existence check (debounced, no spinner)
-    private func debouncedEmailCheck() {
-        emailCheckTask?.cancel()
-        emailExists = false
-        emailCheckError = nil
-
-        guard isValidEmail(email) else { return }
-
-        let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        emailCheckTask = Task {
-            try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s
-            do {
-                let methods = try await fetchSignInMethods(for: mail)
-                await MainActor.run {
-                    emailExists = !methods.isEmpty
-                }
-            } catch {
-                await MainActor.run {
-                    emailCheckError = "Couldn't check this email. Please try again."
-                }
-            }
+        .sheet(isPresented: $showDialPicker) {
+            CountryCodePickerSheet(selected: $selectedDialCode, primary: primary)
         }
     }
 
-    private func fetchSignInMethods(for email: String) async throws -> [String] {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[String], Error>) in
-            Auth.auth().fetchSignInMethods(forEmail: email) { methods, error in
-                if let error = error { cont.resume(throwing: error) }
-                else { cont.resume(returning: methods ?? []) }
+    // MARK: - Full name validation (last name optional)
+    private func fullNameValidationError(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Please enter your name." }
+
+        let parts = trimmed.split(separator: " ").map { String($0) }.filter { !$0.isEmpty }
+
+        // Only letters (allow . ' -)
+        let unitRegex = try! NSRegularExpression(pattern: #"^[\p{L}.'-]+$"#, options: [])
+        for p in parts {
+            let range = NSRange(location: 0, length: (p as NSString).length)
+            if unitRegex.firstMatch(in: p, options: [], range: range) == nil {
+                return "Letters only for your first/last name."
+            }
+        }
+
+        // Allow 1 or 2 parts, but not 3+
+        if parts.count >= 3 { return "Please enter only your first and last name." }
+
+        // Total length without spaces ≤ 60
+        if trimmed.replacingOccurrences(of: " ", with: "").count > 60 {
+            return "Full name must be ≤ 60 characters."
+        }
+        return nil
+    }
+
+    // MARK: - Email check (using Firebase Auth dummy user attempt)
+    private func debouncedEmailCheck() {
+        emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidEmail(email) else { return }
+        let mail = trimmed.lowercased()
+        emailCheckTask = Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            let testPassword = UUID().uuidString + "Aa1!"
+            do {
+                let result = try await Auth.auth().createUser(withEmail: mail, password: testPassword)
+                try? await result.user.delete()
+                await MainActor.run { if !Task.isCancelled { emailExists = false } }
+            } catch {
+                let ns = error as NSError
+                await MainActor.run { if !Task.isCancelled { emailExists = (ns.code == AuthErrorCode.emailAlreadyInUse.rawValue) } }
+            }
+        }
+    }
+    private func checkEmailImmediately() {
+        emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidEmail(email) else { return }
+        let mail = trimmed.lowercased()
+        emailCheckTask = Task {
+            let testPassword = UUID().uuidString + "Aa1!"
+            do {
+                let result = try await Auth.auth().createUser(withEmail: mail, password: testPassword)
+                try? await result.user.delete()
+                await MainActor.run { if !Task.isCancelled { emailExists = false } }
+            } catch {
+                let ns = error as NSError
+                await MainActor.run { if !Task.isCancelled { emailExists = (ns.code == AuthErrorCode.emailAlreadyInUse.rawValue) } }
             }
         }
     }
@@ -307,6 +425,7 @@ struct SignUpView: View {
 
         let name = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
         let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let fullPhone = selectedDialCode.code + phoneLocal
 
         do {
             // 1) Create user
@@ -316,17 +435,11 @@ struct SignUpView: View {
             let changeReq = authResult.user.createProfileChangeRequest()
             changeReq.displayName = name
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                changeReq.commitChanges { err in
-                    if let err = err { cont.resume(throwing: err) } else { cont.resume() }
-                }
+                changeReq.commitChanges { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
             }
 
-            // 3) Save local draft
-            let draft = ProfileDraft(fullName: name,
-                                     phone: "",
-                                     role: role.rawValue.lowercased(),
-                                     dob: dob,
-                                     email: mail)
+            // 3) Save local draft (includes phone)
+            let draft = ProfileDraft(fullName: name, phone: fullPhone, role: role.rawValue.lowercased(), dob: dob, email: mail)
             DraftStore.save(draft)
 
             // 4) Send verification email
@@ -372,13 +485,14 @@ struct SignUpView: View {
     @MainActor
     private func finalizeAndGo(for user: User) async {
         if let draft = DraftStore.load() {
-            let (first, lastOpt) = splitName(draft.fullName)
+            let (first, last) = firstLast(from: draft.fullName) // last can be nil
             var data: [String: Any] = [
                 "email": user.email ?? draft.email,
                 "firstName": first,
-                "lastName": lastOpt ?? NSNull(),
+                "lastName": last ?? NSNull(),
                 "role": draft.role,
                 "emailVerified": true,
+                "phone": draft.phone,
                 "createdAt": FieldValue.serverTimestamp()
             ]
             if let d = draft.dob { data["dob"] = Timestamp(date: d) }
@@ -398,7 +512,7 @@ struct SignUpView: View {
     private func resendVerification() async {
         guard let user = Auth.auth().currentUser else { return }
         guard canSendVerificationNow(), resendCooldown == 0 else {
-            inlineVerifyError = "Please wait \(max(0, resendCooldown))s before resending the link."
+            inlineVerifyError = "Please wait \(max(0, resendCooldown)) seconds before resending."
             return
         }
         do {
@@ -420,13 +534,11 @@ struct SignUpView: View {
         acs.url = URL(string: emailActionURL)
         if let bundleID = Bundle.main.bundleIdentifier { acs.setIOSBundleID(bundleID) }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            user.sendEmailVerification(with: acs) { err in
-                if let err = err { cont.resume(throwing: err) } else { cont.resume() }
-            }
+            user.sendEmailVerification(with: acs) { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
         }
     }
 
-    // MARK: - Cooldown / helpers
+    // MARK: - Resend cooldown
     private func startResendCooldown(seconds: Int) {
         resendTimerTask?.cancel()
         resendCooldown = seconds
@@ -439,7 +551,7 @@ struct SignUpView: View {
     }
     private func canSendVerificationNow() -> Bool {
         let last = UserDefaults.standard.integer(forKey: lastSentKey)
-        let now  = Int(Date().timeIntervalSince1970)
+        let now  = Int(Date().timeIntervalSince1970)
         return (now - last) >= resendCooldownSeconds
     }
     private func markVerificationSentNow() {
@@ -447,46 +559,57 @@ struct SignUpView: View {
         UserDefaults.standard.set(now, forKey: lastSentKey)
     }
 
-    // MARK: - Validation helpers
-    private func isValidFullName(_ name: String) -> Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let pattern = #"^[\p{L}][\p{L}\s.'-]*$"#
-        return trimmed.range(of: pattern, options: .regularExpression) != nil
-    }
+    // MARK: - Validators
     private func isValidEmail(_ raw: String) -> Bool {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return false }
-
-        if value.contains("..") { return false } // يمنع النقط المكررة
-
+        if value.contains("..") { return false }
         let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
         return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
     }
-
-    private func isValidPassword(_ pass: String) -> Bool {
-        guard pass.count >= 8 else { return false }
-        let hasUpper   = pass.range(of: "[A-Z]", options: .regularExpression) != nil
-        let hasLower   = pass.range(of: "[a-z]", options: .regularExpression) != nil
-        let hasDigit   = pass.range(of: "[0-9]", options: .regularExpression) != nil
-        let hasSpecial = pass.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil
-        return hasUpper && hasLower && hasDigit && hasSpecial
+    private func isValidPhone(code: String, local: String) -> Bool {
+        guard !local.isEmpty else { return false }
+        let len = local.count
+        var ok = (6...15).contains(len)
+        if code == "+966" { ok = (len == 9) && local.first == "5" } // KSA rule
+        return ok
     }
 
-    // MARK: - UI helpers
-    private func rolePill(_ r: UserRole) -> some View {
-        Button { role = r } label: {
-            HStack(spacing: 8) {
-                Image(systemName: role == r ? "circle.inset.filled" : "circle")
-                    .font(.system(size: 16, weight: .semibold))
-                Text(r.rawValue)
-                    .font(.custom("Poppins", size: 16))
+    // MARK: - Helpers
+
+    // --- NEW roleSegmentPill Helper ---
+    private func roleSegmentPill(_ r: UserRole) -> some View {
+        let isSelected = role == r
+        
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                role = r
             }
-            .foregroundColor(primary)
+        } label: {
+            Text(r.rawValue)
+                .font(.custom("Poppins", size: 16))
+                .fontWeight(.medium)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundColor(isSelected ? .white : primary.opacity(0.8))
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isSelected ? primary : Color.clear)
+                )
+                .padding(2) // Inner padding to show the gray background of the main HStacK
         }
     }
-    private func fieldLabel(_ title: String) -> some View {
-        Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
+    // -----------------------------------
+    
+    // Original rolePill is now removed/replaced
+
+    private func fieldLabel(_ title: String, required: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title).font(.custom("Poppins", size: 14)).foregroundColor(primary.opacity(0.75))
+            if required {
+                Text("*").font(.system(size: 12, weight: .bold)).foregroundColor(.red).padding(.top, -2)
+            }
+        }
     }
     private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
@@ -512,17 +635,27 @@ struct SignUpView: View {
                 )
         }
     }
+    private func passwordRuleRow(_ text: String, satisfied: Bool) -> some View {
+        let color = satisfied ? primary : Color.gray.opacity(0.7)
+        let icon  = satisfied ? "checkmark.circle.fill" : "circle"
+        return HStack(alignment: .center, spacing: 8) {
+            Image(systemName: icon).foregroundColor(color)
+            Text(text).font(.system(size: 13)).foregroundColor(color)
+        }
+    }
     private func formatDate(_ date: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "dd/MM/yyyy"; return f.string(from: date)
     }
-    private func splitName(_ full: String) -> (first: String, last: String?) {
-        let parts = full.split(separator: " ").map { String($0) }
-        guard let first = parts.first else { return ("", nil) }
-        return parts.count > 1 ? (first, parts.dropFirst().joined(separator: " ")) : (first, nil)
+    private func firstLast(from full: String) -> (String, String?) {
+        let parts = full.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ").map(String.init)
+        let first = parts.first ?? ""
+        let last  = parts.count >= 2 ? parts[1] : nil
+        return (first, last)
     }
 }
 
-// MARK: - Simple Verify Sheet (Resend only, smaller)
+
+// MARK: - Verify sheet
 struct SimpleVerifySheet: View {
     let email: String
     let primary: Color
@@ -543,16 +676,14 @@ struct SimpleVerifySheet: View {
                     }
                     Spacer()
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 6)
+                .padding(.horizontal, 8).padding(.top, 6)
 
                 Text("Verify your email")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.primary)
 
-                Text("We’ve sent a verification link to \(email).\n")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                Text("We’ve sent a verification link to \(email).\nOpen the link to verify your email so you can continue sign-up and complete your profile.")
+                    .font(.system(size: 14)).foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
 
@@ -572,8 +703,7 @@ struct SimpleVerifySheet: View {
                         .font(.system(size: 13))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 2)
+                        .padding(.horizontal, 16).padding(.top, 2)
                 }
 
                 Spacer().frame(height: 8)
@@ -587,12 +717,11 @@ struct SimpleVerifySheet: View {
             )
             Spacer()
         }
-        .padding()
-        .background(Color.clear)
+        .padding().background(Color.clear)
     }
 }
 
-// MARK: - Date Wheel Sheet
+// MARK: - Date picker sheet
 private struct DateWheelPickerSheet: View {
     @Binding var selection: Date?
     @Binding var tempSelection: Date
@@ -626,5 +755,42 @@ private struct DateWheelPickerSheet: View {
             .padding(.bottom, 16)
         }
         .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - Country code picker
+private struct CountryCodePickerSheet: View {
+    @Binding var selected: CountryDialCode
+    let primary: Color
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    
+    var body: some View {
+        NavigationView {
+            List {
+                TextField("Search Country Code", text: $query)
+                    .autocorrectionDisabled(true)
+                ForEach(countryCodes.filter { query.isEmpty ? true : $0.name.lowercased().contains(query.lowercased()) }, id: \.id) { country in
+                    Button {
+                        selected = country
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(country.name)
+                            Spacer()
+                            Text(country.code)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .foregroundColor(.primary)
+                }
+            }
+            .navigationTitle("Select Code")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
     }
 }
