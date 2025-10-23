@@ -30,6 +30,7 @@ class UserProfile: ObservableObject {
     @Published var name = "Loading..."
     @Published var position = ""
     @Published var age = ""
+    @Published var dob: Date? = nil
     @Published var weight = ""
     @Published var height = ""
     @Published var team = ""
@@ -37,12 +38,12 @@ class UserProfile: ObservableObject {
     @Published var score = ""
     @Published var location = ""
     @Published var email = ""
-    @Published var phoneNumber = ""
+    @Published var phoneNumber: String = ""
     
     // ✅ FIXED: Added properties back to match EditProfileView
     @Published var isEmailVisible = false
-    @Published var isPhoneVisible = false
-    
+    @Published var isPhoneNumberVisible: Bool = false
+
     @Published var profileImage: UIImage? = UIImage(systemName: "person.circle.fill")
     
     // Endorsements would need their own fetching logic if moved to Firebase

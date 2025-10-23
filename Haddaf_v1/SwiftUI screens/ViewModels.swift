@@ -33,7 +33,6 @@ final class PlayerProfileViewModel: ObservableObject {
         df.dateFormat = "dd/MM/yyyy HH:mm"
 
         // Insert new post immediately into My posts (optimistic UI)
-        // ✅ THIS IS CORRECT. KEEP IT.
         postCreatedObs = NotificationCenter.default.addObserver(
             forName: .postCreated, object: nil, queue: .main
         ) { [weak self] note in
@@ -42,7 +41,6 @@ final class PlayerProfileViewModel: ObservableObject {
                 let newPost = note.userInfo?["post"] as? Post
             else { return }
             
-            // Prevent duplicate if listener already added it
             if !self.posts.contains(where: { $0.id == newPost.id }) {
                  self.posts.insert(newPost, at: 0)
             }
@@ -66,22 +64,27 @@ final class PlayerProfileViewModel: ObservableObject {
         if let t = postDeletedObs { NotificationCenter.default.removeObserver(t) }
     }
 
+    // MODIFIED: Made sequential to prevent race condition
     func fetchAllData() async {
         isLoading = true
         // Set default image immediately
         userProfile.profileImage = UIImage(systemName: "person.circle.fill")
         
-        // Fetch profile data and posts
-        async let _ = fetchProfile()
+        // 1. Await the profile data (and its image) to be fully fetched.
+        await fetchProfile()
+        
+        // 2. ONLY after the profile is loaded, attach the listener for posts.
         listenToMyPosts()
         
-        _ = await (()) // Wait for profile fetch to complete
+        // 3. Now that all data is fetched and listeners are attached, stop loading.
         isLoading = false
     }
 
+    // MODIFIED: Corrected field names to match SignUpView/PlayerSetupView
     func fetchProfile() async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         do {
+            // 'data' is from the main '/users/{uid}' document
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let data = userDoc.data() ?? [:]
 
@@ -89,6 +92,7 @@ final class PlayerProfileViewModel: ObservableObject {
             let last  = (data["lastName"]  as? String) ?? ""
             let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
 
+            // 'p' is from the '/users/{uid}/player/profile' sub-document
             let pDoc = try await db.collection("users").document(uid)
                 .collection("player").document("profile")
                 .getDocument()
@@ -100,36 +104,41 @@ final class PlayerProfileViewModel: ObservableObject {
             if let w = p["weight"] as? Int { userProfile.weight = "\(w)kg" } else { userProfile.weight = "" }
             userProfile.location = (p["location"] as? String) ?? ""
             userProfile.email = (data["email"] as? String) ?? ""
-            userProfile.phoneNumber = (p["phone"] as? String) ?? ""
+            
+            // --- MODIFIED (1) ---
+            // 'phone' is in the main 'data' object
+            userProfile.phoneNumber = (data["phone"] as? String) ?? ""
+            
             userProfile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
-            userProfile.isPhoneVisible = (p["contactVisibility"] as? Bool) ?? false
+            
+            // --- MODIFIED (2) ---
+            // The key is 'contactVisibility' in 'p'
+            userProfile.isPhoneNumberVisible = (p["contactVisibility"] as? Bool) ?? false
 
-            if let ts = p["dateOfBirth"] as? Timestamp {
-                let age = Calendar.current.dateComponents([.year], from: ts.dateValue(), to: Date()).year ?? 0
-                userProfile.age = "\(age)"
+            // --- MODIFIED (3) ---
+            // 'dob' is in the main 'data' object
+            if let dobTimestamp = data["dob"] as? Timestamp { // <-- Read "dob", not "dateOfBirth"
+                let dobDate = dobTimestamp.dateValue()
+                
+                // 1. Set the actual Date object for EditProfileView
+                userProfile.dob = dobDate
+                
+                // 2. Calculate and set the age string for StatsGridView
+                let calendar = Calendar.current
+                let ageComponents = calendar.dateComponents([.year], from: dobDate, to: Date())
+                userProfile.age = "\(ageComponents.year ?? 0)"
             } else {
+                // Ensure they are nil/empty if not found
+                userProfile.dob = nil
                 userProfile.age = ""
             }
 
-            // --- 🛑 OLD SYNCHRONOUS CODE (REMOVED) ---
-            // if let urlStr = data["profilePic"] as? String,
-            //    let url = URL(string: urlStr),
-            //    let bytes = try? Data(contentsOf: url),
-            //    let img = UIImage(data: bytes) {
-            //     userProfile.profileImage = img
-            // } else {
-            //     userProfile.profileImage = UIImage(systemName: "person.circle.fill")
-            // }
-            
-            // --- ✅ NEW ASYNCHRONOUS CODE ---
+            // Asynchronous image fetching
             if let urlStr = data["profilePic"] as? String, !urlStr.isEmpty {
-                // Asynchronously fetch image and update the profile
-                // This no longer blocks the main thread
                 self.userProfile.profileImage = await fetchImage(from: urlStr)
             } else {
                 self.userProfile.profileImage = UIImage(systemName: "person.circle.fill")
             }
-            // --- END OF FIX ---
 
             userProfile.team  = "Unassigned"
             userProfile.rank  = "0"
@@ -139,22 +148,42 @@ final class PlayerProfileViewModel: ObservableObject {
         }
     }
     
-    // --- ✅ NEW ASYNC HELPER FUNCTION ---
     private func fetchImage(from urlString: String) async -> UIImage? {
+        print("---------------------------------")
+        print("ProfileVM: Attempting to fetch image from URL: \(urlString)")
+        
         guard let url = URL(string: urlString) else {
+            print("ProfileVM Error: Invalid URL string. Cannot create URL object.")
+            print("---------------------------------")
             return UIImage(systemName: "person.circle.fill")
         }
         
         do {
-            // This runs in the background, not blocking the UI
-            let (data, _) = try await URLSession.shared.data(from: url)
-            return UIImage(data: data) ?? UIImage(systemName: "person.circle.fill")
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("ProfileVM: Received response. Status code: \(httpResponse.statusCode)")
+                if httpResponse.statusCode != 200 {
+                    print("ProfileVM Error: Download failed with status code \(httpResponse.statusCode). Check Firebase Storage Rules.")
+                }
+            }
+
+            if let image = UIImage(data: data) {
+                print("ProfileVM: Successfully downloaded and created image.")
+                print("---------------------------------")
+                return image
+            } else {
+                print("ProfileVM Error: Downloaded data (\(data.count) bytes) could not be converted to UIImage.")
+                print("---------------------------------")
+                return UIImage(systemName: "person.circle.fill")
+            }
         } catch {
-            print("Failed to download image: \(error)")
+            // This will catch the "cancelled" error if it still happens
+            print("ProfileVM Error: Network request failed. \(error.localizedDescription)")
+            print("---------------------------------")
             return UIImage(systemName: "person.circle.fill")
         }
     }
-    // --- END OF NEW FUNCTION ---
 
     // MARK: - Posts (with static placeholder stats)
     func listenToMyPosts() {
@@ -175,9 +204,7 @@ final class PlayerProfileViewModel: ObservableObject {
                 Task {
                     let mappedPosts: [Post] = await docs.asyncMap { doc in
                         let d = doc.data()
-
-                        // Always show the fixed placeholder stats in UI
-                        let postStats: [PostStat] = self.placeholderStats
+                        let postStats: [PostStat] = self.placeholderStats // Using placeholder
 
                         return Post(
                             id: doc.documentID,
@@ -198,14 +225,12 @@ final class PlayerProfileViewModel: ObservableObject {
                     }
                     
                     await MainActor.run {
-                        // ✅ This is correct. It replaces the whole array.
                         self.posts = mappedPosts
                     }
                 }
             }
     }
 
-    // Fixed placeholder stats used for every post
     private var placeholderStats: [PostStat] {
         [
             PostStat(label: "GOALS",           value: 4),
