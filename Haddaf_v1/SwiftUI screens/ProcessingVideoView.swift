@@ -24,6 +24,7 @@ struct ProcessingVideoView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 20) {
+                // This is your existing spinner, leave it as-is
                 ZStack {
                     Circle().stroke(lineWidth: 12).fill(Color.gray.opacity(0.1))
                     Circle()
@@ -35,13 +36,30 @@ struct ProcessingVideoView: View {
                     Image("Haddaf_logo").resizable().scaledToFit().frame(width: 80, height: 80)
                 }
                 .frame(width: 150, height: 150)
-
+                
                 Text("Please Wait").font(.custom("Poppins-Bold", size: 24)).fontWeight(.bold)
+                
                 Text(viewModel.processingStateMessage)
                     .font(.custom("Poppins-Regular", size: 16))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                
+                // --- ADD THESE LINES ---
+                
+                // 1. The Progress Bar
+                ProgressView(value: viewModel.progress)
+                    .progressViewStyle(LinearProgressViewStyle(tint: accentColor))
+                    .padding(.horizontal, 50)
+                    .animation(.linear, value: viewModel.progress) // Animate progress changes
+                
+                // 2. The Percentage Text
+                Text(String(format: "%.0f%%", viewModel.progress * 100))
+                    .font(.custom("Poppins-Regular", size: 14))
+                    .foregroundColor(accentColor)
+                    .animation(nil, value: viewModel.progress) // Don't animate the text itself
+                
+                // --- END OF ADDED LINES ---
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

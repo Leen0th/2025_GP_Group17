@@ -106,11 +106,6 @@ struct PlayerProfileContentView: View {
                     }
                 )
                 .task { await viewModel.fetchAllData() }
-                .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { note in
-                    if let post = note.userInfo?["post"] as? Post {
-                        withAnimation { viewModel.posts.insert(post, at: 0) }
-                    }
-                }
                 .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
                     if let postId = note.userInfo?["postId"] as? String {
                         withAnimation { viewModel.posts.removeAll { $0.id == postId } }

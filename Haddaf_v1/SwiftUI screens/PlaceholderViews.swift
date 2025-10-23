@@ -158,28 +158,39 @@ struct VideoUploadView: View {
                     Spacer()
                 }
                 
-                // Loading overlay while checking duration
+                // --- MODIFIED: Loading overlay style ---
                 if isCheckingDuration {
+                    // Dark background
                     Color.black.opacity(0.4).ignoresSafeArea()
-                    VStack {
+                        .transition(.opacity)
+                    
+                    // White card
+                    VStack(spacing: 20) {
                         ProgressView()
-                            .tint(.white)
+                            .tint(accentColor)
+                            .scaleEffect(1.5) // Make it a bit larger
+                        
                         Text("Checking video duration...")
-                            .foregroundColor(.white)
-                            .padding(.top, 8)
+                            .font(.custom("Poppins", size: 16))
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
                     }
                     .padding(30)
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(16)
-                    .transition(.opacity)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+                    .padding(.horizontal, 40)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
+                // --- END OF MODIFICATION ---
 
                 // Custom overlay for the duration warning
                 if showDurationAlert {
                     DurationWarningOverlay(isPresented: $showDurationAlert, accentColor: accentColor)
                 }
             }
-            .animation(.easeInOut, value: isCheckingDuration)
+            // --- MODIFIED: Animation for the loading overlay ---
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isCheckingDuration)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showDurationAlert)
             .onChange(of: selectedVideoItem) { _, newItem in
                 // Perform async validation when a video is selected

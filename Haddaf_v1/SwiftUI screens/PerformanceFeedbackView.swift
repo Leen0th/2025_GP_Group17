@@ -43,43 +43,53 @@ struct PFStatBarView: View {
 }
 
 // MARK: - AVPlayerViewController wrapper (controls visible, primed to show big play)
+// MARK: - AVPlayerViewController wrapper (controls visible, primed to show big play)
 struct AVKitPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    // 1. Create a Coordinator class to observe the player item
+    class Coordinator {
+        var itemObservation: NSKeyValueObservation?
+    }
 
+    // 2. Implement makeCoordinator
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    // 3. makeUIViewController is now simple
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
-        vc.player = player
-        vc.showsPlaybackControls = true        // ← Apple controls on
+        vc.showsPlaybackControls = true
         vc.videoGravity = .resizeAspect
-        // اجعل زر التشغيل يظهر مباشرةً: شغّل ثانيةً وجمّد
-        context.coordinator.primeControlsIfNeeded(vc)
+        // We will set the player and observer in 'update'
         return vc
     }
 
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
-        uiViewController.player = player
-        uiViewController.showsPlaybackControls = true
-        context.coordinator.primeControlsIfNeeded(uiViewController)
-    }
+    // 4. updateUIViewController does all the work
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        
+        // Don't do anything if the player is the same object
+        guard vc.player !== player else { return }
+        
+        vc.player = player
+        
+        // Clean up any old observer
+        context.coordinator.itemObservation?.invalidate()
+        context.coordinator.itemObservation = nil
+        
+        // Get the new player's item
+        guard let item = player?.currentItem else {
+            return // No item, nothing to observe
+        }
 
-    final class Coordinator {
-        var didPrime = false
-
-        func primeControlsIfNeeded(_ vc: AVPlayerViewController) {
-            guard !didPrime, let p = vc.player else { return }
-            didPrime = true
-            // اضمن أن المؤشر بالبداية ومتوقف
-            p.seek(to: .zero)
-            p.pause()
-            // شغّل بشكل وجيز ثم أوقف لإجبار AVKit على إظهار البانر الكبير
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                p.play()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    p.pause()
-                    p.seek(to: .zero)
-                }
+        // 5. Observe the item's 'status' property
+        context.coordinator.itemObservation = item.observe(\.status, options: [.new, .initial]) { [weak vc] (playerItem, change) in
+            
+            // 6. When status is '.readyToPlay', pause and seek
+            if playerItem.status == .readyToPlay {
+                vc?.player?.pause()
+                vc?.player?.seek(to: .zero)
             }
         }
     }
@@ -92,11 +102,10 @@ struct PerformanceFeedbackView: View {
 
     // Title
     @State private var title: String = ""
-    private let titleLimit = 25
+    private let titleLimit = 15 // This remains 15 as per your last request
 
     // Visibility & posting
     @State private var isPrivate: Bool = false
-    @State private var isPosting = false
     @State private var postingError: String? = nil
 
     // Match Date (optional) – bottom sheet
@@ -107,12 +116,32 @@ struct PerformanceFeedbackView: View {
     // Player
     @State private var player: AVPlayer? = nil
     @State private var endObserver: NSObjectProtocol? = nil
+    
+    @State private var showExitWarning = false
+    
+    @State private var isAnimating = false
 
     private let primary = Color(hexval: "#36796C")
 
+    private var customSpinner: some View {
+        ZStack {
+            // Background circle
+            Circle().stroke(lineWidth: 8).fill(Color.gray.opacity(0.1))
+            
+            // Spinning part
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+                .fill(primary) // Use 'primary' color from this view
+                .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+                .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
+        }
+        .frame(width: 80, height: 80) // Scaled down from 150
+    }
+    
     private var isPostButtonDisabled: Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || trimmed.count > titleLimit || isPosting
+        return trimmed.isEmpty || trimmed.count > titleLimit || viewModel.isUploading
     }
 
     var body: some View {
@@ -120,7 +149,7 @@ struct PerformanceFeedbackView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    videoSection         // ← Apple banner ظاهر من البداية
+                    videoSection
                     statsSection
                     titleVisibilitySection
                     dateRowSection
@@ -140,55 +169,111 @@ struct PerformanceFeedbackView: View {
 
             postButton
         }
-        .disabled(isPosting)
+        .disabled(viewModel.isUploading)
         .overlay(
             ZStack {
-                if isPosting {
+                if viewModel.isUploading {
+                    // Dark background
                     Color.black.opacity(0.4).ignoresSafeArea()
-                    ProgressView().tint(.white)
+                    
+                    // White card
+                    VStack(spacing: 20) {
+                        
+                        // Use the new custom spinner
+                        customSpinner
+                            .onAppear { isAnimating = true }
+                            .onDisappear { isAnimating = false }
+                        
+                        Text("Posting...")
+                            .font(.custom("Poppins", size: 18))
+                            .fontWeight(.medium)
+                        
+                        // Determinate progress bar
+                        ProgressView(value: viewModel.uploadProgress)
+                            .progressViewStyle(LinearProgressViewStyle(tint: primary))
+                            .animation(.linear, value: viewModel.uploadProgress)
+                            .padding(.horizontal, 20) // Added padding
+                        
+                        // Percentage text
+                        Text(String(format: "%.0f%%", viewModel.uploadProgress * 100))
+                            .font(.custom("Poppins", size: 14))
+                            .foregroundColor(primary)
+                            .animation(nil, value: viewModel.uploadProgress)
+                    }
+                    .padding(30)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+                    .padding(.horizontal, 40)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
+            // Animate the overlay's appearance/disappearance
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isUploading)
         )
+        .alert("Discard Video?", isPresented: $showExitWarning) {
+            Button("Discard", role: .destructive) {
+                cancelAndDismiss()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Your video and performance analysis will be discarded.")
+        }
         .alert("Error", isPresented: .constant(postingError != nil)) {
             Button("OK") { postingError = nil }
         } message: { Text(postingError ?? "Unknown error occurred") }
         .onChange(of: title) { _, newVal in
             if newVal.count > titleLimit { title = String(newVal.prefix(titleLimit)) }
         }
+        // --- MODIFIED SHEET FOR CONSISTENT STYLING ---
         .sheet(isPresented: $showDateSheet) {
-            VStack(spacing: 20) {
-                Text("Select your birth date")
-                    .font(.headline)
-                    .padding(.top, 12)
+            VStack(spacing: 16) {
+                // Title (styled like SignUpView)
+                Text("Select match date")
+                    .font(.custom("Poppins", size: 18))
+                    .foregroundColor(primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 16)
 
-                DatePicker("", selection: $tempSheetDate, displayedComponents: .date)
+                // Date Picker (styled like SignUpView)
+                DatePicker("", selection: $tempSheetDate, in: ...Date(), displayedComponents: .date)
                     .datePickerStyle(.wheel)
                     .labelsHidden()
-                    .frame(maxWidth: .infinity)
+                    .tint(primary)
+                    .frame(height: 180)
 
+                // Buttons (styled like SignUpView, but keeping Clear)
                 HStack(spacing: 12) {
                     Button("Clear") {
                         matchDate = nil
                         showDateSheet = false
                     }
+                    .font(.custom("Poppins", size: 16))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
+                    .background(Color.secondary.opacity(0.1))
+                    .foregroundColor(primary.opacity(0.8))
+                    .clipShape(Capsule())
 
                     Button("Done") {
                         matchDate = tempSheetDate
                         showDateSheet = false
                     }
+                    .font(.custom("Poppins", size: 18))
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(primary)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .clipShape(Capsule())
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 20)
+                .padding(.bottom, 16)
             }
-            .presentationDetents([.height(320)])
+            .padding(.horizontal, 20)
+            .presentationDetents([.height(320)]) // Use 320 to fit the 2 buttons
+            .presentationBackground(.white) // Added from SignUpView
+            .presentationCornerRadius(28) // Added from SignUpView
         }
+        // --- END OF MODIFICATION ---
     }
 
     // MARK: - Header
@@ -201,15 +286,12 @@ struct PerformanceFeedbackView: View {
                 .offset(y: 6)
 
             HStack {
-                Button { cancelAndDismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(primary)
-                        .padding(10)
-                        .background(Circle().fill(Color.black.opacity(0.05)))
-                }
+                // Back button has been removed
                 Spacer()
-                Button { cancelAndDismiss() } label: {
+                
+                Button {
+                    showExitWarning = true // Show the warning instead of direct dismiss
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.secondary)
@@ -333,7 +415,6 @@ struct PerformanceFeedbackView: View {
         VStack {
             Button {
                 Task {
-                    isPosting = true
                     do {
                         try await viewModel.createPost(
                             title: title,
@@ -345,7 +426,6 @@ struct PerformanceFeedbackView: View {
                     } catch {
                         postingError = error.localizedDescription
                     }
-                    isPosting = false
                 }
             } label: {
                 Text("post")
@@ -398,14 +478,5 @@ struct PerformanceFeedbackView: View {
         teardownPlayer()
         viewModel.resetAfterPosting()
         NotificationCenter.default.post(name: Notification.Name("cancelUploadFlow"), object: nil)
-    }
-}
-
-// MARK: - Compatibility Shim (keeps compiling if your VM still uses caption API)
-@MainActor
-extension VideoProcessingViewModel {
-    func createPost(title: String, isPrivate: Bool, matchDate: Date?) async throws {
-        // TODO: Update your ViewModel to persist `title` and `matchDate`.
-        try await createPost(caption: title, isPrivate: isPrivate)
     }
 }

@@ -11,21 +11,28 @@ class VideoProcessingViewModel: ObservableObject {
     @Published var processingStateMessage = "Preparing video..."
     @Published var isProcessing = false
     @Published var processingComplete = false
+    
+    // --- PROGRESS PROPERTIES ---
+    @Published var progress: Double = 0.0         // For the initial analysis
+    @Published var isUploading: Bool = false      // For the final post creation
+    @Published var uploadProgress: Double = 0.0 // For the final post creation
+    // --- END ---
+    
     @Published var thumbnail: UIImage?
-    @Published var performanceStats: [PFPostStat] = []
     @Published var videoURL: URL?
+    @Published var performanceStats: [PFPostStat] = []
 
     // Firebase
     let db = Firestore.firestore()
     let storage = Storage.storage()
 
     // MARK: - Processing pipeline
-    // MODIFIED: The main function now takes the URL and pinpoint directly
     func processVideo(url: URL, pinpoint: CGPoint) async {
         isProcessing = true
         defer { isProcessing = false }
         
-        // ADDED: You can now use the pinpoint coordinates
+        self.progress = 0.0 // Reset progress
+        
         print("Player pinpointed at (x,y): (\(pinpoint.x), \(pinpoint.y))")
         // TODO: Send these coordinates to your AI model here.
 
@@ -33,8 +40,8 @@ class VideoProcessingViewModel: ObservableObject {
 
         do {
             processingStateMessage = "Accessing video file..."
-            // MODIFIED: The URL is now passed in directly
             self.videoURL = url
+            self.progress = 0.1 // 10%
 
             // Do thumbnail and (mock) stats in parallel
             async let thumb = generateThumbnail(for: url)
@@ -42,14 +49,25 @@ class VideoProcessingViewModel: ObservableObject {
 
             processingStateMessage = "Generating thumbnail..."
             self.thumbnail = try await thumb
+            self.progress = 0.4 // 40%
 
             processingStateMessage = "Analyzing performance..."
             self.performanceStats = await stats
+            self.progress = 0.8 // 80%
 
             // Keep spinner visible for at least a few seconds
             let elapsed = Date().timeIntervalSince(start)
             if elapsed < 5 {
-                try await Task.sleep(nanoseconds: UInt64((5 - elapsed) * 1_000_000_000))
+                // Instead of a dead wait, animate the progress to 100%
+                let waitTime = 5 - elapsed
+                let steps = 10
+                for i in 1...steps {
+                    try await Task.sleep(nanoseconds: UInt64((waitTime / Double(steps)) * 1_000_000_000))
+                    // Smoothly animate from 0.8 to 1.0
+                    self.progress = 0.8 + (0.2 * (Double(i) / Double(steps)))
+                }
+            } else {
+                self.progress = 1.0 // 100%
             }
 
             processingComplete = true
@@ -60,8 +78,13 @@ class VideoProcessingViewModel: ObservableObject {
     }
 
     // MARK: - Create post
-    func createPost(caption: String, isPrivate: Bool) async throws {
+    // --- MODIFIED: This function now accepts title and matchDate directly ---
+    func createPost(title: String, isPrivate: Bool, matchDate: Date?) async throws {
+        self.isUploading = true
+        self.uploadProgress = 0.0
+        
         guard let uid = Auth.auth().currentUser?.uid else {
+            self.isUploading = false
             throw NSError(
                 domain: "Auth",
                 code: 0,
@@ -69,12 +92,15 @@ class VideoProcessingViewModel: ObservableObject {
             )
         }
         guard let localVideoURL = videoURL, let thumb = thumbnail else {
+            self.isUploading = false
             throw NSError(
                 domain: "Upload",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."]
             )
         }
+        
+        self.uploadProgress = 0.1 // Setup complete
 
         // 1) Upload files
         let postID = UUID().uuidString
@@ -84,6 +110,7 @@ class VideoProcessingViewModel: ObservableObject {
             userID: uid,
             postID: postID
         )
+        self.uploadProgress = 0.6 // Files uploaded
 
         // 2) Author metadata
         let userRef = db.collection("users").document(uid)
@@ -93,22 +120,30 @@ class VideoProcessingViewModel: ObservableObject {
         let last  = (data["lastName"]  as? String) ?? ""
         let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
         let profilePic = (data["profilePic"] as? String) ?? ""
+        self.uploadProgress = 0.7 // Author data fetched
 
         // 3) Create Firestore post document
         let postRef = db.collection("videoPosts").document(postID)
-        let postData: [String: Any] = [
+        var postData: [String: Any] = [
             "authorId": userRef,
             "authorUsername": authorUsername,
             "profilePic": profilePic,
-            "caption": caption,
+            "caption": title, // Use the 'title' parameter here
             "url": videoDL.absoluteString,
             "thumbnailURL": thumbDL.absoluteString,
             "uploadDateTime": Timestamp(date: Date()),
-            "visibility": !isPrivate,   // true = public, false = private
+            "visibility": !isPrivate,  // true = public, false = private
             "likeCount": 0,
             "commentCount": 0
         ]
+        
+        // Add matchDate if it exists
+        if let matchDate = matchDate {
+            postData["matchDate"] = Timestamp(date: matchDate)
+        }
+        
         try await postRef.setData(postData)
+        self.uploadProgress = 0.8 // Post document saved
 
         // 4) Store performance stats (values only) under performanceFeedback/feedback
         let perfRef = postRef.collection("performanceFeedback").document("feedback")
@@ -141,6 +176,7 @@ class VideoProcessingViewModel: ObservableObject {
             perfData = ["stats": dict]
         }
         try await perfRef.setData(perfData)
+        self.uploadProgress = 0.9 // Stats saved
 
         // 5) Build UI Post object with values only (no max, no normalization)
         let postStats: [PostStat]
@@ -165,7 +201,7 @@ class VideoProcessingViewModel: ObservableObject {
             id: postID,
             imageName: thumbDL.absoluteString,
             videoURL: videoDL.absoluteString,
-            caption: caption,
+            caption: title, // Use 'title' here
             timestamp: df.string(from: Date()),
             isPrivate: isPrivate,
             authorName: authorUsername,
@@ -180,6 +216,9 @@ class VideoProcessingViewModel: ObservableObject {
             object: nil,
             userInfo: ["post": newPost]
         )
+        
+        self.uploadProgress = 1.0 // All done!
+        self.isUploading = false
     }
 
     func resetAfterPosting() {
@@ -188,6 +227,11 @@ class VideoProcessingViewModel: ObservableObject {
         thumbnail = nil
         performanceStats = []
         processingStateMessage = "Preparing video..."
+        
+        // --- RESET NEW PROPERTIES ---
+        self.progress = 0.0
+        self.isUploading = false
+        self.uploadProgress = 0.0
     }
 
     // MARK: - Private helpers
@@ -201,76 +245,76 @@ class VideoProcessingViewModel: ObservableObject {
     }
 
     private func uploadFiles(
-            videoURL: URL,
-            thumbnail: UIImage,
-            userID: String,
-            postID: String
-        ) async throws -> (videoURL: URL, thumbnailURL: URL) {
+        videoURL: URL,
+        thumbnail: UIImage,
+        userID: String,
+        postID: String
+    ) async throws -> (videoURL: URL, thumbnailURL: URL) {
 
-            let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
-            let thumbRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
+        let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
+        let thumbRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
 
-            let metaVideo = StorageMetadata()
-            metaVideo.contentType = "video/mp4"
-            let metaThumb = StorageMetadata()
-            metaThumb.contentType = "image/jpeg"
+        let metaVideo = StorageMetadata()
+        metaVideo.contentType = "video/mp4"
+        let metaThumb = StorageMetadata()
+        metaThumb.contentType = "image/jpeg"
 
-            // helper retry func
-            func retry<T>(_ task: @escaping () async throws -> T) async throws -> T {
-                var attempt = 0
-                while true {
-                    do {
-                        return try await task()
-                    } catch {
-                        let nsErr = error as NSError
-                        if nsErr.code == -1017, attempt < 3 {
-                            attempt += 1
-                            print("⚠️ Retry #\(attempt) for Firebase transient error (-1017)")
-                            try await Task.sleep(nanoseconds: UInt64(1_000_000_000 * UInt64(attempt)))
-                            continue
-                        }
-                        throw error
+        // helper retry func
+        func retry<T>(_ task: @escaping () async throws -> T) async throws -> T {
+            var attempt = 0
+            while true {
+                do {
+                    return try await task()
+                } catch {
+                    let nsErr = error as NSError
+                    if nsErr.code == -1017, attempt < 3 {
+                        attempt += 1
+                        print("⚠️ Retry #\(attempt) for Firebase transient error (-1017)")
+                        try await Task.sleep(nanoseconds: UInt64(1_000_000_000 * UInt64(attempt)))
+                        continue
                     }
+                    throw error
                 }
             }
-
-            // Upload video (using Data, not file)
-            let videoData = try Data(contentsOf: videoURL)
-            try await retry {
-                _ = try await videoRef.putDataAsync(videoData, metadata: metaVideo)
-            }
-
-            // Delay before fetching download URL (Firebase sometimes needs time)
-            try await Task.sleep(nanoseconds: 500_000_000)
-            let videoDownloadURL = try await retry {
-                try await videoRef.downloadURL()
-            }
-
-            // Upload thumbnail
-            guard let thumbData = thumbnail.jpegData(compressionQuality: 0.8) else {
-                throw NSError(domain: "Upload", code: 2,
-                              userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
-            }
-            try await retry {
-                _ = try await thumbRef.putDataAsync(thumbData, metadata: metaThumb)
-            }
-
-            try await Task.sleep(nanoseconds: 500_000_000)
-            let thumbDownloadURL = try await retry {
-                try await thumbRef.downloadURL()
-            }
-
-            return (videoDownloadURL, thumbDownloadURL)
         }
 
-        private func generateMockStatsAfterDelay() async -> [PFPostStat] {
-            [
-                .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
-                .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
-                .init(label: "BLOCKED", value: Int.random(in: 0...10), maxValue: 10),
-                .init(label: "SHOTS ON TARGET", value: Int.random(in: 1...15), maxValue: 20),
-                .init(label: "CORNERS", value: Int.random(in: 0...15), maxValue: 15),
-                .init(label: "OFFSIDES", value: Int.random(in: 0...8), maxValue: 10)
-            ]
+        // Upload video (using Data, not file)
+        let videoData = try Data(contentsOf: videoURL)
+        try await retry {
+            _ = try await videoRef.putDataAsync(videoData, metadata: metaVideo)
         }
+
+        // Delay before fetching download URL (Firebase sometimes needs time)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let videoDownloadURL = try await retry {
+            try await videoRef.downloadURL()
+        }
+
+        // Upload thumbnail
+        guard let thumbData = thumbnail.jpegData(compressionQuality: 0.8) else {
+            throw NSError(domain: "Upload", code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
+        }
+        try await retry {
+            _ = try await thumbRef.putDataAsync(thumbData, metadata: metaThumb)
+        }
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let thumbDownloadURL = try await retry {
+            try await thumbRef.downloadURL()
+        }
+
+        return (videoDownloadURL, thumbDownloadURL)
     }
+
+    private func generateMockStatsAfterDelay() async -> [PFPostStat] {
+        [
+            .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
+            .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
+            .init(label: "BLOCKED", value: Int.random(in: 0...10), maxValue: 10),
+            .init(label: "SHOTS ON TARGET", value: Int.random(in: 1...15), maxValue: 20),
+            .init(label: "CORNERS", value: Int.random(in: 0...15), maxValue: 15),
+            .init(label: "OFFSIDES", value: Int.random(in: 0...8), maxValue: 10)
+        ]
+    }
+}

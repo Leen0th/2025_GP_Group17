@@ -33,6 +33,7 @@ final class PlayerProfileViewModel: ObservableObject {
         df.dateFormat = "dd/MM/yyyy HH:mm"
 
         // Insert new post immediately into My posts (optimistic UI)
+        // ✅ THIS IS CORRECT. KEEP IT.
         postCreatedObs = NotificationCenter.default.addObserver(
             forName: .postCreated, object: nil, queue: .main
         ) { [weak self] note in
@@ -40,7 +41,11 @@ final class PlayerProfileViewModel: ObservableObject {
                 let self,
                 let newPost = note.userInfo?["post"] as? Post
             else { return }
-            self.posts.insert(newPost, at: 0)
+            
+            // Prevent duplicate if listener already added it
+            if !self.posts.contains(where: { $0.id == newPost.id }) {
+                 self.posts.insert(newPost, at: 0)
+            }
         }
 
         // Remove post from UI when it gets deleted
@@ -63,9 +68,14 @@ final class PlayerProfileViewModel: ObservableObject {
 
     func fetchAllData() async {
         isLoading = true
+        // Set default image immediately
+        userProfile.profileImage = UIImage(systemName: "person.circle.fill")
+        
+        // Fetch profile data and posts
         async let _ = fetchProfile()
         listenToMyPosts()
-        _ = await (())
+        
+        _ = await (()) // Wait for profile fetch to complete
         isLoading = false
     }
 
@@ -101,14 +111,25 @@ final class PlayerProfileViewModel: ObservableObject {
                 userProfile.age = ""
             }
 
-            if let urlStr = data["profilePic"] as? String,
-               let url = URL(string: urlStr),
-               let bytes = try? Data(contentsOf: url),
-               let img = UIImage(data: bytes) {
-                userProfile.profileImage = img
+            // --- 🛑 OLD SYNCHRONOUS CODE (REMOVED) ---
+            // if let urlStr = data["profilePic"] as? String,
+            //    let url = URL(string: urlStr),
+            //    let bytes = try? Data(contentsOf: url),
+            //    let img = UIImage(data: bytes) {
+            //     userProfile.profileImage = img
+            // } else {
+            //     userProfile.profileImage = UIImage(systemName: "person.circle.fill")
+            // }
+            
+            // --- ✅ NEW ASYNCHRONOUS CODE ---
+            if let urlStr = data["profilePic"] as? String, !urlStr.isEmpty {
+                // Asynchronously fetch image and update the profile
+                // This no longer blocks the main thread
+                self.userProfile.profileImage = await fetchImage(from: urlStr)
             } else {
-                userProfile.profileImage = UIImage(systemName: "person.circle.fill")
+                self.userProfile.profileImage = UIImage(systemName: "person.circle.fill")
             }
+            // --- END OF FIX ---
 
             userProfile.team  = "Unassigned"
             userProfile.rank  = "0"
@@ -117,6 +138,23 @@ final class PlayerProfileViewModel: ObservableObject {
             print("fetchProfile error: \(error)")
         }
     }
+    
+    // --- ✅ NEW ASYNC HELPER FUNCTION ---
+    private func fetchImage(from urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString) else {
+            return UIImage(systemName: "person.circle.fill")
+        }
+        
+        do {
+            // This runs in the background, not blocking the UI
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return UIImage(data: data) ?? UIImage(systemName: "person.circle.fill")
+        } catch {
+            print("Failed to download image: \(error)")
+            return UIImage(systemName: "person.circle.fill")
+        }
+    }
+    // --- END OF NEW FUNCTION ---
 
     // MARK: - Posts (with static placeholder stats)
     func listenToMyPosts() {
@@ -160,6 +198,7 @@ final class PlayerProfileViewModel: ObservableObject {
                     }
                     
                     await MainActor.run {
+                        // ✅ This is correct. It replaces the whole array.
                         self.posts = mappedPosts
                     }
                 }
@@ -178,4 +217,3 @@ final class PlayerProfileViewModel: ObservableObject {
         ]
     }
 }
-
