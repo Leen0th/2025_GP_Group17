@@ -593,7 +593,7 @@ struct EditProfileView: View {
                 "position": position,
                 "weight": Int(weight) ?? 0,
                 "height": Int(height) ?? 0,
-                "location": location,
+                "Residence": location,
                 "isEmailVisible": isEmailVisible,
                 "contactVisibility": isPhoneNumberVisible,
                 "updatedAt": FieldValue.serverTimestamp()
@@ -736,18 +736,30 @@ struct ProfileHeaderView: View {
 struct StatsGridView: View {
     @ObservedObject var userProfile: UserProfile
     @State private var showContactInfo = false
-    private var mainStats: [PlayerStat] {
+    
+    // MARK: - Stat Groups
+    
+    // Group 1: User-input player details (5 items)
+    private var userInputStats: [PlayerStat] {
         [
             .init(title: "Position", value: userProfile.position),
             .init(title: "Age", value: userProfile.age),
             .init(title: "Weight", value: userProfile.weight),
             .init(title: "Height", value: userProfile.height),
-            .init(title: "Team", value: userProfile.team),
-            .init(title: "Rank", value: userProfile.rank),
-            .init(title: "Score", value: userProfile.score),
-            .init(title: "Location", value: userProfile.location)
+            .init(title: "Residence", value: userProfile.location)
         ]
     }
+    
+    // Group 2: System-given performance stats (3 items)
+    private var givenStats: [PlayerStat] {
+        [
+            .init(title: "Team", value: userProfile.team),
+            .init(title: "Rank", value: userProfile.rank),
+            .init(title: "Score", value: userProfile.score)
+        ]
+    }
+    
+    // Group 3: Contact info (unchanged)
     private var contactStats: [PlayerStat] {
         var stats: [PlayerStat] = []
         if userProfile.isEmailVisible {
@@ -758,17 +770,44 @@ struct StatsGridView: View {
         }
         return stats
     }
-    private let mainGridColumns = [
+    
+    // MARK: - Grid Columns
+    
+    // 5 columns for the user input details to keep them on one line
+    private let userInputGridColumns = [
         GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10), GridItem(.flexible())
+        GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible()) // 5th column
     ]
+    
+    // 3 columns for the performance stats
+    private let givenGridColumns = [
+        GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+    
     let accentColor = Color(hex: "#36796C")
 
+    // MARK: - Body
+    
     var body: some View {
-        VStack(spacing: 16) {
-            LazyVGrid(columns: mainGridColumns, spacing: 20) {
-                ForEach(mainStats) { stat in statItemView(for: stat, alignment: .center) }
+        VStack(spacing: 24) { // Increased spacing between sections
+            
+            // --- Section 1: User Input Stats ---
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: userInputGridColumns, spacing: 20) { // Using 5-column grid
+                    ForEach(userInputStats) { stat in statItemView(for: stat, alignment: .center) }
+                }
             }
+            
+            // --- Section 2: Given Stats ---
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: givenGridColumns, spacing: 20) { // Using 3-column grid
+                    ForEach(givenStats) { stat in statItemView(for: stat, alignment: .center) }
+                }
+            }
+            
+            // --- Section 3: Contact Info (Unchanged) ---
             if !contactStats.isEmpty {
                 Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
                     HStack(spacing: 4) {
