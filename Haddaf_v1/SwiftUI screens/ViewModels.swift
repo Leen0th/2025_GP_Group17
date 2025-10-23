@@ -24,9 +24,6 @@ final class PlayerProfileViewModel: ObservableObject {
     private let db = Firestore.firestore()
     private var postsListener: ListenerRegistration?
     private let df = DateFormatter()
-    
-    // --- ADDED: Date-only formatter ---
-    private let df_dateOnly = DateFormatter()
 
     // Observers for post create/delete events
     private var postCreatedObs: NSObjectProtocol?
@@ -35,8 +32,7 @@ final class PlayerProfileViewModel: ObservableObject {
     init() {
         df.dateFormat = "dd/MM/yyyy HH:mm"
         
-        // --- ADDED: Configure the date-only formatter ---
-        df_dateOnly.dateFormat = "MMM d, yyyy" // e.g., "Oct 23, 2025"
+        // --- REMOVED: df_dateOnly is no longer needed here ---
 
         // Insert new post immediately into My posts (optimistic UI)
         postCreatedObs = NotificationCenter.default.addObserver(
@@ -210,14 +206,12 @@ final class PlayerProfileViewModel: ObservableObject {
                     Task {
                         let mappedPosts: [Post] = await docs.asyncMap { doc in
                             let d = doc.data()
-                            let postStats: [PostStat] = self.placeholderStats
+                            let postStats: [PostStat] = self.placeholderStats // Using placeholder
                             let likedBy = (d["likedBy"] as? [String]) ?? []
                             
-                            // --- ADDED: Fetch and format the match date ---
+                            // --- MODIFIED: Fetch the match date as a Date object ---
                             let matchDateTimestamp = d["matchDate"] as? Timestamp
-                            let matchDateStr = matchDateTimestamp.map {
-                                self.df_dateOnly.string(from: $0.dateValue())
-                            }
+                            let matchDate: Date? = matchDateTimestamp?.dateValue()
 
                             return Post(
                                 id: doc.documentID,
@@ -235,7 +229,7 @@ final class PlayerProfileViewModel: ObservableObject {
                                 likedBy: likedBy,
                                 isLikedByUser: likedBy.contains(uid),
                                 stats: postStats,
-                                matchDate: matchDateStr // --- ADDED ---
+                                matchDate: matchDate // --- MODIFIED ---
                             )
                         }
                         
@@ -245,7 +239,7 @@ final class PlayerProfileViewModel: ObservableObject {
                     }
                 }
         }
-    
+
     private var placeholderStats: [PostStat] {
         [
             PostStat(label: "GOALS",           value: 4),

@@ -108,25 +108,72 @@ struct PlayerProfileContentView: View {
     @State private var selectedPost: Post? = nil
     @State private var goToSettings = false
     
+    // --- MODIFIED: Enums for new filter/sort ---
     enum PostFilter: String, CaseIterable {
-        case all = "All", `public` = "Public", `private` = "Private"
+        case all = "All"
+        case `public` = "Public"
+        case `private` = "Private"
     }
     
     enum PostSort: String, CaseIterable {
-        case newestFirst = "Newest", oldestFirst = "Oldest"
+        case newestFirst = "Newest Post First"
+        case oldestFirst = "Oldest Post First"
+        case matchDateNewest = "Newest Match Date"
+        case matchDateOldest = "Oldest Match Date"
     }
 
     @State private var postFilter: PostFilter = .all
     @State private var postSort: PostSort = .newestFirst
+    
+    // --- ADDED: State for search text ---
+    @State private var searchText = ""
 
+    // --- MODIFIED: This property now handles all filtering, searching, and sorting ---
     private var filteredAndSortedPosts: [Post] {
+        
+        // 1. Search Filter (by caption)
+        let searched: [Post]
+        if searchText.isEmpty {
+            searched = viewModel.posts
+        } else {
+            searched = viewModel.posts.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
+        }
+
+        // 2. Type Filter
         let filtered: [Post]
         switch postFilter {
-        case .all:      filtered = viewModel.posts
-        case .public:   filtered = viewModel.posts.filter { !$0.isPrivate }
-        case .private:  filtered = viewModel.posts.filter { $0.isPrivate }
+        case .all:
+            filtered = searched
+        case .public:
+            filtered = searched.filter { !$0.isPrivate }
+        case .private:
+            filtered = searched.filter { $0.isPrivate }
         }
-        return postSort == .newestFirst ? filtered : filtered.reversed()
+
+        // 3. Sort
+        switch postSort {
+        case .newestFirst:
+            // The listener already sorts by uploadDateTime descending,
+            // so we just return the filtered list in its preserved order.
+            return filtered
+        case .oldestFirst:
+            // Return the reversed list.
+            return filtered.reversed()
+        case .matchDateNewest:
+            // Sort by matchDate descending. Posts without a date (nil) go to the end.
+            return filtered.sorted {
+                guard let d1 = $0.matchDate else { return false } // nil d1 goes to end
+                guard let d2 = $1.matchDate else { return true }  // nil d2 goes to end
+                return d1 > d2 // Compare actual dates
+            }
+        case .matchDateOldest:
+            // Sort by matchDate ascending. Posts without a date (nil) go to the end.
+            return filtered.sorted {
+                guard let d1 = $0.matchDate else { return false } // nil d1 goes to end
+                guard let d2 = $1.matchDate else { return true }  // nil d2 goes to end
+                return d1 < d2 // Compare actual dates
+            }
+        }
     }
 
     var body: some View {
@@ -147,8 +194,36 @@ struct PlayerProfileContentView: View {
 
                                 switch selectedContent {
                                 case .posts:
-                                    postControls
-                                    postsGrid
+                                    // --- ADDED: Search Bar ---
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "magnifyingglass")
+                                            .foregroundColor(.secondary)
+                                            .padding(.leading, 8)
+                                        
+                                        TextField("Search by title...", text: $searchText)
+                                            .tint(Color(hex: "#36796C"))
+                                            .submitLabel(.search)
+                                        
+                                        if !searchText.isEmpty {
+                                            Button {
+                                                searchText = ""
+                                                // Dismiss keyboard
+                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .padding(.trailing, 8)
+                                        }
+                                    }
+                                    .padding(.vertical, 10)
+                                    .background(Color.black.opacity(0.05))
+                                    .clipShape(Capsule())
+                                    // --- END: Search Bar ---
+
+                                    postControls // Filter and Sort buttons
+                                    postsGrid    // The grid of posts
+                                    
                                 case .progress:
                                     ProgressTabView() // Assumed to exist
                                 case .endorsements:
@@ -213,18 +288,19 @@ struct PlayerProfileContentView: View {
         }
     }
     
+    // --- MODIFIED: postControls labels ---
     private var postControls: some View {
         HStack {
             Menu {
                 Picker("Filter", selection: $postFilter) {
                     ForEach(PostFilter.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
+                        Text(option.rawValue).tag(option) // Raw value is the new label
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text("Filter: \(postFilter.rawValue)")
+                    Text("Filter: \(postFilter.rawValue)") // Use raw value
                 }
                 .font(.caption).foregroundColor(.primary).padding(.horizontal, 10)
                 .padding(.vertical, 6).background(Color.black.opacity(0.05)).clipShape(Capsule())
@@ -233,13 +309,13 @@ struct PlayerProfileContentView: View {
             Menu {
                 Picker("Sort", selection: $postSort) {
                     ForEach(PostSort.allCases, id: \.self) { option in
-                         Text(option.rawValue).tag(option)
+                         Text(option.rawValue).tag(option) // Raw value is the new label
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.arrow.down.circle")
-                    Text("Sort: \(postSort.rawValue)")
+                    Text("Sort: \(postSort.rawValue)") // Use raw value
                 }
                 .font(.caption).foregroundColor(.primary).padding(.horizontal, 10)
                 .padding(.vertical, 6).background(Color.black.opacity(0.05)).clipShape(Capsule())
@@ -249,18 +325,44 @@ struct PlayerProfileContentView: View {
         .padding(.top, 8)
     }
 
+    // --- MODIFIED: postsGrid to show caption ---
     private var postsGrid: some View {
         LazyVGrid(columns: postColumns, spacing: 12) {
             ForEach(filteredAndSortedPosts) { post in
                 Button { selectedPost = post } label: {
-                    ZStack(alignment: .topTrailing) {
+                    ZStack(alignment: .bottomLeading) {
+                        // Main Image
                         AsyncImage(url: URL(string: post.imageName)) { $0.resizable().aspectRatio(1, contentMode: .fill) }
-                        placeholder: { RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.05)).frame(height: 110) }
-                        .frame(minWidth: 0, maxWidth: .infinity).clipped()
+                        placeholder: {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.black.opacity(0.05))
+                                .aspectRatio(1, contentMode: .fill) // Ensure placeholder is 1:1
+                        }
+                        .aspectRatio(1, contentMode: .fill) // Ensure image is 1:1
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .clipped()
 
+                        // Gradient Overlay
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
+                        
+                        // --- ADDED: Caption Text ---
+                        Text(post.caption)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        // Privacy Icon
                         if post.isPrivate {
                             Image(systemName: "lock.fill").font(.caption).foregroundColor(.white)
-                                .padding(6).background(Color.red.opacity(0.8)).clipShape(Circle()).padding(8)
+                                .padding(6).background(Color.red.opacity(0.8)).clipShape(Circle())
+                                .padding(8)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing) // Position top-right
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -268,9 +370,8 @@ struct PlayerProfileContentView: View {
                 .buttonStyle(.plain)
             }
         }
-        .animation(.default, value: postFilter)
-        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
-        .id(postSort)
+        // Animate changes from any of the three controls
+        .animation(.default, value: filteredAndSortedPosts)
         .refreshable { await viewModel.fetchAllData() }
     }
 }

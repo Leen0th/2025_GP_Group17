@@ -98,7 +98,7 @@ struct Post: Identifiable, Equatable {
     var likedBy: [String]
     var isLikedByUser: Bool
     var stats: [PostStat]? // Performance feedback stats
-    var matchDate: String? // --- ADDED THIS LINE ---
+    var matchDate: Date? // --- MODIFIED: Changed from String? to Date? ---
 }
 
 // MARK: - Enums (Unchanged)
