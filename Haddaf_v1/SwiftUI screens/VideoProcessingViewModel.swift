@@ -134,7 +134,8 @@ class VideoProcessingViewModel: ObservableObject {
             "uploadDateTime": Timestamp(date: Date()),
             "visibility": !isPrivate,  // true = public, false = private
             "likeCount": 0,
-            "commentCount": 0
+            "commentCount": 0,
+            "likedBy": [] // --- ADDED: Initialize as empty array ---
         ]
         
         // Add matchDate if it exists
@@ -197,6 +198,15 @@ class VideoProcessingViewModel: ObservableObject {
 
         // 6) Notify UI with a ready-to-render Post (optimistic UI)
         let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
+        // --- ADDED: Format the optional match date ---
+        let matchDateStr: String?
+        if let matchDate = matchDate {
+            let df_dateOnly = DateFormatter()
+            df_dateOnly.dateFormat = "MMM d, yyyy"
+            matchDateStr = df_dateOnly.string(from: matchDate)
+        } else {
+            matchDateStr = nil
+        }
         let newPost = Post(
             id: postID,
             imageName: thumbDL.absoluteString,
@@ -208,8 +218,10 @@ class VideoProcessingViewModel: ObservableObject {
             authorImageName: profilePic,
             likeCount: 0,
             commentCount: 0,
+            likedBy: [], // --- MODIFIED: Added missing argument ---
             isLikedByUser: false,
-            stats: postStats
+            stats: postStats,
+            matchDate: matchDateStr
         )
         NotificationCenter.default.post(
             name: .postCreated,

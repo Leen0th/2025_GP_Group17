@@ -24,6 +24,9 @@ final class PlayerProfileViewModel: ObservableObject {
     private let db = Firestore.firestore()
     private var postsListener: ListenerRegistration?
     private let df = DateFormatter()
+    
+    // --- ADDED: Date-only formatter ---
+    private let df_dateOnly = DateFormatter()
 
     // Observers for post create/delete events
     private var postCreatedObs: NSObjectProtocol?
@@ -31,6 +34,9 @@ final class PlayerProfileViewModel: ObservableObject {
 
     init() {
         df.dateFormat = "dd/MM/yyyy HH:mm"
+        
+        // --- ADDED: Configure the date-only formatter ---
+        df_dateOnly.dateFormat = "MMM d, yyyy" // e.g., "Oct 23, 2025"
 
         // Insert new post immediately into My posts (optimistic UI)
         postCreatedObs = NotificationCenter.default.addObserver(
@@ -187,50 +193,59 @@ final class PlayerProfileViewModel: ObservableObject {
 
     // MARK: - Posts (with static placeholder stats)
     func listenToMyPosts() {
-        postsListener?.remove()
+            postsListener?.remove()
 
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        let userRef = db.collection("users").document(uid)
+            guard let uid = Auth.auth().currentUser?.uid else { return }
+            let userRef = db.collection("users").document(uid)
 
-        postsListener = db.collection("videoPosts")
-            .whereField("authorId", isEqualTo: userRef)
-            .order(by: "uploadDateTime", descending: true)
-            .addSnapshotListener { [weak self] snap, err in
-                guard let self, let docs = snap?.documents else {
-                    if let err = err { print("listenToMyPosts error: \(err)") }
-                    return
-                }
-
-                Task {
-                    let mappedPosts: [Post] = await docs.asyncMap { doc in
-                        let d = doc.data()
-                        let postStats: [PostStat] = self.placeholderStats // Using placeholder
-
-                        return Post(
-                            id: doc.documentID,
-                            imageName: (d["thumbnailURL"] as? String) ?? "",
-                            videoURL: (d["url"] as? String) ?? "",
-                            caption: (d["caption"] as? String) ?? "",
-                            timestamp: self.df.string(
-                                from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()
-                            ),
-                            isPrivate: !((d["visibility"] as? Bool) ?? true),
-                            authorName: (d["authorUsername"] as? String) ?? "",
-                            authorImageName: (d["profilePic"] as? String) ?? "",
-                            likeCount: (d["likeCount"] as? Int) ?? 0,
-                            commentCount: (d["commentCount"] as? Int) ?? 0,
-                            isLikedByUser: false,
-                            stats: postStats
-                        )
+            postsListener = db.collection("videoPosts")
+                .whereField("authorId", isEqualTo: userRef)
+                .order(by: "uploadDateTime", descending: true)
+                .addSnapshotListener { [weak self] snap, err in
+                    guard let self, let docs = snap?.documents else {
+                        if let err = err { print("listenToMyPosts error: \(err)") }
+                        return
                     }
-                    
-                    await MainActor.run {
-                        self.posts = mappedPosts
+
+                    Task {
+                        let mappedPosts: [Post] = await docs.asyncMap { doc in
+                            let d = doc.data()
+                            let postStats: [PostStat] = self.placeholderStats
+                            let likedBy = (d["likedBy"] as? [String]) ?? []
+                            
+                            // --- ADDED: Fetch and format the match date ---
+                            let matchDateTimestamp = d["matchDate"] as? Timestamp
+                            let matchDateStr = matchDateTimestamp.map {
+                                self.df_dateOnly.string(from: $0.dateValue())
+                            }
+
+                            return Post(
+                                id: doc.documentID,
+                                imageName: (d["thumbnailURL"] as? String) ?? "",
+                                videoURL: (d["url"] as? String) ?? "",
+                                caption: (d["caption"] as? String) ?? "",
+                                timestamp: self.df.string(
+                                    from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()
+                                ),
+                                isPrivate: !((d["visibility"] as? Bool) ?? true),
+                                authorName: (d["authorUsername"] as? String) ?? "",
+                                authorImageName: (d["profilePic"] as? String) ?? "",
+                                likeCount: (d["likeCount"] as? Int) ?? 0,
+                                commentCount: (d["commentCount"] as? Int) ?? 0,
+                                likedBy: likedBy,
+                                isLikedByUser: likedBy.contains(uid),
+                                stats: postStats,
+                                matchDate: matchDateStr // --- ADDED ---
+                            )
+                        }
+                        
+                        await MainActor.run {
+                            self.posts = mappedPosts
+                        }
                     }
                 }
-            }
-    }
-
+        }
+    
     private var placeholderStats: [PostStat] {
         [
             PostStat(label: "GOALS",           value: 4),

@@ -166,6 +166,40 @@ struct PlayerProfileContentView: View {
                         withAnimation { viewModel.posts.removeAll { $0.id == postId } }
                     }
                 }
+            // --- ADDED: This block listens for updates from PostDetailView ---
+                .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { note in
+                    guard let userInfo = note.userInfo,
+                          let postId = userInfo["postId"] as? String else { return }
+
+                    // Find the index of the post to update in our main list
+                    if let index = viewModel.posts.firstIndex(where: { $0.id == postId }) {
+                        
+                        // Check for like updates
+                        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+                            withAnimation {
+                                viewModel.posts[index].isLikedByUser = isLiked
+                                viewModel.posts[index].likeCount = likeCount
+                                // Also update the likedBy array for consistency
+                                if isLiked {
+                                    if let uid = Auth.auth().currentUser?.uid, !viewModel.posts[index].likedBy.contains(uid) {
+                                        viewModel.posts[index].likedBy.append(uid)
+                                    }
+                                } else {
+                                    if let uid = Auth.auth().currentUser?.uid {
+                                        viewModel.posts[index].likedBy.removeAll { $0 == uid }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Check for comment updates
+                        if userInfo["commentAdded"] as? Bool == true {
+                            withAnimation {
+                                viewModel.posts[index].commentCount += 1
+                            }
+                        }
+                    }
+                }
                 .fullScreenCover(isPresented: $showEditProfile) {
                     EditProfileView(userProfile: viewModel.userProfile)
                 }
@@ -173,7 +207,8 @@ struct PlayerProfileContentView: View {
                     NavigationStack { SettingsView() } // Assumed to exist
                 }
                 .fullScreenCover(item: $selectedPost) { post in
-                    NavigationStack { PostDetailView(post: post) } // Assumed to exist
+                    // This now passes the *updated* post object
+                    NavigationStack { PostDetailView(post: post) }
                 }
         }
     }

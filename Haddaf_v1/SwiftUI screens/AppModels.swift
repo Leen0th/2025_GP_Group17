@@ -95,8 +95,10 @@ struct Post: Identifiable, Equatable {
     var authorImageName: String // Author Profile Pic URL
     var likeCount: Int
     var commentCount: Int
+    var likedBy: [String]
     var isLikedByUser: Bool
     var stats: [PostStat]? // Performance feedback stats
+    var matchDate: String? // --- ADDED THIS LINE ---
 }
 
 // MARK: - Enums (Unchanged)

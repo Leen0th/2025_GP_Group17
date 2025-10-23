@@ -4,7 +4,7 @@ import FirebaseFirestore
 import FirebaseStorage
 import AVKit
 
-// MARK: - Post Detail View
+// MARK: - Post Detail View (MODIFIED)
 struct PostDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State var post: Post
@@ -15,6 +15,11 @@ struct PostDetailView: View {
     @State private var showPrivacyAlert = false
     @State private var showCommentsSheet = false
     private let accentColor = Color(hex: "#36796C")
+    
+    // --- ADDED: State for the new caption editing UI ---
+    @State private var isEditingCaption = false
+    @State private var editedCaption = "" // Temporary holder for the edit
+    @State private var isSavingCaption = false // For loading indicator
 
     var body: some View {
         ZStack {
@@ -30,7 +35,7 @@ struct PostDetailView: View {
                         VideoPlayerPlaceholderView(post: post)
                     }
 
-                    captionAndMetadata
+                    captionAndMetadata // --- MODIFIED (Content inside is changed) ---
                     authorInfoAndInteractions
                     Divider()
                     statsSection
@@ -38,7 +43,7 @@ struct PostDetailView: View {
                 .padding(.horizontal)
             }
             .navigationBarBackButtonHidden(true)
-            .disabled(isDeleting)
+            .disabled(isDeleting || isSavingCaption) // --- MODIFIED ---
 
             if showPrivacyAlert {
                 PrivacyWarningPopupView(
@@ -72,16 +77,28 @@ struct PostDetailView: View {
                 CommentsView(postId: postId)
             }
         }
-        // --- ADD THE MODIFIER BELOW ---
+        // --- MODIFIED: Updated .onReceive to be more specific ---
         .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
-            // Check if the notification is for the post we are currently viewing
-            if let userInfo = notification.userInfo, let updatedPostId = userInfo["postId"] as? String, updatedPostId == post.id {
-                // Increment the comment count in our local state to match the database
+            guard let userInfo = notification.userInfo,
+                  let updatedPostId = userInfo["postId"] as? String,
+                  updatedPostId == post.id else {
+                return
+            }
+            
+            // Check if a comment was added
+            if userInfo["commentAdded"] as? Bool == true {
                 post.commentCount += 1
+            }
+            
+            // Check if a like was updated
+            if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+                post.isLikedByUser = isLiked
+                post.likeCount = likeCount
             }
         }
         .animation(.easeInOut, value: showPrivacyAlert)
         .animation(.easeInOut, value: showDeleteConfirmation)
+        .animation(.easeInOut, value: isEditingCaption)
     }
 
     private var header: some View {
@@ -125,42 +142,127 @@ struct PostDetailView: View {
             let videoRef = storageRef.child("posts/\(uid)/\(postId).mov")
             let thumbRef = storageRef.child("posts/\(uid)/\(postId)_thumb.jpg")
 
-            // Delete files from Storage (errors ignored if files don't exist)
             try? await videoRef.delete()
             try? await thumbRef.delete()
 
-            // Delete document from Firestore
             let db = Firestore.firestore()
             try await db.collection("videoPosts").document(postId).delete()
 
-            // Notify UI and dismiss
             NotificationCenter.default.post(name: .postDeleted, object: nil, userInfo: ["postId": postId])
             dismiss()
 
         } catch {
             print("Error deleting post: \(error.localizedDescription)")
-            // Optionally, show an error alert to the user
         }
         isDeleting = false
     }
 
-    private var captionAndMetadata: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(post.caption)
-                .font(.headline)
-
-            HStack(spacing: 8) {
-                Text(post.timestamp)
-                Spacer()
-                Button(action: { showPrivacyAlert = true }) {
-                    Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
-                        .foregroundColor(post.isPrivate ? .red : accentColor)
+    // --- MODIFIED: Complete rewrite of captionAndMetadata ---
+        private var captionAndMetadata: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                
+                // --- CAPTION SECTION (Request 2) ---
+                if isEditingCaption {
+                    // --- EDITING VIEW ---
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Edit Caption")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        TextEditor(text: $editedCaption)
+                            .font(.headline)
+                            .frame(minHeight: 80, maxHeight: 200)
+                            .padding(8)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(10)
+                            .tint(accentColor)
+                        
+                        HStack(spacing: 12) {
+                            Spacer()
+                            Button("Cancel") {
+                                withAnimation {
+                                    isEditingCaption = false
+                                    editedCaption = "" // Clear temp state
+                                }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.primary)
+                            
+                            Button {
+                                Task { await commitCaptionEdit() }
+                            } label: {
+                                if isSavingCaption {
+                                    ProgressView()
+                                        .tint(.white)
+                                        .frame(height: 19) // Match text height
+                                } else {
+                                    Text("Save")
+                                }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(accentColor)
+                            .cornerRadius(20)
+                            .disabled(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .opacity(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty ? 0.7 : 1.0)
+                        }
+                    }
+                } else {
+                    // --- DISPLAY VIEW ---
+                    HStack(alignment: .top) {
+                        Text(post.caption)
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        Button {
+                            editedCaption = post.caption
+                            withAnimation {
+                                isEditingCaption = true
+                            }
+                        } label: {
+                            Image(systemName: "pencil.line")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(8)
+                                .background(Color(.systemGray6))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+
+                // --- METADATA SECTION (Request 1) ---
+                
+                // --- ADDED: Match Date ---
+                if let matchDate = post.matchDate, !isEditingCaption {
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar")
+                        Text("Match Date: \(matchDate)")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                }
+                
+                // --- Original Timestamp & Privacy ---
+                HStack(spacing: 8) {
+                    Text("Post Created At: \(post.timestamp)")
+                    Spacer()
+                    Button(action: { showPrivacyAlert = true }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
+                            Text(post.isPrivate ? "Private" : "Public")
+                        }
+                        .foregroundColor(post.isPrivate ? .red : accentColor)
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
             }
-            .font(.caption)
-            .foregroundColor(.secondary)
         }
-    }
 
     private var authorInfoAndInteractions: some View {
         HStack {
@@ -171,7 +273,7 @@ struct PostDetailView: View {
             }
             Text(post.authorName).font(.headline).fontWeight(.bold)
             Spacer()
-            Button(action: { Task { await toggleLike() } }) {
+            Button(action: { Task { await toggleLike() } }) { // --- MODIFIED ---
                 HStack(spacing: 4) {
                     Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
                     Text(formatNumber(post.likeCount))
@@ -189,36 +291,91 @@ struct PostDetailView: View {
         .foregroundColor(.primary)
     }
 
+    private func commitCaptionEdit() async {
+            guard let postId = post.id else {
+                print("Missing post ID for saving caption.")
+                return
+            }
+            
+            let newCaption = editedCaption.trimmingCharacters(in: .whitespaces)
+            if newCaption.isEmpty {
+                withAnimation {
+                    isEditingCaption = false
+                    editedCaption = ""
+                }
+                return
+            }
+            
+            isSavingCaption = true
+            
+            do {
+                let db = Firestore.firestore()
+                try await db.collection("videoPosts").document(postId).updateData([
+                    "caption": newCaption
+                ])
+                
+                // Update local state *after* successful save
+                post.caption = newCaption
+                withAnimation {
+                    isEditingCaption = false
+                }
+                
+            } catch {
+                print("Error updating caption: \(error.localizedDescription)")
+                // Optionally show an error to the user
+            }
+            
+            isSavingCaption = false
+        }
+
+    // --- MODIFIED: Complete rewrite of toggleLike() for persistence ---
     private func toggleLike() async {
-        guard let postId = post.id else { return }
-        post.isLikedByUser.toggle()
-        let delta: Int64 = post.isLikedByUser ? 1 : -1
+        guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
+        
+        // 1. Determine the action we are about to perform
+        let isLiking = !post.isLikedByUser
+        let delta: Int64 = isLiking ? 1 : -1
+        
+        // 2. Create the correct Firestore action
+        // arrayUnion atomically adds an item. arrayRemove atomically removes it.
+        let firestoreAction = isLiking ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])
+
+        // 3. Optimistic UI update (update local state immediately)
+        post.isLikedByUser = isLiking
         post.likeCount += Int(delta)
 
+        // 4. Persist the change to Firestore
         do {
-            try await Firestore.firestore().collection("videoPosts").document(postId).updateData(["likeCount": FieldValue.increment(delta)])
+            try await Firestore.firestore().collection("videoPosts").document(postId).updateData([
+                "likeCount": FieldValue.increment(delta),
+                "likedBy": firestoreAction // This is the new, crucial field
+            ])
+            
+            // 5. Notify any other views (like the Profile page) that this post changed
+            var userInfo: [String: Any] = ["postId": postId]
+            userInfo["likeUpdate"] = (isLiking, post.likeCount)
+            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
+            
         } catch {
             print("Error updating like count: \(error.localizedDescription)")
-            post.isLikedByUser.toggle()
-            post.likeCount -= Int(delta)
+            // 5. Revert optimistic update on failure
+            post.isLikedByUser = !isLiking // Revert
+            post.likeCount -= Int(delta) // Revert
         }
     }
     
     private func toggleVisibility() {
-        // Optimistic UI update for immediate feedback
         post.isPrivate.toggle()
 
-        // Persist the change to Firestore
         Task {
             guard let postId = post.id else { return }
             do {
                 try await Firestore.firestore()
                     .collection("videoPosts")
                     .document(postId)
-                    .updateData(["visibility": !post.isPrivate]) // 'visibility' is true for public, false for private
+                    .updateData(["visibility": !post.isPrivate])
             } catch {
                 print("Error updating post visibility: \(error.localizedDescription)")
-                // If the update fails, revert the local change
                 post.isPrivate.toggle()
             }
         }
@@ -272,11 +429,16 @@ struct CommentsView: View {
                 Button { dismiss() } label: { Image(systemName: "xmark").font(.subheadline.bold()) }
             }
             .padding().overlay(Divider(), alignment: .bottom)
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     ForEach(viewModel.comments) { comment in CommentRowView(comment: comment) }
-                }.padding()
+                }
+                .padding()
+                // --- MODIFIED: This line fixes the comment alignment ---
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            
             HStack(spacing: 12) {
                 TextField("Write Comment...", text: $newCommentText)
                     .padding(.horizontal).padding(.vertical, 10)
@@ -305,6 +467,7 @@ final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
+    
     func fetchComments(for postId: String) {
         stopListening()
         let ref = db.collection("videoPosts").document(postId).collection("comments").order(by: "createdAt", descending: false)
@@ -318,6 +481,7 @@ final class CommentsViewModel: ObservableObject {
         }
     }
     func stopListening() { listener?.remove(); listener = nil }
+    
     func addComment(text: String, for postId: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
@@ -339,9 +503,11 @@ final class CommentsViewModel: ObservableObject {
             // Increment the parent document's comment count
             try await db.collection("videoPosts").document(postId).updateData(["commentCount": FieldValue.increment(Int64(1))])
             
-            // --- ADD THIS LINE ---
-            // Notify the app that this post's data has changed
-            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: ["postId": postId])
+            // --- MODIFIED: Send a more specific notification ---
+            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
+                "postId": postId,
+                "commentAdded": true // Specify what happened
+            ])
             
         } catch {
             print("Failed to add comment: \(error)")
@@ -435,7 +601,8 @@ struct DeleteConfirmationOverlay: View {
             Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { isPresented = false }
             VStack(spacing: 20) {
                 Text("Delete Post?").font(.title3).fontWeight(.semibold)
-                Text("This action cannot be undone. Are you sure you want to permanently delete this post?").font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                // --- MODIFIED: Removed "This action cannot be undone." ---
+                Text("Are you sure you want to permanently delete this post?").font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
                 HStack(spacing: 24) {
                     Button("Cancel") { isPresented = false }.font(.system(size: 18, weight: .semibold)).foregroundColor(.black).frame(width: 120, height: 44).background(Color.gray.opacity(0.15)).cornerRadius(10)
                     Button("Delete") { onConfirm(); isPresented = false }.font(.system(size: 18, weight: .semibold)).foregroundColor(.white).frame(width: 120, height: 44).background(Color.red).cornerRadius(10)
@@ -445,4 +612,3 @@ struct DeleteConfirmationOverlay: View {
         }
     }
 }
-
