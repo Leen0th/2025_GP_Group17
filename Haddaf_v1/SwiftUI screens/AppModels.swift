@@ -111,7 +111,7 @@ enum Tab {
     
     var imageName: String {
         switch self {
-        case .discovery: return "house"
+        case .discovery: return "magnifyingglass"
         case .teams: return "person.3"
         case .action: return ""
         case .challenge: return "chart.bar"

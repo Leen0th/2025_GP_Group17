@@ -62,7 +62,7 @@ struct CustomTabBar: View {
                         .frame(width: 68, height: 68)
                         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 5)
                     
-                    Image(systemName: "plus")
+                    Image(systemName: "video.badge.plus")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(accentColor)   // نفس الأخضر
                 }
