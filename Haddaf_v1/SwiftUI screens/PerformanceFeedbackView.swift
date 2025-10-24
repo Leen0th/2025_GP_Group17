@@ -1,22 +1,6 @@
 import SwiftUI
 import AVKit
 
-// MARK: - Color Extension
-extension Color {
-    init(hexval: String) {
-        let h = hexval.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0; Scanner(string: h).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch h.count {
-        case 3: (a, r, g, b) = (255, (int>>8)*17, (int>>4 & 0xF)*17, (int & 0xF)*17)
-        case 6: (a, r, g, b) = (255, int>>16, int>>8 & 0xFF, int & 0xFF)
-        case 8: (a, r, g, b) = (int>>24, int>>16 & 0xFF, int>>8 & 0xFF, int & 0xFF)
-        default:(a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(.sRGB, red: Double(r)/255, green: Double(g)/255, blue: Double(b)/255, opacity: Double(a)/255)
-    }
-}
-
 // MARK: - Models (Unchanged)
 struct PFPostStat: Identifiable {
     let id = UUID()
@@ -25,24 +9,61 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Stat Bar (Unchanged)
+// MARK: - Stat Bar (MODIFIED)
 struct PFStatBarView: View {
     let stat: PFPostStat
-    let accent: Color
+    
+    // MODIFIED: Use brand colors
+    let gradient: LinearGradient
+    
+    init(stat: PFPostStat) {
+        self.stat = stat
+        
+        // Assign gradient based on label
+        switch stat.label.lowercased() {
+        case "dribble":
+            self.gradient = LinearGradient(colors: [BrandColors.turquoise.opacity(0.7), BrandColors.turquoise], startPoint: .leading, endPoint: .trailing)
+        case "pass":
+            self.gradient = LinearGradient(colors: [BrandColors.teal.opacity(0.7), BrandColors.teal], startPoint: .leading, endPoint: .trailing)
+        case "shoot":
+            self.gradient = LinearGradient(colors: [BrandColors.actionGreen.opacity(0.7), BrandColors.actionGreen], startPoint: .leading, endPoint: .trailing)
+        default:
+            self.gradient = LinearGradient(colors: [BrandColors.darkTeal.opacity(0.7), BrandColors.darkTeal], startPoint: .leading, endPoint: .trailing)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(stat.label).font(.caption).foregroundColor(.secondary)
+                // MODIFIED: Use new font
+                Text(stat.label)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
                 Spacer()
-                Text("\(stat.value)").font(.caption).fontWeight(.bold)
+                // MODIFIED: Use new font
+                Text("\(stat.value)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
             }
-            ProgressView(value: Double(stat.value), total: Double(stat.maxValue)).tint(accent)
+            
+            // MODIFIED: Use new progress bar style
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(BrandColors.lightGray)
+                        .frame(height: 8)
+                    
+                    Capsule()
+                        .fill(gradient) // Use the new gradient
+                        .frame(width: (geometry.size.width * CGFloat(stat.value) / CGFloat(stat.maxValue)), height: 8)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: stat.value)
+                }
+            }
+            .frame(height: 8)
         }
     }
 }
 
-// MARK: - AVPlayerViewController wrapper (controls visible, primed to show big play)
 // MARK: - AVPlayerViewController wrapper (controls visible, primed to show big play)
 struct AVKitPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
@@ -100,43 +121,38 @@ struct PerformanceFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: VideoProcessingViewModel
 
-    // Title
     @State private var title: String = ""
-    private let titleLimit = 15 // This remains 15 as per your last request
+    private let titleLimit = 15
 
-    // Visibility & posting
     @State private var isPrivate: Bool = false
     @State private var postingError: String? = nil
 
-    // Match Date (optional) – bottom sheet
     @State private var matchDate: Date? = nil
     @State private var showDateSheet = false
     @State private var tempSheetDate: Date = Date()
 
-    // Player
     @State private var player: AVPlayer? = nil
     @State private var endObserver: NSObjectProtocol? = nil
     
     @State private var showExitWarning = false
-    
     @State private var isAnimating = false
 
-    private let primary = Color(hexval: "#36796C")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
 
+    // MODIFIED: Use new BrandColors
     private var customSpinner: some View {
         ZStack {
-            // Background circle
-            Circle().stroke(lineWidth: 8).fill(Color.gray.opacity(0.1))
+            Circle().stroke(lineWidth: 8).fill(BrandColors.lightGray) // MODIFIED
             
-            // Spinning part
             Circle()
                 .trim(from: 0, to: 0.75)
                 .stroke(style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-                .fill(primary) // Use 'primary' color from this view
+                .fill(primary) // Use 'primary' color (darkTeal)
                 .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
                 .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
         }
-        .frame(width: 80, height: 80) // Scaled down from 150
+        .frame(width: 80, height: 80)
     }
     
     private var isPostButtonDisabled: Bool {
@@ -147,7 +163,7 @@ struct PerformanceFeedbackView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 24) { // MODIFIED: Increased spacing
                     header
                     videoSection
                     statsSection
@@ -158,7 +174,8 @@ struct PerformanceFeedbackView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 100)
             }
-            .background(Color.white)
+            // MODIFIED: Use new background
+            .background(BrandColors.gradientBackground)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
             .onChange(of: viewModel.videoURL) { _, newURL in
@@ -173,42 +190,38 @@ struct PerformanceFeedbackView: View {
         .overlay(
             ZStack {
                 if viewModel.isUploading {
-                    // Dark background
                     Color.black.opacity(0.4).ignoresSafeArea()
                     
-                    // White card
+                    // MODIFIED: Card styling
                     VStack(spacing: 20) {
-                        
-                        // Use the new custom spinner
                         customSpinner
                             .onAppear { isAnimating = true }
                             .onDisappear { isAnimating = false }
                         
                         Text("Posting...")
-                            .font(.custom("Poppins", size: 18))
-                            .fontWeight(.medium)
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
                         
-                        // Determinate progress bar
                         ProgressView(value: viewModel.uploadProgress)
                             .progressViewStyle(LinearProgressViewStyle(tint: primary))
                             .animation(.linear, value: viewModel.uploadProgress)
-                            .padding(.horizontal, 20) // Added padding
+                            .padding(.horizontal, 20)
                         
-                        // Percentage text
                         Text(String(format: "%.0f%%", viewModel.uploadProgress * 100))
-                            .font(.custom("Poppins", size: 14))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 14, design: .rounded))
                             .foregroundColor(primary)
                             .animation(nil, value: viewModel.uploadProgress)
                     }
                     .padding(30)
-                    .background(Color.white)
+                    // MODIFIED: Use new card style
+                    .background(BrandColors.background)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
                     .padding(.horizontal, 40)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
-            // Animate the overlay's appearance/disappearance
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isUploading)
         )
         .alert("Discard Video?", isPresented: $showExitWarning) {
@@ -225,33 +238,32 @@ struct PerformanceFeedbackView: View {
         .onChange(of: title) { _, newVal in
             if newVal.count > titleLimit { title = String(newVal.prefix(titleLimit)) }
         }
-        // --- MODIFIED SHEET FOR CONSISTENT STYLING ---
         .sheet(isPresented: $showDateSheet) {
             VStack(spacing: 16) {
-                // Title (styled like SignUpView)
                 Text("Select match date")
-                    .font(.custom("Poppins", size: 18))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(primary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 16)
 
-                // Date Picker (styled like SignUpView)
                 DatePicker("", selection: $tempSheetDate, in: ...Date(), displayedComponents: .date)
                     .datePickerStyle(.wheel)
                     .labelsHidden()
                     .tint(primary)
                     .frame(height: 180)
 
-                // Buttons (styled like SignUpView, but keeping Clear)
                 HStack(spacing: 12) {
                     Button("Clear") {
                         matchDate = nil
                         showDateSheet = false
                     }
-                    .font(.custom("Poppins", size: 16))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, design: .rounded))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color.secondary.opacity(0.1))
+                    // MODIFIED: Use new colors
+                    .background(BrandColors.lightGray)
                     .foregroundColor(primary.opacity(0.8))
                     .clipShape(Capsule())
 
@@ -259,7 +271,8 @@ struct PerformanceFeedbackView: View {
                         matchDate = tempSheetDate
                         showDateSheet = false
                     }
-                    .font(.custom("Poppins", size: 18))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -269,34 +282,33 @@ struct PerformanceFeedbackView: View {
                 .padding(.bottom, 16)
             }
             .padding(.horizontal, 20)
-            .presentationDetents([.height(320)]) // Use 320 to fit the 2 buttons
-            .presentationBackground(.white) // Added from SignUpView
-            .presentationCornerRadius(28) // Added from SignUpView
+            .presentationDetents([.height(320)])
+            // MODIFIED: Use new background
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
         }
-        // --- END OF MODIFICATION ---
     }
 
     // MARK: - Header
     private var header: some View {
         ZStack {
             Text("Performance Feedback")
-                .font(.custom("Poppins", size: 28))
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 28, weight: .medium, design: .rounded))
                 .foregroundColor(primary)
                 .offset(y: 6)
 
             HStack {
-                // Back button has been removed
                 Spacer()
-                
                 Button {
-                    showExitWarning = true // Show the warning instead of direct dismiss
+                    showExitWarning = true
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.secondary)
                         .padding(8)
-                        .background(Color.secondary.opacity(0.1))
+                        // MODIFIED: Use new color
+                        .background(BrandColors.lightGray.opacity(0.7))
                         .clipShape(Circle())
                 }
             }
@@ -318,40 +330,62 @@ struct PerformanceFeedbackView: View {
                     .overlay(Text("No Video Found").foregroundColor(.white))
             }
         }
+        // MODIFIED: Add new shadow
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
     // MARK: - Stats
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // MODIFIED: Wrap in card
+        VStack(alignment: .leading, spacing: 16) {
+            Text("AI Performance Analysis")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
+                .padding(.bottom, 4)
+            
             ForEach(viewModel.performanceStats) { s in
-                PFStatBarView(stat: s, accent: primary)
+                // MODIFIED: Call new StatBarView init
+                PFStatBarView(stat: s)
             }
         }
+        .padding(20)
+        .background(BrandColors.background)
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
     // MARK: - Title + Visibility
     private var titleVisibilitySection: some View {
+        // MODIFIED: Wrap in card
         VStack(alignment: .leading, spacing: 18) {
             // Title (mandatory)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Text("Add a title")
-                        .font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
                     Text("*").font(.subheadline).fontWeight(.bold).foregroundColor(.red)
                     Spacer()
+                    // MODIFIED: Use new font
                     Text("\(title.count)/\(titleLimit)")
-                        .font(.caption).foregroundColor(title.count > titleLimit ? .red : .secondary)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(title.count > titleLimit ? .red : .secondary)
                 }
 
                 TextField("Enter a short title…", text: $title)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, design: .rounded))
                     .textInputAutocapitalization(.sentences)
                     .disableAutocorrection(true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(
+                        // MODIFIED: Use new card style
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(.systemGray3), lineWidth: 1)
-                            .background(Color.white)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                     )
                     .cornerRadius(12)
                     .accessibilityLabel("Post title (required)")
@@ -361,19 +395,28 @@ struct PerformanceFeedbackView: View {
             // Visibility
             VStack(alignment: .leading, spacing: 10) {
                 Text("Post Visibility")
-                    .font(.subheadline).fontWeight(.medium).foregroundColor(.secondary)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
 
                 Button(action: { isPrivate.toggle() }) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 12) { // MODIFIED: Increased spacing
                         Image(systemName: isPrivate ? "lock.fill" : "lock.open.fill")
                             .foregroundColor(isPrivate ? .red : primary)
+                        // MODIFIED: Use new font
                         Text(isPrivate ? "Private" : "Public")
-                            .foregroundColor(.primary)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
                         Spacer()
                     }
                     .padding()
-                    .background(Color.secondary.opacity(0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    // MODIFIED: Use new card style
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                    )
                 }
             }
             .padding(.top, 6)
@@ -384,8 +427,8 @@ struct PerformanceFeedbackView: View {
     private var dateRowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Match Date (optional)")
-                .font(.subheadline)
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary)
 
             Button {
@@ -395,16 +438,23 @@ struct PerformanceFeedbackView: View {
                 HStack {
                     Image(systemName: "calendar")
                         .foregroundColor(primary)
+                    // MODIFIED: Use new font
                     Text(matchDate.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .none) } ?? "Select date")
-                        .foregroundColor(matchDate == nil ? .secondary : .primary)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(matchDate == nil ? .secondary : BrandColors.darkGray)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
                 .padding()
-                .background(Color.secondary.opacity(0.05))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                // MODIFIED: Use new card style
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(BrandColors.background)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                )
             }
         }
         .padding(.top, 6)
@@ -430,8 +480,8 @@ struct PerformanceFeedbackView: View {
             } label: {
                 Text("post")
                     .textCase(.lowercase)
-                    .font(.custom("Poppins", size: 18))
-                    .fontWeight(.medium)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
@@ -443,7 +493,8 @@ struct PerformanceFeedbackView: View {
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
-        .background(.white)
+        // MODIFIED: Use new background
+        .background(BrandColors.background)
     }
 
     // MARK: - Player setup / teardown

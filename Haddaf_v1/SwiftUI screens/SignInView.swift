@@ -2,32 +2,6 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-// Local color helper
-private func colorHex(_ hex: String) -> Color {
-    let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-    var int: UInt64 = 0
-    Scanner(string: s).scanHexInt64(&int)
-    let a, r, g, b: UInt64
-    switch s.count {
-    case 3: (a, r, g, b) = (255, (int >> 8) * 17,
-                            (int >> 4 & 0xF) * 17,
-                            (int & 0xF) * 17)
-    case 6: (a, r, g, b) = (255, int >> 16,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-    case 8: (a, r, g, b) = (int >> 24,
-                            int >> 16 & 0xFF,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-    default: (a, r, g, b) = (255, 0, 0, 0)
-    }
-    return Color(.sRGB,
-                 red: Double(r)/255,
-                 green: Double(g)/255,
-                 blue: Double(b)/255,
-                 opacity: Double(a)/255)
-}
-
 struct SignInView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var email = ""
@@ -52,8 +26,10 @@ struct SignInView: View {
     private let resendCooldownSeconds = 30
     private let lastSentKey = "signin_last_verification_email_sent_at"
 
-    private let primary = colorHex("#36796C")
-    private let bg = colorHex("#EFF5EC")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
+    private let bg = BrandColors.backgroundGradientEnd
+    
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     private var isFormValid: Bool {
@@ -69,46 +45,60 @@ struct SignInView: View {
             ScrollView {
                 VStack(spacing: 22) {
                     Text("Sign In")
-                        .font(.custom("Poppins", size: 34))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
-                        .fontWeight(.medium)
                         .padding(.top, 12)
 
-                    // Email
                     VStack(alignment: .leading) {
                         Text("Email")
-                            .font(.custom("Poppins", size: 14))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 14, design: .rounded))
                             .foregroundColor(.gray)
+                        
                         TextField("", text: $email)
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .tint(primary)
                             .padding()
-                            .background(RoundedRectangle(cornerRadius: 14).fill(.white))
+                            // MODIFIED: Use new card style
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
                     }
                     if !email.isEmpty && !isValidEmail(email) {
                         Text("Please enter a valid email address.")
                             .foregroundColor(.red)
-                            .font(.system(size: 13))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 13, design: .rounded))
                     }
 
-                    // Password
                     VStack(alignment: .leading) {
                         Text("Password")
-                            .font(.custom("Poppins", size: 14))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 14, design: .rounded))
                             .foregroundColor(.gray)
+                        
                         HStack {
                             if isHidden {
                                 SecureField("", text: $password)
                                     .foregroundColor(primary)
                                     .tint(primary)
+                                    // MODIFIED: Use new font
+                                    .font(.system(size: 16, design: .rounded))
                             } else {
                                 TextField("", text: $password)
                                     .foregroundColor(primary)
                                     .tint(primary)
+                                    // MODIFIED: Use new font
+                                    .font(.system(size: 16, design: .rounded))
                             }
                             Button { isHidden.toggle() } label: {
                                 Image(systemName: "eye\(isHidden ? ".slash" : "")")
@@ -118,28 +108,36 @@ struct SignInView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                         .padding()
-                        .background(RoundedRectangle(cornerRadius: 14).fill(.white))
+                        // MODIFIED: Use new card style
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(BrandColors.background)
+                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                        )
                     }
 
-                    // Forgot password
                     HStack {
                         Spacer()
                         NavigationLink { ForgotPasswordView() } label: {
                             Text("Forgot password?")
                                 .foregroundColor(primary)
-                                .font(.custom("Poppins", size: 15))
+                                // MODIFIED: Use new font
+                                .font(.system(size: 15, design: .rounded))
                         }
                     }
 
-                    // Log in (no local cooldown; server enforces rate limits)
                     Button { Task { await handleSignIn() } } label: {
                         Text("Log in")
                             .foregroundColor(.white)
-                            .font(.custom("Poppins", size: 18))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
                             .padding()
                             .frame(maxWidth: .infinity)
                             .background(primary)
                             .clipShape(Capsule())
+                            // MODIFIED: Add shadow
+                            .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(!isFormValid)
                     .opacity(isFormValid ? 1 : 0.5)
@@ -147,7 +145,8 @@ struct SignInView: View {
                     if let signInError {
                         Text(signInError)
                             .foregroundColor(.red)
-                            .font(.system(size: 13))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 13, design: .rounded))
                             .multilineTextAlignment(.center)
                     }
 
@@ -156,7 +155,6 @@ struct SignInView: View {
                 .padding(.horizontal, 22)
             }
 
-            // Email verification popup
             if showVerifyPrompt {
                 Color.black.opacity(0.35).ignoresSafeArea()
                 UnifiedVerifySheetSI(
@@ -180,7 +178,6 @@ struct SignInView: View {
             PlayerProfileView()
                 .toolbar(.hidden, for: .navigationBar)
         }
-
         .fullScreenCover(isPresented: $goToPlayerSetup) {
             NavigationStack {
                 PlayerSetupView()
@@ -188,6 +185,23 @@ struct SignInView: View {
         }
         .onAppear { restoreCooldownIfAny() }
         .onDisappear { cleanupTasks() }
+        // MODIFIED: Use new background for sheet
+        .sheet(isPresented: $showVerifyPrompt, content: {
+            UnifiedVerifySheetSI(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                primary: primary,
+                resendCooldown: $resendCooldown,
+                errorText: $inlineVerifyError,
+                onResend: { Task { await resendVerification() } },
+                onClose: {
+                    withAnimation {
+                        stopVerificationWatcher()
+                        showVerifyPrompt = false
+                    }
+                }
+            )
+            .presentationBackground(BrandColors.background) // MODIFIED
+        })
     }
 
     // MARK: - Sign In Logic
@@ -441,18 +455,21 @@ struct UnifiedVerifySheetSI: View {
                 .padding(.top, 6)
 
                 Text("Verify your email")
-                    .font(.system(size: 20, weight: .semibold))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(.primary)
 
                 Text("We've sent a verification link to \(email).\n")
-                    .font(.system(size: 14))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
 
                 Button(action: { if resendCooldown == 0 { onResend() } }) {
                     Text(resendCooldown > 0 ? "Resend (\(resendCooldown)s)" : "Resend")
-                        .font(.system(size: 16, weight: .semibold))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(.primary)
                         .padding(.horizontal, 32)
                         .padding(.vertical, 10)
@@ -463,7 +480,8 @@ struct UnifiedVerifySheetSI: View {
 
                 if let errorText, !errorText.isEmpty {
                     Text(errorText)
-                        .font(.system(size: 13))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
@@ -476,7 +494,8 @@ struct UnifiedVerifySheetSI: View {
             .frame(maxWidth: 320)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white)
+                    // MODIFIED: Use new background
+                    .fill(BrandColors.background)
                     .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
             )
             Spacer()

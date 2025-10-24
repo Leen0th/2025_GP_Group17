@@ -1,30 +1,12 @@
 import SwiftUI
 import FirebaseAuth
 
-// MARK: - Helper for HEX Colors
-private func hex(_ hex: String) -> Color {
-    let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-    var int: UInt64 = 0
-    Scanner(string: s).scanHexInt64(&int)
-    let a, r, g, b: UInt64
-    switch s.count {
-    case 3: (a, r, g, b) = (255, (int>>8)*17, (int>>4 & 0xF)*17, (int & 0xF)*17)
-    case 6: (a, r, g, b) = (255, int>>16, int>>8 & 0xFF, int & 0xFF)
-    case 8: (a, r, g, b) = (int>>24, int>>16 & 0xFF, int>>8 & 0xFF, int & 0xFF)
-    default: (a, r, g, b) = (255, 0, 0, 0)
-    }
-    return Color(.sRGB,
-                 red: Double(r)/255,
-                 green: Double(g)/255,
-                 blue: Double(b)/255,
-                 opacity: Double(a)/255)
-}
-
 struct ChangePasswordView: View {
     // MARK: - Theme
-    private let primary = hex("#36796C")
-    private let fieldBorder = Color.black.opacity(0.25)
-    private let bg = Color.white
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
+    private let fieldBorder = Color.black.opacity(0.1) // MODIFIED
+    private let bg = BrandColors.gradientBackground // MODIFIED
 
     @Environment(\.dismiss) private var dismiss
 
@@ -61,10 +43,9 @@ struct ChangePasswordView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
 
-                    // Title
                     Text("Change password")
-                        .font(.custom("Poppins", size: 34))
-                        .fontWeight(.medium)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
@@ -81,7 +62,6 @@ struct ChangePasswordView: View {
                                   isShown: $showNew,
                                   contentType: .password)
 
-                    // Password requirements bullets - UNDER the field
                     VStack(alignment: .leading, spacing: 6) {
                         requirementRow("At least 8 characters", met: hasMinLength(newPass))
                         requirementRow("At least one uppercase letter (A-Z)", met: hasUppercase(newPass))
@@ -98,10 +78,10 @@ struct ChangePasswordView: View {
                                   isShown: $showConfirm,
                                   contentType: .password)
                     
-                    // Passwords don't match error
                     if passwordsDontMatch {
                         Text("Passwords do not match.")
-                            .font(.custom("Poppins", size: 13))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
                             .padding(.horizontal, 4)
                             .padding(.top, -14)
@@ -110,21 +90,24 @@ struct ChangePasswordView: View {
                     // Change Button
                     Button(action: changePassword) {
                         Text("Change")
-                            .font(.custom("Poppins", size: 20))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 20, weight: .medium, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(isFormValid ? primary : primary.opacity(0.4))
+                            .background(primary) // MODIFIED: Removed ternary
                             .clipShape(Capsule())
+                            // MODIFIED: Add shadow
+                            .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(!isFormValid)
+                    .opacity(isFormValid ? 1.0 : 0.5) // MODIFIED: Use opacity for disabled
                     .padding(.top, 18)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
 
-            // Success overlay (centered, transparent background)
             if showSuccessOverlay {
                 SuccessOverlay(primary: primary,
                                title: "Password changed successfully",
@@ -175,9 +158,9 @@ struct ChangePasswordView: View {
     // MARK: - UI Parts
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
-            .font(.custom("Poppins", size: 18))
-            .fontWeight(.semibold)
-            .foregroundColor(.black.opacity(0.65))
+            // MODIFIED: Use new font
+            .font(.system(size: 14, weight: .medium, design: .rounded)) // MODIFIED
+            .foregroundColor(.gray) // MODIFIED
     }
 
     private func requirementRow(_ text: String, met: Bool) -> some View {
@@ -187,15 +170,16 @@ struct ChangePasswordView: View {
                 .foregroundColor(met ? primary : .gray.opacity(0.4))
             
             Text(text)
-                .font(.custom("Poppins", size: 13))
+                // MODIFIED: Use new font
+                .font(.system(size: 13, design: .rounded))
                 .foregroundColor(met ? primary : .gray.opacity(0.6))
         }
     }
 
     /// Password field with eye toggle
     private func passwordField(text: Binding<String>,
-                               isShown: Binding<Bool>,
-                               contentType: UITextContentType = .password) -> some View {
+                                   isShown: Binding<Bool>,
+                                   contentType: UITextContentType = .password) -> some View {
         ZStack(alignment: .trailing) {
             Group {
                 if isShown.wrappedValue {
@@ -212,18 +196,18 @@ struct ChangePasswordView: View {
                         .textContentType(.password)
                 }
             }
-            .font(.custom("Poppins", size: 16))
+            // MODIFIED: Use new font
+            .font(.system(size: 16, design: .rounded))
             .foregroundColor(primary)
             .tint(primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(fieldBorder, lineWidth: 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white)
-                    )
+                    // MODIFIED: Use new card style
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(fieldBorder, lineWidth: 1))
             )
 
             Button { withAnimation { isShown.wrappedValue.toggle() } } label: {
@@ -283,10 +267,6 @@ struct ChangePasswordView: View {
     }
 }
 
-#Preview {
-    NavigationStack { ChangePasswordView() }
-}
-
 // MARK: - Centered Success Overlay
 struct SuccessOverlay: View {
     let primary: Color
@@ -295,7 +275,6 @@ struct SuccessOverlay: View {
 
     var body: some View {
         ZStack {
-            // Transparent dimmed background
             Color.black.opacity(0.35).ignoresSafeArea()
 
             VStack(spacing: 20) {
@@ -306,15 +285,15 @@ struct SuccessOverlay: View {
                     .foregroundColor(primary)
 
                 Text(title)
-                    .font(.custom("Poppins", size: 18))
-                    .fontWeight(.medium)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.black)
+                    .foregroundColor(BrandColors.darkGray) // MODIFIED
 
                 Button(action: okAction) {
                     Text("OK")
-                        .font(.custom("Poppins", size: 18))
-                        .fontWeight(.semibold)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -327,7 +306,8 @@ struct SuccessOverlay: View {
             .padding(.vertical, 30)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white)
+                    // MODIFIED: Use new background
+                    .fill(BrandColors.background)
             )
             .shadow(color: .black.opacity(0.25), radius: 20, x: 0, y: 10)
         }

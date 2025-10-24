@@ -35,9 +35,9 @@ struct PlayerSetupView: View {
     @State private var goToProfile = false // Navigation trigger
 
     // MARK: - Theme
-    // MODIFIED: Uses the Color(hex:) extension from AppModels.swift
-    private let primary = Color(hex: "#36796C")
-    private let bg = Color(hex: "#EFF5EC")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
+    private let bg = BrandColors.backgroundGradientEnd
 
     // MARK: - Validation (realistic ranges)
     private var weightInt: Int? { Int(weight) }
@@ -83,15 +83,13 @@ struct PlayerSetupView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Title
                     Text("Set up your profile")
-                        .font(.custom("Poppins", size: 28))
-                        .fontWeight(.medium)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    // Profile photo (silent upload once selected)
                     PhotosPicker(selection: $selectedItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
                             if let image = profileImage {
@@ -99,13 +97,12 @@ struct PlayerSetupView: View {
                                     .frame(width: 110, height: 110)
                                     .clipShape(Circle())
                             } else {
-                                Image("profile_placeholder") // Make sure this image exists in your assets
+                                Image("profile_placeholder")
                                     .resizable().scaledToFill()
                                     .frame(width: 110, height: 110)
                                     .clipShape(Circle())
-                                    .foregroundColor(.gray.opacity(0.5)) // Added fallback color
+                                    .foregroundColor(.gray.opacity(0.5))
                             }
-                            // Small plus icon overlay
                             Circle().fill(primary)
                                 .frame(width: 32, height: 32)
                                 .overlay(
@@ -113,20 +110,22 @@ struct PlayerSetupView: View {
                                         .font(.system(size: 14, weight: .bold))
                                         .foregroundColor(.white)
                                 )
+                                // MODIFIED: Add shadow
+                                .shadow(color: primary.opacity(0.3), radius: 8, y: 4)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 6)
 
                     // ========= Position (Mandatory) =========
-                    // --- MODIFIED: Added required: true ---
                     fieldLabel("Position", required: true)
                     buttonLikeField(action: {
                         showPositionPicker = true
                     }) {
                         HStack {
                             Text(position.isEmpty ? "Select position" : position)
-                                .font(.custom("Poppins", size: 16))
+                                // MODIFIED: Use new font
+                                .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(position.isEmpty ? .gray : primary)
                             Spacer()
                             Image(systemName: "chevron.down")
@@ -140,80 +139,82 @@ struct PlayerSetupView: View {
                             showSheet: $showPositionPicker
                         )
                         .presentationDetents([.height(300)])
-                        .presentationBackground(.white)
+                        // MODIFIED: Use new background
+                        .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
 
                     // ========= Weight (Mandatory & Validated) =========
-                    // --- MODIFIED: Added required: true ---
                     fieldLabel("Weight (kg)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
-                        TextField("Enter weight", text: $weight) // Added placeholder
+                        TextField("Enter weight", text: $weight)
                             .keyboardType(.numberPad)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
-                            .onChange(of: weight) { _, new in // Use new syntax
+                            .onChange(of: weight) { _, new in
                                 let filtered = new.filter(\.isNumber)
-                                // Allow up to 3 digits for weight
                                 weight = String(filtered.prefix(3))
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .frame(maxWidth: .infinity)
+                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(.white)
+                                    .fill(BrandColors.background)
                                     .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                             )
-                            .overlay( // Show red border if invalid and not empty
+                            .overlay(
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(!weight.isEmpty && !isWeightValid ? Color.red : Color.clear, lineWidth: 1)
                             )
 
-                        // Validation message
                         if !weight.isEmpty && !isWeightValid {
                             Text("Enter a realistic weight between 15–200 kg.")
-                                .font(.caption)
+                                // MODIFIED: Use new font
+                                .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
 
                     // ========= Height (Mandatory & Validated) =========
-                    // --- MODIFIED: Added required: true ---
                     fieldLabel("Height (cm)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
-                        TextField("Enter height", text: $height) // Added placeholder
+                        TextField("Enter height", text: $height)
                             .keyboardType(.numberPad)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
-                            .onChange(of: height) { _, new in // Use new syntax
+                            .onChange(of: height) { _, new in
                                 let filtered = new.filter(\.isNumber)
-                                // Allow up to 3 digits for height
                                 height = String(filtered.prefix(3))
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .frame(maxWidth: .infinity)
+                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(.white)
+                                    .fill(BrandColors.background)
                                     .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                             )
-                            .overlay( // Show red border if invalid and not empty
+                            .overlay(
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(!height.isEmpty && !isHeightValid ? Color.red : Color.clear, lineWidth: 1)
                             )
 
-                        // Validation message
                         if !height.isEmpty && !isHeightValid {
                             Text("Enter a realistic height between 100–230 cm.")
-                                .font(.caption)
+                                // MODIFIED: Use new font
+                                .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
 
                     // ========= Residence (Mandatory) =========
-                    // --- MODIFIED: Added required: true ---
                     fieldLabel("Residence", required: true)
                     buttonLikeField(action: {
                         locationSearch = ""
@@ -221,7 +222,8 @@ struct PlayerSetupView: View {
                     }) {
                         HStack {
                             Text(location.isEmpty ? "Select city" : location)
-                                .font(.custom("Poppins", size: 16))
+                                // MODIFIED: Use new font
+                                .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(location.isEmpty ? .gray : primary)
                             Spacer()
                             Image(systemName: "chevron.down")
@@ -238,90 +240,78 @@ struct PlayerSetupView: View {
                             accent: primary
                         )
                         .presentationDetents([.large])
-                        .presentationBackground(.white)
+                        // MODIFIED: Use new background
+                        .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
 
                     // ========= Done Button (Activation logic handled by canSubmit) =========
                     Button {
                         Task {
-                            // No need to re-check canSubmit here, disabled state handles it
                             do {
                                 try await savePlayerSetupData()
-                                goToProfile = true // Trigger navigation on success
+                                goToProfile = true
                             } catch {
                                 alertMsg = error.localizedDescription
                                 showAlert = true
                             }
                         }
                     } label: {
-                        HStack { // Added HStack for potential spinner
+                        HStack {
                             Text("Done")
-                                .font(.custom("Poppins", size: 18))
+                                // MODIFIED: Use new font
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
-                            // Optional: Add ProgressView if needed during save operation
-                            // if isSaving { ProgressView().colorInvert().scaleEffect(0.8) }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(primary)
                         .clipShape(Capsule())
+                        // MODIFIED: Add shadow
+                        .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
-                    .disabled(!canSubmit) // Button is disabled if canSubmit is false
-                    .opacity(canSubmit ? 1 : 0.5) // Visual cue for disabled state
-                    .padding(.top) // Add some space before the button
+                    .disabled(!canSubmit)
+                    .opacity(canSubmit ? 1 : 0.5)
+                    .padding(.top)
 
-                    Spacer(minLength: 24) // Ensure content pushes button up if needed
+                    Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
         }
-        .onChange(of: selectedItem) { _, newItem in // Use new syntax
-            // Reset upload state when a new item is picked
+        .onChange(of: selectedItem) { _, newItem in
             selectedImageData = nil
             profileImage = nil
             downloadURL = nil
             isUploading = false
             alertMsg = ""
-            
             Task {
                 guard let item = newItem else { return }
-                
-                // Load image data
                 if let data = try? await item.loadTransferable(type: Data.self) {
                     selectedImageData = data
-                    // Try to determine file extension
                     fileExt = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                    // Display the selected image immediately
                     if let uiImage = UIImage(data: data) {
                         profileImage = Image(uiImage: uiImage)
                     }
-                    
-                    // Start the upload automatically
                     do {
                         try await uploadProfilePhoto()
-                        // Upload successful, downloadURL is set
                     } catch {
-                        // Handle upload error
                         alertMsg = "Photo upload failed: \(error.localizedDescription)"
                         showAlert = true
-                        // Clear image data so user isn't stuck waiting for a failed upload
                         selectedImageData = nil
                         profileImage = nil
                         downloadURL = nil
-                        isUploading = false // Ensure uploading state is reset
+                        isUploading = false
                     }
                 } else {
-                    // Handle error loading data from PhotosPickerItem
                     alertMsg = "Could not load image data."
                     showAlert = true
                 }
             }
         }
         .fullScreenCover(isPresented: $goToProfile) {
-            // Navigate to the main profile view (ensure PlayerProfileView exists)
-             PlayerProfileView() // Assuming this is your destination view
+             PlayerProfileView()
         }
         .navigationBarBackButtonHidden(true)
         .alert("Notice", isPresented: $showAlert) {
@@ -418,14 +408,15 @@ struct PlayerSetupView: View {
     // --- MODIFIED: Added required parameter ---
     /// Creates a standard field label with an optional red asterisk for mandatory fields.
     private func fieldLabel(_ title: String, required: Bool = false) -> some View {
-        HStack(spacing: 2) { // Reduced spacing
+        HStack(spacing: 2) {
             Text(title)
-                .font(.custom("Poppins", size: 14))
+                // MODIFIED: Use new font
+                .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.gray)
             if required {
                 Text("*")
-                    .font(.custom("Poppins", size: 14)) // Match size
-                    .fontWeight(.bold) // Make star bold
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(.red)
             }
         }
@@ -440,11 +431,13 @@ struct PlayerSetupView: View {
             content()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .leading) // Ensure text aligns left
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // MODIFIED: Use new card style
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(.white)
+                        .fill(BrandColors.background)
                         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                 )
         }
     }

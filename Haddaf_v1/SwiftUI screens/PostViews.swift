@@ -14,7 +14,8 @@ struct PostDetailView: View {
 
     @State private var showPrivacyAlert = false
     @State private var showCommentsSheet = false
-    private let accentColor = Color(hex: "#36796C")
+    // MODIFIED: Use new color
+    private let accentColor = BrandColors.darkTeal
     
     @State private var isEditingCaption = false
     @State private var editedCaption = ""
@@ -22,6 +23,9 @@ struct PostDetailView: View {
 
     var body: some View {
         ZStack {
+            // MODIFIED: Use new gradient background
+            BrandColors.gradientBackground.ignoresSafeArea()
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
@@ -30,6 +34,8 @@ struct PostDetailView: View {
                         VideoPlayer(player: AVPlayer(url: url))
                             .frame(height: 250)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
+                            // MODIFIED: Add shadow
+                            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                     } else {
                         VideoPlayerPlaceholderView(post: post)
                     }
@@ -67,13 +73,15 @@ struct PostDetailView: View {
                     .tint(.white)
                     .foregroundColor(.white)
                     .padding()
-                    .background(.black.opacity(0.6))
+                    .background(BrandColors.background.opacity(0.6)) // MODIFIED
                     .cornerRadius(12)
             }
         }
         .sheet(isPresented: $showCommentsSheet) {
             if let postId = post.id {
                 CommentsView(postId: postId)
+                    // MODIFIED: Apply new background
+                    .presentationBackground(BrandColors.background)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
@@ -82,11 +90,9 @@ struct PostDetailView: View {
                   updatedPostId == post.id else {
                 return
             }
-            
             if userInfo["commentAdded"] as? Bool == true {
                 post.commentCount += 1
             }
-            
             if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
                 post.isLikedByUser = isLiked
                 post.likeCount = likeCount
@@ -100,8 +106,8 @@ struct PostDetailView: View {
     private var header: some View {
         ZStack {
             Text("Post")
-                .font(.custom("Poppins", size: 28))
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 28, weight: .medium, design: .rounded))
                 .foregroundColor(accentColor)
 
             HStack {
@@ -110,7 +116,8 @@ struct PostDetailView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(accentColor)
                         .padding(10)
-                        .background(Circle().fill(Color.black.opacity(0.05)))
+                        // MODIFIED: Use new color
+                        .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                 }
                 Spacer()
                 Button { showDeleteConfirmation = true } label: {
@@ -153,23 +160,21 @@ struct PostDetailView: View {
         isDeleting = false
     }
 
-    // --- MODIFIED: captionAndMetadata ---
     private var captionAndMetadata: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // MODIFIED: Wrap in card
+        VStack(alignment: .leading, spacing: 12) {
             
-            // --- CAPTION SECTION ---
             if isEditingCaption {
-                // --- EDITING VIEW ---
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Edit Caption")
-                        .font(.caption)
+                        .font(.system(size: 12, design: .rounded)) // MODIFIED
                         .foregroundColor(.secondary)
                     
                     TextEditor(text: $editedCaption)
-                        .font(.headline)
+                        .font(.system(size: 16, design: .rounded)) // MODIFIED
                         .frame(minHeight: 80, maxHeight: 200)
                         .padding(8)
-                        .background(Color(.systemGray6))
+                        .background(BrandColors.lightGray) // MODIFIED
                         .cornerRadius(10)
                         .tint(accentColor)
                     
@@ -178,11 +183,11 @@ struct PostDetailView: View {
                         Button("Cancel") {
                             withAnimation {
                                 isEditingCaption = false
-                                editedCaption = "" // Clear temp state
+                                editedCaption = ""
                             }
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.primary)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded)) // MODIFIED
+                        .foregroundColor(BrandColors.darkGray) // MODIFIED
                         
                         Button {
                             Task { await commitCaptionEdit() }
@@ -190,12 +195,12 @@ struct PostDetailView: View {
                             if isSavingCaption {
                                 ProgressView()
                                     .tint(.white)
-                                    .frame(height: 19) // Match text height
+                                    .frame(height: 19)
                             } else {
                                 Text("Save")
                             }
                         }
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded)) // MODIFIED
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -206,23 +211,21 @@ struct PostDetailView: View {
                     }
                 }
             } else {
-                // --- DISPLAY VIEW ---
                 HStack(alignment: .top) {
                     Text(post.caption)
-                        .font(.headline)
+                        .font(.system(size: 16, design: .rounded)) // MODIFIED
+                        .foregroundColor(BrandColors.darkGray) // MODIFIED
                         .frame(maxWidth: .infinity, alignment: .leading)
                     
                     Button {
                         editedCaption = post.caption
-                        withAnimation {
-                            isEditingCaption = true
-                        }
+                        withAnimation { isEditingCaption = true }
                     } label: {
                         Image(systemName: "pencil.line")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(8)
-                            .background(Color(.systemGray6))
+                            .background(BrandColors.lightGray) // MODIFIED
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
@@ -231,19 +234,16 @@ struct PostDetailView: View {
 
             // --- METADATA SECTION ---
             
-            // --- MODIFIED: Match Date ---
             if let matchDate = post.matchDate, !isEditingCaption {
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
-                    // --- Call our new helper function ---
                     Text("Match Date: \(formatMatchDate(matchDate))")
                 }
-                .font(.caption)
+                .font(.system(size: 12, design: .rounded)) // MODIFIED
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
             }
             
-            // --- Original Timestamp & Privacy ---
             HStack(spacing: 8) {
                 Text("Created at: \(post.timestamp)")
                 Spacer()
@@ -255,10 +255,14 @@ struct PostDetailView: View {
                     .foregroundColor(post.isPrivate ? .red : accentColor)
                 }
             }
-            .font(.caption)
+            .font(.system(size: 12, design: .rounded)) // MODIFIED
             .foregroundColor(.secondary)
             .padding(.top, 4)
         }
+        .padding() // Add padding to the card
+        .background(BrandColors.background) // MODIFIED
+        .cornerRadius(16) // MODIFIED
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5) // MODIFIED
     }
 
     private var authorInfoAndInteractions: some View {
@@ -266,112 +270,89 @@ struct PostDetailView: View {
             AsyncImage(url: URL(string: post.authorImageName)) { image in
                 image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
             } placeholder: {
-                Circle().fill(.gray.opacity(0.1)).frame(width: 40, height: 40)
+                Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40) // MODIFIED
             }
-            Text(post.authorName).font(.headline).fontWeight(.bold)
+            // MODIFIED: Use new font
+            Text(post.authorName)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray) // MODIFIED
+            
             Spacer()
+            
             Button(action: { Task { await toggleLike() } }) {
                 HStack(spacing: 4) {
                     Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
                     Text(formatNumber(post.likeCount))
                 }
-                .foregroundColor(post.isLikedByUser ? .red : .primary)
+                .font(.system(size: 14, design: .rounded)) // MODIFIED
+                .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray) // MODIFIED
             }
+            
             Button(action: { showCommentsSheet = true }) {
                 HStack(spacing: 4) {
                     Image(systemName: "message")
                     Text("\(post.commentCount)")
                 }
+                .font(.system(size: 14, design: .rounded)) // MODIFIED
+                .foregroundColor(BrandColors.darkGray) // MODIFIED
             }
         }
-        .font(.subheadline)
         .foregroundColor(.primary)
     }
 
+    // ... (commitCaptionEdit logic is unchanged) ...
     private func commitCaptionEdit() async {
-        guard let postId = post.id else {
-            print("Missing post ID for saving caption.")
-            return
-        }
-        
+        guard let postId = post.id else { return }
         let newCaption = editedCaption.trimmingCharacters(in: .whitespaces)
         if newCaption.isEmpty {
-            withAnimation {
-                isEditingCaption = false
-                editedCaption = ""
-            }
+            withAnimation { isEditingCaption = false; editedCaption = "" }
             return
         }
-        
         isSavingCaption = true
-        
         do {
             let db = Firestore.firestore()
-            try await db.collection("videoPosts").document(postId).updateData([
-                "caption": newCaption
-            ])
-            
+            try await db.collection("videoPosts").document(postId).updateData(["caption": newCaption])
             post.caption = newCaption
-            withAnimation {
-                isEditingCaption = false
-            }
-            
+            withAnimation { isEditingCaption = false }
         } catch {
             print("Error updating caption: \(error.localizedDescription)")
         }
-        
         isSavingCaption = false
     }
 
+    // ... (toggleLike logic is unchanged) ...
     private func toggleLike() async {
         guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
-        
         let isLiking = !post.isLikedByUser
         let delta: Int64 = isLiking ? 1 : -1
         let firestoreAction = isLiking ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])
-
         post.isLikedByUser = isLiking
         post.likeCount += Int(delta)
-        
-        // --- Update local likedBy array for consistency ---
-        if isLiking {
-            post.likedBy.append(uid)
-        } else {
-            post.likedBy.removeAll { $0 == uid }
-        }
-
+        if isLiking { post.likedBy.append(uid) }
+        else { post.likedBy.removeAll { $0 == uid } }
         do {
             try await Firestore.firestore().collection("videoPosts").document(postId).updateData([
-                "likeCount": FieldValue.increment(delta),
-                "likedBy": firestoreAction
+                "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
             ])
-            
             var userInfo: [String: Any] = ["postId": postId]
             userInfo["likeUpdate"] = (isLiking, post.likeCount)
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
-            
         } catch {
             print("Error updating like count: \(error.localizedDescription)")
             post.isLikedByUser = !isLiking
             post.likeCount -= Int(delta)
-            // --- Revert local likedBy array ---
-            if isLiking {
-                post.likedBy.removeAll { $0 == uid }
-            } else {
-                post.likedBy.append(uid)
-            }
+            if isLiking { post.likedBy.removeAll { $0 == uid } }
+            else { post.likedBy.append(uid) }
         }
     }
     
+    // ... (toggleVisibility logic is unchanged) ...
     private func toggleVisibility() {
         post.isPrivate.toggle()
-
         Task {
             guard let postId = post.id else { return }
             do {
-                try await Firestore.firestore()
-                    .collection("videoPosts")
-                    .document(postId)
+                try await Firestore.firestore().collection("videoPosts").document(postId)
                     .updateData(["visibility": !post.isPrivate])
             } catch {
                 print("Error updating post visibility: \(error.localizedDescription)")
@@ -380,32 +361,41 @@ struct PostDetailView: View {
         }
     }
     
-    // --- ADDED: Helper function to fix the error ---
+    // ... (formatMatchDate logic is unchanged) ...
     private func formatMatchDate(_ date: Date) -> String {
         let df_dateOnly = DateFormatter()
-        df_dateOnly.dateFormat = "MMM d, yyyY" // e.g. "Oct 23, 2025"
+        df_dateOnly.dateFormat = "MMM d, yyyY"
         return df_dateOnly.string(from: date)
     }
 
-    // MARK: - Static Placeholder Stats Section
+    // --- MODIFIED: statsSection to use new card style ---
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("AI Performance Analysis")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
+                .padding(.bottom, 4)
+            
             ForEach(placeholderStats) { stat in
+                // MODIFIED: Use new PostStatBarView
                 PostStatBarView(stat: stat, accentColor: accentColor)
             }
         }
+        .padding(20)
+        .background(BrandColors.background)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Placeholder Stats (Fixed Values)
     private var placeholderStats: [PostStat] {
         [
-            PostStat(label: "DRIBBLE",           value: 4),
+            PostStat(label: "DRIBBLE", value: 4),
             PostStat(label: "PASS",  value: 5),
-            PostStat(label: "SHOOT",         value: 3)
+            PostStat(label: "SHOOT", value: 3)
         ]
     }
 
-
+    // ... (formatNumber logic is unchanged) ...
     private func formatNumber(_ number: Int) -> String {
         if number >= 1000 {
             return String(format: "%.1fK", Double(number) / 1000.0)
@@ -415,106 +405,204 @@ struct PostDetailView: View {
     }
 }
 
-// MARK: - Comments Sheet View (Unchanged)
+// MARK: - Comments Sheet View (Lifecycle Fix)
 struct CommentsView: View {
     let postId: String
     @StateObject private var viewModel = CommentsViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var newCommentText = ""
-    private let accentColor = Color(hex: "#36796C")
+    private let accentColor = BrandColors.darkTeal
 
     var body: some View {
         VStack(spacing: 0) {
+            // --- Header ---
             HStack {
-                Spacer()
-                Text("Comments").font(.headline)
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark").font(.subheadline.bold()) }
+                 Spacer()
+                 Text("Comments")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                 Spacer()
+                 Button { dismiss() } label: { Image(systemName: "xmark").font(.subheadline.bold()) }
             }
-            .padding().overlay(Divider(), alignment: .bottom)
-            
+            .padding()
+            .background(BrandColors.background)
+            .overlay(Divider(), alignment: .bottom)
+
+            // --- Scrollable Comments List ---
             ScrollView {
+                // --- MODIFICATION: Add .onAppear and .onDisappear ---
                 VStack(alignment: .leading, spacing: 24) {
-                    ForEach(viewModel.comments) { comment in CommentRowView(comment: comment) }
+                    // Show loading indicator while comments are empty initially
+                     if viewModel.comments.isEmpty {
+                         ProgressView()
+                             .tint(accentColor)
+                             .padding(.top, 40)
+                             .frame(maxWidth: .infinity)
+                     } else {
+                         ForEach(viewModel.comments) { comment in
+                            CommentRowView(comment: comment)
+                         }
+                     }
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Add .onAppear here to fetch when the view becomes visible
+                .onAppear {
+                    print("CommentsView appeared for post: \(postId). Fetching comments.")
+                    viewModel.fetchComments(for: postId)
+                }
+                // Add .onDisappear here to clean up the listener
+                .onDisappear {
+                    print("CommentsView disappeared. Stopping listener.")
+                    viewModel.stopListening()
+                }
+                 // --- END MODIFICATION ---
             }
-            
+            .background(BrandColors.gradientBackground) // Keep background
+
+            // --- Comment Input Area ---
             HStack(spacing: 12) {
                 TextField("Write Comment...", text: $newCommentText)
-                    .padding(.horizontal).padding(.vertical, 10)
-                    .background(Color(.systemGray6)).clipShape(Capsule())
-                Button(action: addComment) { Image(systemName: "paperplane.fill").font(.title2).foregroundColor(accentColor) }
-                    .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }.padding().background(.white)
+                    // ... (rest of TextField modifiers) ...
+                    .font(.system(size: 15, design: .rounded))
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(BrandColors.lightGray).clipShape(Capsule())
+                    .tint(accentColor)
+
+                Button(action: addComment) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.title2).foregroundColor(accentColor)
+                }
+                .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding()
+            .background(BrandColors.background)
         }
-        .onAppear { viewModel.fetchComments(for: postId) }
-        .onDisappear { viewModel.stopListening() }
+        // --- ADDED: Handle potential dismissal before listener setup ---
+        // If the view model's listener isn't set but view disappears,
+        // ensure cleanup is attempted on final disappear.
+        // This is a safety net, .onDisappear above is the primary cleanup.
+        .onDisappear {
+            // Optional: ViewModel could have an internal flag like `isListenerActive`
+            // if viewModel.isListenerActive { viewModel.stopListening() }
+            // Or just call stopListening again, it handles nil internally.
+             viewModel.stopListening()
+        }
     }
 
     private func addComment() {
         let trimmed = newCommentText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        // Keep optimistic update: Show comment immediately
         Task {
+            // Call the existing viewModel function (which includes optimistic update)
             await viewModel.addComment(text: trimmed, for: postId)
+            // Clear text field after attempting to add
             newCommentText = ""
+            // Optionally hide keyboard
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
     }
 }
 
-// MARK: - Comments ViewModel (Unchanged)
 @MainActor
 final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
-    
+
     func fetchComments(for postId: String) {
         stopListening()
         let ref = db.collection("videoPosts").document(postId).collection("comments").order(by: "createdAt", descending: false)
         listener = ref.addSnapshotListener { [weak self] snap, error in
-            guard let self, let docs = snap?.documents else { return }
+            guard let self, let docs = snap?.documents else {
+                print("Error fetching comments: \(error?.localizedDescription ?? "Unknown error")")
+                return
+            }
+            print("Listener fired: Fetched \(docs.count) comment documents.") // Keep for debugging
             let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
             self.comments = docs.compactMap { doc in
                 let d = doc.data()
-                return Comment(username: (d["username"] as? String) ?? "Unknown", userImage: (d["userImage"] as? String) ?? "", text: (d["text"] as? String) ?? "", timestamp: df.string(from: (d["createdAt"] as? Timestamp)?.dateValue() ?? Date()))
+                // print("Raw comment data: \(d)") // Keep for debugging if needed
+                guard let timestamp = d["createdAt"] as? Timestamp else {
+                    print("Skipping comment, createdAt is not a Timestamp: \(d)")
+                    return nil
+                }
+                return Comment(
+                    username: (d["username"] as? String) ?? "Unknown",
+                    userImage: (d["userImage"] as? String) ?? "",
+                    text: (d["text"] as? String) ?? "",
+                    timestamp: df.string(from: timestamp.dateValue())
+                )
             }
+             print("Listener fired: Mapped \(self.comments.count) comments.") // Keep for debugging
         }
     }
     func stopListening() { listener?.remove(); listener = nil }
-    
+
+    // --- MODIFIED: addComment with Optimistic Update ---
     func addComment(text: String, for postId: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
         do {
+            // 1. Get User Data
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let u = userDoc.data() ?? [:]
             let first = (u["firstName"] as? String) ?? ""; let last  = (u["lastName"]  as? String) ?? ""
             let username = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
-            
-            try await db.collection("videoPosts").document(postId).collection("comments").document().setData([
+            let userImage = (u["profilePic"] as? String) ?? ""
+
+            // 2. Prepare Firestore Data (using Server Timestamp)
+            let commentData: [String: Any] = [
                 "text": trimmed,
                 "username": username.isEmpty ? "Unknown" : username,
-                "userImage": (u["profilePic"] as? String) ?? "",
+                "userImage": userImage,
                 "userId": uid,
-                "createdAt": FieldValue.serverTimestamp()
-            ])
-            
+                "createdAt": FieldValue.serverTimestamp() // Let Firestore set the time
+            ]
+
+            // --- ADDED: Prepare local Comment object for optimistic update ---
+            // Use current Date() locally; listener will get server time later.
+            let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
+            let localTimestamp = df.string(from: Date()) // Use current time
+            let optimisticComment = Comment(
+                // Assign a temporary local ID if needed, though ForEach might handle it
+                // id: UUID(), // You might need this if your ForEach relies on Identifiable consistently
+                username: username.isEmpty ? "Unknown" : username,
+                userImage: userImage,
+                text: trimmed,
+                timestamp: localTimestamp
+            )
+            // --- END ADDED ---
+
+            // 3. Write to Firestore (Get ref first to potentially use ID later if needed)
+            let newCommentRef = db.collection("videoPosts").document(postId).collection("comments").document()
+            try await newCommentRef.setData(commentData)
+            print("Successfully wrote comment to Firestore.") // Confirmation print
+
+            // --- ADDED: Optimistic UI Update ---
+            // Append the locally created comment object to the array.
+            // This runs on the main actor because the function is marked @MainActor.
+             self.comments.append(optimisticComment)
+            print("Optimistically added comment to UI.")
+             // --- END ADDED ---
+
+            // 4. Increment Count
             try await db.collection("videoPosts").document(postId).updateData(["commentCount": FieldValue.increment(Int64(1))])
-            
+
+            // 5. Post Notification
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
                 "postId": postId,
                 "commentAdded": true
             ])
-            
+
         } catch {
             print("Failed to add comment: \(error)")
         }
     }
 }
 
-// MARK: - Helper Views
+
+// MARK: - Helper Views (Styling Update)
 fileprivate struct CommentRowView: View {
     let comment: Comment
     var body: some View {
@@ -522,14 +610,21 @@ fileprivate struct CommentRowView: View {
             AsyncImage(url: URL(string: comment.userImage)) { image in
                 image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
             } placeholder: {
-                Circle().fill(.gray.opacity(0.1)).frame(width: 40, height: 40)
+                Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40) // MODIFIED
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(comment.username).fontWeight(.semibold)
-                    Text(comment.timestamp).font(.caption).foregroundColor(.secondary)
+                    // MODIFIED: Use new font
+                    Text(comment.username)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    Text(comment.timestamp)
+                        .font(.system(size: 12, design: .rounded)) // MODIFIED
+                        .foregroundColor(.secondary)
                 }
+                // MODIFIED: Use new font
                 Text(comment.text)
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray) // MODIFIED
             }
         }
     }
@@ -547,31 +642,65 @@ struct VideoPlayerPlaceholderView: View {
             Image(systemName: "play.fill").font(.system(size: 40)).foregroundColor(.white)
         }
         .frame(height: 250).clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5) // MODIFIED
     }
 }
 
+// MODIFIED: Use new gradient bar style
 struct PostStatBarView: View {
     let stat: PostStat
     let accentColor: Color
+    
+    // MODIFIED: Add logic for gradients
+    let gradient: LinearGradient
+    init(stat: PostStat, accentColor: Color) {
+        self.stat = stat
+        self.accentColor = accentColor
+        
+        switch stat.label.lowercased() {
+        case "dribble":
+            self.gradient = LinearGradient(colors: [BrandColors.turquoise.opacity(0.7), BrandColors.turquoise], startPoint: .leading, endPoint: .trailing)
+        case "pass":
+            self.gradient = LinearGradient(colors: [BrandColors.teal.opacity(0.7), BrandColors.teal], startPoint: .leading, endPoint: .trailing)
+        case "shoot":
+            self.gradient = LinearGradient(colors: [BrandColors.actionGreen.opacity(0.7), BrandColors.actionGreen], startPoint: .leading, endPoint: .trailing)
+        default:
+            self.gradient = LinearGradient(colors: [accentColor.opacity(0.7), accentColor], startPoint: .leading, endPoint: .trailing)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(stat.label)
-                    .font(.caption)
+                    .font(.system(size: 12, weight: .medium, design: .rounded)) // MODIFIED
                     .foregroundColor(.secondary)
                 Spacer()
                 Text("\(Int(stat.value))")
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(.system(size: 12, weight: .bold, design: .rounded)) // MODIFIED
+                    .foregroundColor(BrandColors.darkGray) // MODIFIED
             }
-            ProgressView(value: stat.value)
-                .tint(accentColor)
+            
+            // MODIFIED: Use new progress bar style
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(BrandColors.lightGray)
+                        .frame(height: 8)
+                    
+                    Capsule()
+                        .fill(gradient) // Use the new gradient
+                        .frame(width: (geometry.size.width * CGFloat(stat.value) / 10.0), height: 8) // Assuming max 10
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: stat.value)
+                }
+            }
+            .frame(height: 8)
         }
     }
 }
 
 
+// MARK: - Popup Views (Styling Update)
 struct PrivacyWarningPopupView: View {
     @Binding var isPresented: Bool
     let isPrivate: Bool
@@ -580,14 +709,40 @@ struct PrivacyWarningPopupView: View {
         ZStack {
             Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { withAnimation { isPresented = false } }.transition(.opacity)
             VStack(spacing: 20) {
-                Text("Change Visibility?").font(.title3).fontWeight(.semibold)
-                Text(isPrivate ? "Making this post public will allow everyone to see it." : "Making this post private will hide it from other users.").font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
-                HStack(spacing: 24) {
-                    Button("Cancel") { withAnimation { isPresented = false } }.font(.system(size: 18, weight: .semibold)).foregroundColor(.black).frame(width: 120, height: 44).background(Color.gray.opacity(0.15)).cornerRadius(10)
-                    Button("Confirm") { withAnimation { onConfirm(); isPresented = false } }.font(.system(size: 18, weight: .semibold)).foregroundColor(.red).frame(width: 120, height: 44).background(Color.gray.opacity(0.15)).cornerRadius(10)
+                // MODIFIED: Use new font
+                Text("Change Visibility?")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                // MODIFIED: Use new font
+                Text(isPrivate ? "Making this post public will allow everyone to see it." : "Making this post private will hide it from other users.")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                
+                HStack(spacing: 16) { // MODIFIED: Spacing
+                    // MODIFIED: Use new font
+                    Button("Cancel") { withAnimation { isPresented = false } }
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray) // MODIFIED
+                        .frame(maxWidth: .infinity) // MODIFIED
+                        .padding(.vertical, 12) // MODIFIED
+                        .background(BrandColors.lightGray) // MODIFIED
+                        .cornerRadius(12) // MODIFIED
+                    
+                    // MODIFIED: Use new font
+                    Button("Confirm") { withAnimation { onConfirm(); isPresented = false } }
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.red) // MODIFIED
+                        .frame(maxWidth: .infinity) // MODIFIED
+                        .padding(.vertical, 12) // MODIFIED
+                        .background(Color.red.opacity(0.1)) // MODIFIED
+                        .cornerRadius(12) // MODIFIED
                 }.padding(.top, 4)
             }
-            .padding().frame(width: 320).background(Color.white).cornerRadius(20).shadow(radius: 12).transition(.scale)
+            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24)) // MODIFIED
+            .frame(width: 320)
+            .background(BrandColors.background) // MODIFIED
+            .cornerRadius(20)
+            .shadow(radius: 12)
+            .transition(.scale)
         }
     }
 }
@@ -599,14 +754,38 @@ struct DeleteConfirmationOverlay: View {
         ZStack {
             Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { isPresented = false }
             VStack(spacing: 20) {
-                Text("Delete Post?").font(.title3).fontWeight(.semibold)
-                Text("Are you sure you want to permanently delete this post?").font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
-                HStack(spacing: 24) {
-                    Button("Cancel") { isPresented = false }.font(.system(size: 18, weight: .semibold)).foregroundColor(.black).frame(width: 120, height: 44).background(Color.gray.opacity(0.15)).cornerRadius(10)
-                    Button("Delete") { onConfirm(); isPresented = false }.font(.system(size: 18, weight: .semibold)).foregroundColor(.white).frame(width: 120, height: 44).background(Color.red).cornerRadius(10)
+                // MODIFIED: Use new font
+                Text("Delete Post?")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                // MODIFIED: Use new font
+                Text("Are you sure you want to permanently delete this post?")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                
+                HStack(spacing: 16) { // MODIFIED
+                    // MODIFIED: Use new font and style
+                    Button("Cancel") { isPresented = false }
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(BrandColors.lightGray)
+                        .cornerRadius(12)
+                    
+                    // MODIFIED: Use new font and style
+                    Button("Delete") { onConfirm(); isPresented = false }
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red)
+                        .cornerRadius(12)
                 }.padding(.top, 4)
             }
-            .padding().frame(width: 320).background(Color.white).cornerRadius(20).shadow(radius: 12)
+            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24)) // MODIFIED
+            .frame(width: 320)
+            .background(BrandColors.background) // MODIFIED
+            .cornerRadius(20).shadow(radius: 12)
         }
     }
 }

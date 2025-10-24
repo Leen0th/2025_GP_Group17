@@ -9,7 +9,9 @@ import SwiftUI
 
 struct ProfileNotificationsListView: View {
     @Environment(\.dismiss) private var dismiss
-    private let primary = Color(hex: "#36796C")
+    
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
 
     // The filter category selected at the top
     @State private var selectedFilter: AppNotificationType = .all
@@ -37,72 +39,78 @@ struct ProfileNotificationsListView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Header
-                ZStack {
-                    Text("Notifications")
-                        .font(.custom("Poppins", size: 28))
-                        .fontWeight(.medium)
-                        .foregroundColor(primary)
-
-                    HStack {
-                        Spacer()
-                        Button("Done") {
-                            dismiss()
-                        }
-                        .font(.custom("Poppins", size: 16))
-                        .foregroundColor(primary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 14)
+            // MODIFIED: Use new gradient background
+            ZStack {
+                BrandColors.gradientBackground.ignoresSafeArea()
                 
-                // --- MODIFIED: Hide filter pills if there are no notifications at all ---
-                if !allNotifications.isEmpty {
-                    // Filter Pills
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(AppNotificationType.allCases) { type in
-                                FilterPill(type: type, isSelected: selectedFilter == type) {
-                                    withAnimation {
-                                        selectedFilter = type
+                VStack(spacing: 0) {
+                    // Header
+                    ZStack {
+                        Text("Notifications")
+                            // MODIFIED: Use new font
+                            .font(.system(size: 28, weight: .medium, design: .rounded))
+                            .foregroundColor(primary)
+
+                        HStack {
+                            Spacer()
+                            Button("Done") {
+                                dismiss()
+                            }
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(primary)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
+                    
+                    if !allNotifications.isEmpty {
+                        // Filter Pills
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(AppNotificationType.allCases) { type in
+                                    FilterPill(type: type, isSelected: selectedFilter == type) {
+                                        withAnimation {
+                                            selectedFilter = type
+                                        }
                                     }
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
                     }
-                }
 
-                // List of Notifications
-                List(filteredNotifications) { notification in
-                    notificationRow(notification: notification)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                }
-                .listStyle(.plain)
-                // --- MODIFIED: Updated overlay logic ---
-                .overlay {
-                    if allNotifications.isEmpty {
-                        EmptyStateView(
-                            imageName: "bell.badge",
-                            message: "You have no notifications yet. We'll let you know when something important happens!"
-                        )
-                    } else if filteredNotifications.isEmpty {
-                        EmptyStateView(
-                            imageName: "tray",
-                            message: "No notifications found in this category."
-                        )
+                    // List of Notifications
+                    List(filteredNotifications) { notification in
+                        notificationRow(notification: notification)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                            // MODIFIED: Make list rows transparent
+                            .listRowBackground(Color.clear)
+                    }
+                    .listStyle(.plain)
+                    // MODIFIED: Make list background transparent
+                    .scrollContentBackground(.hidden)
+                    .overlay {
+                        if allNotifications.isEmpty {
+                            EmptyStateView(
+                                imageName: "bell.badge",
+                                message: "You have no notifications yet. We'll let you know when something important happens!"
+                            )
+                        } else if filteredNotifications.isEmpty {
+                            EmptyStateView(
+                                imageName: "tray",
+                                message: "No notifications found in this category."
+                            )
+                        }
                     }
                 }
-                // --- END MODIFICATION ---
             }
         }
     }
     
-    // A single row in the notification list
     @ViewBuilder
     private func notificationRow(notification: AppNotification) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -116,23 +124,24 @@ struct ProfileNotificationsListView: View {
             // Text content
             VStack(alignment: .leading, spacing: 4) {
                 Text(notification.title)
-                    .font(.custom("Poppins", size: 16))
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray) // MODIFIED
                 
                 Text(notification.message)
-                    .font(.custom("Poppins", size: 14))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                 
                 Text(notification.timeAgo)
-                    .font(.custom("Poppins", size: 12))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary.opacity(0.8))
             }
             
             Spacer()
             
-            // Unread dot
             if !notification.isRead {
                 Circle()
                     .fill(primary)
@@ -141,30 +150,34 @@ struct ProfileNotificationsListView: View {
             }
         }
         .padding(12)
-        .background(Color.white)
+        // MODIFIED: Use new card style
+        .background(BrandColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 }
 
-// A view for the tappable filter pill
 private struct FilterPill: View {
     let type: AppNotificationType
     let isSelected: Bool
     let action: () -> Void
     
-    private let primary = Color(hex: "#36796C")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
 
     var body: some View {
         Button(action: action) {
             Text(type.rawValue)
-                .font(.custom("Poppins", size: 14))
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 14, weight: .medium, design: .rounded))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(isSelected ? primary : Color.black.opacity(0.05))
-                .foregroundColor(isSelected ? .white : .primary.opacity(0.8))
+                // MODIFIED: Use new colors
+                .background(isSelected ? primary : BrandColors.lightGray)
+                .foregroundColor(isSelected ? .white : BrandColors.darkGray)
                 .clipShape(Capsule())
+                // MODIFIED: Add shadow to selected
+                .shadow(color: isSelected ? primary.opacity(0.3) : .clear, radius: 8, y: 4)
         }
     }
 }

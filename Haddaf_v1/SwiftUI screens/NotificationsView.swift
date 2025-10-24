@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct NotificationsView: View {
-    private let primary = Color(hex: "#36796C")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.12)
 
     // القيم الافتراضية
@@ -17,14 +18,15 @@ struct NotificationsView: View {
 
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            // MODIFIED: Use new gradient background
+            BrandColors.gradientBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Header
                 ZStack {
                     Text("Notification")
-                        .font(.custom("Poppins", size: 28))
-                        .fontWeight(.medium)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
 
@@ -34,7 +36,8 @@ struct NotificationsView: View {
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(primary)
                                 .padding(10)
-                                .background(Circle().fill(Color.black.opacity(0.05)))
+                                // MODIFIED: Use new background
+                                .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                         }
                         Spacer()
                     }
@@ -43,7 +46,7 @@ struct NotificationsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
 
-                // قائمة النوتفيكيشن
+                // MODIFIED: Wrap list in a card
                 VStack(spacing: 18) {
                     notifRow(title: "New Challenge", isOn: $newChallenge)
                     divider
@@ -57,8 +60,13 @@ struct NotificationsView: View {
                     divider
                     notifRow(title: "Comments", isOn: $comments)
                 }
-                .padding(.horizontal, 28)
-                .padding(.top, 16)
+                .padding(.horizontal, 24) // MODIFIED
+                .padding(.vertical, 20) // MODIFIED
+                // MODIFIED: Add card styling
+                .background(BrandColors.background)
+                .cornerRadius(16)
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+                .padding(.horizontal)
 
                 Spacer()
             }
@@ -77,7 +85,8 @@ struct NotificationsView: View {
     private func notifRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
             Text(title)
-                .font(.custom("Poppins", size: 18))
+                // MODIFIED: Use new font
+                .font(.system(size: 18, design: .rounded))
                 .foregroundColor(primary)
                 .padding(.vertical, 10)
 

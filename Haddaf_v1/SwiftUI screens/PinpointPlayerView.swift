@@ -77,10 +77,10 @@ fileprivate struct TimeLabel: View {
         f.zeroFormattingBehavior = .pad
         return f
     }()
-    
     var body: some View {
         Text(Self.formatter.string(from: time) ?? "00:00")
-            .font(.caption.monospacedDigit())
+            // MODIFIED: Use new font
+            .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
             .foregroundColor(.secondary)
     }
 }
@@ -97,7 +97,8 @@ struct PinpointPlayerView: View {
     @State private var selectedPoint: CGPoint?
     @State private var navigateToProcessing = false
     
-    private let accentColor = Color(hex: "#36796C")
+    // MODIFIED: Use new BrandColors
+    private let accentColor = BrandColors.darkTeal
     
     init(videoURL: URL, isPresented: Binding<Bool>) {
         self.videoURL = videoURL
@@ -113,9 +114,10 @@ struct PinpointPlayerView: View {
                 
                 videoPlayerWithOverlay
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                    // MODIFIED: Add shadow
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                     .padding(.horizontal)
                 
-                // Only show controls when NOT in pinpoint mode
                 if !isFrameConfirmed {
                     customControlsView
                         .padding(.horizontal)
@@ -125,7 +127,8 @@ struct PinpointPlayerView: View {
                 Spacer()
                 footerButtons
             }
-            .background(Color.white)
+            // MODIFIED: Use new background
+            .background(BrandColors.gradientBackground)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
             .onDisappear { viewModel.cleanup() }
@@ -142,8 +145,8 @@ struct PinpointPlayerView: View {
     private var headerView: some View {
         ZStack {
             Text("Spot Yourself in Action")
-                .font(.custom("Poppins", size: 28))
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 28, weight: .medium, design: .rounded))
                 .foregroundColor(accentColor)
             
             HStack {
@@ -152,7 +155,8 @@ struct PinpointPlayerView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(accentColor)
                         .padding(10)
-                        .background(Circle().fill(Color.black.opacity(0.05)))
+                        // MODIFIED: Use new color
+                        .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                 }
                 Spacer()
             }
@@ -163,7 +167,7 @@ struct PinpointPlayerView: View {
     }
     
     private var instructionsView: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 12) { // MODIFIED: Spacing
             Image(systemName: isFrameConfirmed ? "2.circle.fill" : "1.circle.fill")
                 .font(.title2)
                 .foregroundColor(accentColor)
@@ -171,7 +175,8 @@ struct PinpointPlayerView: View {
             Text(isFrameConfirmed
                 ? "Tap on yourself in the video to mark your position clearly. Then click Continue to proceed."
                 : "Use the timeline below to find a scene where you are fully visible. Then click Confirm Scene.")
-                .font(.custom("Poppins", size: 16))
+                // MODIFIED: Use new font
+                .font(.system(size: 16, design: .rounded))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -180,17 +185,13 @@ struct PinpointPlayerView: View {
         .animation(.easeInOut, value: isFrameConfirmed)
     }
     
-    // MARK: - Video Player with Smart Overlay
-    // MARK: - Video Player with Smart Overlay
     private var videoPlayerWithOverlay: some View {
         ZStack {
-            // Use VideoPlayer but disable native controls
             VideoPlayer(player: viewModel.player)
-                .disabled(true)                     // prevents native controls
+                .disabled(true)
                 .aspectRatio(9/16, contentMode: .fit)
-                .allowsHitTesting(false)           // let our overlay handle taps
+                .allowsHitTesting(false)
             
-            // Only allow tap-to-select when confirmed
             if isFrameConfirmed {
                 GeometryReader { geometry in
                     Color.clear
@@ -215,7 +216,7 @@ struct PinpointPlayerView: View {
                 }
             }
         }
-        .padding(.bottom, 12) 
+        .padding(.bottom, 12)
     }
     
     private var customControlsView: some View {
@@ -232,7 +233,7 @@ struct PinpointPlayerView: View {
                 get: { viewModel.currentTime },
                 set: { newTime in
                     viewModel.seek(to: newTime)
-                    viewModel.player.pause() // Pause when scrubbing
+                    viewModel.player.pause()
                 }
             ), in: 0...max(viewModel.duration, 0.1))
             .tint(accentColor)
@@ -253,8 +254,8 @@ struct PinpointPlayerView: View {
                 } label: {
                     HStack {
                         Text("Confirm Scene")
-                            .font(.custom("Poppins", size: 18))
-                            .fontWeight(.semibold)
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Image(systemName: "checkmark")
                     }
                     .foregroundColor(accentColor)
@@ -263,7 +264,11 @@ struct PinpointPlayerView: View {
                     .background(
                         RoundedRectangle(cornerRadius: 25)
                             .stroke(accentColor, lineWidth: 2)
+                            // MODIFIED: Add background
+                            .background(BrandColors.background.clipShape(Capsule()))
                     )
+                    // MODIFIED: Add shadow
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                 }
                 .padding(.horizontal)
             } else {
@@ -275,8 +280,8 @@ struct PinpointPlayerView: View {
                 } label: {
                     HStack {
                         Text("Change Scene")
-                            .font(.custom("Poppins", size: 18))
-                            .fontWeight(.semibold)
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Image(systemName: "arrow.left")
                     }
                     .foregroundColor(.secondary)
@@ -288,8 +293,8 @@ struct PinpointPlayerView: View {
             } label: {
                 HStack {
                     Text("Continue")
-                        .font(.custom("Poppins", size: 18))
-                        .fontWeight(.semibold)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
                     Image(systemName: "arrow.right")
                 }
                 .foregroundColor(.white)
@@ -297,6 +302,8 @@ struct PinpointPlayerView: View {
                 .padding(.vertical, 14)
                 .background(accentColor)
                 .clipShape(Capsule())
+                // MODIFIED: Add shadow
+                .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
             }
             .padding(.horizontal)
             .disabled(selectedPoint == nil)

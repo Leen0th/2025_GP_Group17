@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    private let primary = Color(hex: "#36796C")
-    private let bg = Color(hex: "#EFF5EC")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
+    private let bg = BrandColors.backgroundGradientEnd // MODIFIED
     
-    // This state variable triggers the main app screen
     @State private var showMainApp = false
 
     var body: some View {
@@ -14,44 +14,47 @@ struct WelcomeView: View {
             VStack(spacing: 35) {
                 Spacer().frame(height: 100)
 
-                // Logo
                 Image("Haddaf_logo")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 210, height: 210)
 
-                // Title
                 Text("Let’s get started !")
-                    .font(.custom("Poppins", size: 24))
-                    .fontWeight(.medium)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 24, weight: .medium, design: .rounded))
                     .foregroundColor(primary)
 
                 Spacer().frame(height: 40)
 
-                // Buttons
                 VStack(spacing: 22) {
-                    // Sign In → SignInView
                     NavigationLink {
                         SignInView()
                     } label: {
                         Text("Sign In")
-                            .font(.custom("Poppins", size: 18))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(primary)
                             .cornerRadius(30)
+                            // MODIFIED: Add shadow
+                            .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
 
-                    // Sign Up → SignUpView
                     NavigationLink {
                         SignUpView()
                     } label: {
                         Text("Sign Up")
-                            .font(.custom("Poppins", size: 18))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
                             .foregroundColor(primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
+                            // MODIFIED: Use new background/shadow
+                            .background(BrandColors.background)
+                            .cornerRadius(30)
+                            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 30)
                                     .stroke(primary, lineWidth: 1)
@@ -61,20 +64,25 @@ struct WelcomeView: View {
                     HStack {
                         Rectangle().fill(Color.gray.opacity(0.35)).frame(height: 1)
                         Text("Or")
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(.gray)
                         Rectangle().fill(Color.gray.opacity(0.35)).frame(height: 1)
                     }
 
-                    // The "Continue as guest" button now triggers the full screen cover
                     Button(action: {
                         showMainApp = true
                     }) {
                         Text("Continue as guest")
-                            .font(.custom("Poppins", size: 18))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 18, weight: .medium, design: .rounded))
                             .foregroundColor(primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
+                            // MODIFIED: Use new background/shadow
+                            .background(BrandColors.background)
+                            .cornerRadius(30)
+                            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 30)
                                     .stroke(primary, lineWidth: 1)

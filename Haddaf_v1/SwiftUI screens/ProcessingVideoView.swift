@@ -17,16 +17,21 @@ struct ProcessingVideoView: View {
         _viewModel = StateObject(wrappedValue: VideoProcessingViewModel())
     }
 
-    let accentColor = Color(hex: "#36796C")
+    // MODIFIED: Use new BrandColors
+    let accentColor = BrandColors.darkTeal
+    
     @State private var navigateToFeedback = false
     @State private var isAnimating = false
 
     var body: some View {
         ZStack {
+            // MODIFIED: Use new background
+            BrandColors.gradientBackground.ignoresSafeArea()
+            
             VStack(spacing: 20) {
-                // This is your existing spinner, leave it as-is
                 ZStack {
-                    Circle().stroke(lineWidth: 12).fill(Color.gray.opacity(0.1))
+                    // MODIFIED: Use new color
+                    Circle().stroke(lineWidth: 12).fill(BrandColors.lightGray)
                     Circle()
                         .trim(from: 0, to: 0.75)
                         .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
@@ -37,36 +42,31 @@ struct ProcessingVideoView: View {
                 }
                 .frame(width: 150, height: 150)
                 
-                Text("Please Wait").font(.custom("Poppins-Bold", size: 24)).fontWeight(.bold)
+                Text("Please Wait")
+                    // MODIFIED: Use new font
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
                 
                 Text(viewModel.processingStateMessage)
-                    .font(.custom("Poppins-Regular", size: 16))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
                 
-                // --- ADD THESE LINES ---
-                
-                // 1. The Progress Bar
                 ProgressView(value: viewModel.progress)
                     .progressViewStyle(LinearProgressViewStyle(tint: accentColor))
                     .padding(.horizontal, 50)
-                    .animation(.linear, value: viewModel.progress) // Animate progress changes
+                    .animation(.linear, value: viewModel.progress)
                 
-                // 2. The Percentage Text
                 Text(String(format: "%.0f%%", viewModel.progress * 100))
-                    .font(.custom("Poppins-Regular", size: 14))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, design: .rounded))
                     .foregroundColor(accentColor)
-                    .animation(nil, value: viewModel.progress) // Don't animate the text itself
-                
-                // --- END OF ADDED LINES ---
+                    .animation(nil, value: viewModel.progress)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white)
-        .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
-        // MODIFIED: Call the updated processing function in the viewModel
         .task { await viewModel.processVideo(url: videoURL, pinpoint: pinpoint) }
         .onAppear { isAnimating = true }
         .onChange(of: viewModel.processingComplete) { _, v in

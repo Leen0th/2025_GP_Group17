@@ -13,45 +13,47 @@ struct ForgotPasswordView: View {
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
 
-    // Local color (scoped extension name to avoid collisions)
-    private let primary = Color(hexVal_fp: "#36796C")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
 
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            // MODIFIED: Use new background
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
 
-                    // Title
                     Text("Forgot password")
-                        .font(.custom("Poppins", size: 34))
-                        .fontWeight(.medium)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    // Email
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Email")
-                            .font(.custom("Poppins", size: 14))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 14, design: .rounded))
                             .foregroundColor(.gray)
 
                         TextField("", text: $email)
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
+                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color(.systemGray3), lineWidth: 1)
-                                    .background(.white)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                             )
                     }
 
-                    // Submit
                     Button {
                         Task { await sendResetEmail() }
                     } label: {
@@ -59,12 +61,15 @@ struct ForgotPasswordView: View {
                             if isLoading { ProgressView().tint(.white) }
                             Text("Request Reset Code")
                         }
-                        .font(.custom("Poppins", size: 18))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
                         .background(primary)
                         .clipShape(Capsule())
+                        // MODIFIED: Add shadow
+                        .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(isLoading || emailTrimmed.isEmpty)
                     .opacity((isLoading || emailTrimmed.isEmpty) ? 0.6 : 1)
@@ -151,33 +156,5 @@ struct ForgotPasswordView: View {
     private func isValidEmail(_ value: String) -> Bool {
         let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
         return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-    }
-}
-
-// MARK: - Hex Color (scoped name to avoid collisions with other files)
-extension Color {
-    init(hexVal_fp: String) {
-        let s = hexVal_fp.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: s).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch s.count {
-        case 3: (a, r, g, b) = (255, (int >> 8) * 17,
-                                (int >> 4 & 0xF) * 17,
-                                (int & 0xF) * 17)
-        case 6: (a, r, g, b) = (255, int >> 16,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
-        case 8: (a, r, g, b) = (int >> 24,
-                                int >> 16 & 0xFF,
-                                int >> 8 & 0xFF,
-                                int & 0xFF)
-        default:(a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(.sRGB,
-                  red:   Double(r) / 255,
-                  green: Double(g) / 255,
-                  blue:  Double(b) / 255,
-                  opacity: Double(a) / 255)
     }
 }

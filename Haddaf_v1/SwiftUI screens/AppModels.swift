@@ -1,7 +1,31 @@
 import SwiftUI
 import Combine
 import PhotosUI
-import Foundation // <-- ADD THIS IMPORT
+import Foundation
+
+// MARK: - NEW: Brand Color Palette
+struct BrandColors {
+    // Primary
+    static let darkGray = Color(hex: "#262626")
+    static let lightGray = Color(hex: "#F2F2F2")
+    static let background = Color(hex: "#FFFFFC")
+    static let actionGreen = Color(hex: "#1EA061")
+    static let darkTeal = Color(hex: "#175151")
+    
+    // Secondary
+    static let almostBlack = Color(hex: "#0D0D0D")
+    static let gold = Color(hex: "#F8D361")
+    static let turquoise = Color(hex: "#33C9B8")
+    static let teal = Color(hex: "#26998C")
+    
+    // Gradients
+    static let backgroundGradientEnd = Color(hex: "#F7F9F7") // Subtle green-tinted white
+    static let gradientBackground = LinearGradient(
+        gradient: Gradient(colors: [background, backgroundGradientEnd]),
+        startPoint: .top,
+        endPoint: .bottom
+    )
+}
 
 // MARK: - Video Transferable
 // This struct helps transfer the video from the PhotosPicker to the app.

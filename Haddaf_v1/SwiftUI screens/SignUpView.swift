@@ -16,9 +16,10 @@ enum UserRole: String { case player = "Player", coach = "Coach" }
 struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // MODIFIED: Use Color(hex:) extension
-    private let primary = Color(hex: "#36796C")
-    private let bg = Color(hex: "#EFF5EC")
+    // MODIFIED: Use new BrandColors
+    private let primary = BrandColors.darkTeal
+    private let bg = BrandColors.backgroundGradientEnd
+    
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     // Fields
@@ -84,39 +85,42 @@ struct SignUpView: View {
                 VStack(alignment: .leading, spacing: 20) {
 
                     Text("Sign Up")
-                        .font(.custom("Poppins", size: 34)).fontWeight(.medium)
+                        // MODIFIED: Use new font
+                        .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
 
-                    // --- ADJUSTED ROLE SELECTION (Pill Segmented Control Style) ---
                     VStack(alignment: .leading, spacing: 8) {
                         fieldLabel("Profile Category", required: true)
                         
-                        // Role Selection: Player and Coach as segmented buttons
                         HStack(spacing: 0) {
                             roleSegmentPill(.player)
                             roleSegmentPill(.coach)
                         }
                         .background(
                             RoundedRectangle(cornerRadius: 14)
-                                .fill(Color.gray.opacity(0.1)) // Light background for the control itself
+                                // MODIFIED: Use new color
+                                .fill(BrandColors.lightGray.opacity(0.7))
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
-                    // -------------------------------------------------------------
 
                     // Full Name
                     fieldLabel("Full Name", required: true)
                     roundedField {
                         TextField("", text: $fullName)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .tint(primary)
                             .textInputAutocapitalization(.words)
                     }
                     if let err = nameError, !fullName.isEmpty {
-                        Text(err).font(.system(size: 13)).foregroundColor(.red)
+                        // MODIFIED: Use new font
+                        Text(err)
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
                     }
 
                     // Email
@@ -126,7 +130,8 @@ struct SignUpView: View {
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .tint(primary)
                             .focused($emailFocused)
@@ -138,12 +143,19 @@ struct SignUpView: View {
                     Group {
                         if !email.isEmpty && !isEmailValid {
                             Text("Please enter a valid email address.")
-                                .font(.system(size: 13)).foregroundColor(.red)
+                                // MODIFIED: Use new font
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.red)
                         } else if emailExists {
                             Text("You already have an account. Please sign in.")
-                                .font(.system(size: 13)).foregroundColor(.red)
+                                // MODIFIED: Use new font
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.red)
                         } else if let err = emailCheckError, !err.isEmpty {
-                            Text(err).font(.system(size: 13)).foregroundColor(.red)
+                            // MODIFIED: Use new font
+                            Text(err)
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.red)
                         }
                     }
 
@@ -154,7 +166,8 @@ struct SignUpView: View {
                             Button { showDialPicker = true } label: {
                                 HStack(spacing: 6) {
                                     Text(selectedDialCode.code)
-                                        .font(.custom("Poppins", size: 16))
+                                        // MODIFIED: Use new font
+                                        .font(.system(size: 16, design: .rounded))
                                     Image(systemName: "chevron.down")
                                         .font(.system(size: 12, weight: .semibold))
                                 }
@@ -177,15 +190,22 @@ struct SignUpView: View {
                             .keyboardType(.numberPad)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
-                            .font(.custom("Poppins", size: 16))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .tint(primary)
                         }
                     }
                     if phoneNonDigitError {
-                        Text("Numbers only (0–9).").font(.system(size: 13)).foregroundColor(.red)
+                        // MODIFIED: Use new font
+                        Text("Numbers only (0–9).")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
                     } else if !phoneLocal.isEmpty && !isPhoneValid {
-                        Text("Enter a valid phone number.").font(.system(size: 13)).foregroundColor(.red)
+                        // MODIFIED: Use new font
+                        Text("Enter a valid phone number.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
                     }
 
                     // DOB
@@ -196,7 +216,8 @@ struct SignUpView: View {
                     }) {
                         HStack {
                             Text(dob.map { formatDate($0) } ?? "")
-                                .font(.custom("Poppins", size: 16))
+                                // MODIFIED: Use new font
+                                .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(primary)
                             Spacer()
                             Image(systemName: "calendar")
@@ -207,7 +228,8 @@ struct SignUpView: View {
                     .sheet(isPresented: $showDOBPicker) {
                         DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
                             .presentationDetents([.height(300)])
-                            .presentationBackground(.white)
+                            // MODIFIED: Use new background
+                            .presentationBackground(BrandColors.background)
                             .presentationCornerRadius(28)
                     }
 
@@ -219,14 +241,16 @@ struct SignUpView: View {
                                 SecureField("", text: $password)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled(true)
-                                    .font(.custom("Poppins", size: 16))
+                                    // MODIFIED: Use new font
+                                    .font(.system(size: 16, design: .rounded))
                                     .foregroundColor(primary)
                                     .padding(.trailing, 44)
                             } else {
                                 TextField("", text: $password)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled(true)
-                                    .font(.custom("Poppins", size: 16))
+                                    // MODIFIED: Use new font
+                                    .font(.system(size: 16, design: .rounded))
                                     .foregroundColor(primary)
                                     .padding(.trailing, 44)
                             }
@@ -237,7 +261,6 @@ struct SignUpView: View {
                         }
                     }
 
-                    // Password criteria bullets (gray → green)
                     VStack(alignment: .leading, spacing: 6) {
                         passwordRuleRow("At least 8 characters", satisfied: pHasLen)
                         passwordRuleRow("At least one uppercase letter (A–Z)", satisfied: pHasUpper)
@@ -250,13 +273,18 @@ struct SignUpView: View {
                     // Submit
                     Button { Task { await handleSignUp() } } label: {
                         HStack(spacing: 10) {
-                            Text("Sign Up").font(.custom("Poppins", size: 18)).foregroundColor(.white)
-                            if isSubmitting { ProgressView().scaleEffect(0.9) }
+                            Text("Sign Up")
+                                // MODIFIED: Use new font
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                                .foregroundColor(.white)
+                            if isSubmitting { ProgressView().colorInvert().scaleEffect(0.9) }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(primary)
                         .clipShape(Capsule())
+                        // MODIFIED: Add shadow
+                        .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .padding(.top, 8)
                     .disabled(!isFormValid || isSubmitting)
@@ -265,11 +293,14 @@ struct SignUpView: View {
                     // Bottom link
                     HStack(spacing: 6) {
                         Text("Already have an account?")
-                            .font(.custom("Poppins", size: 15))
+                            // MODIFIED: Use new font
+                            .font(.system(size: 15, design: .rounded))
                             .foregroundColor(primary.opacity(0.7))
-                        NavigationLink { EmptyView() /*SignInView()*/ } label: {
+                        NavigationLink { EmptyView() } label: {
                             Text("Sign in")
-                                .font(.custom("Poppins", size: 15)).fontWeight(.semibold).foregroundColor(primary)
+                                // MODIFIED: Use new font
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(primary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -307,7 +338,21 @@ struct SignUpView: View {
         .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
         .sheet(isPresented: $showDialPicker) {
             CountryCodePickerSheet(selected: $selectedDialCode, primary: primary)
+                // MODIFIED: Use new background
+                .presentationBackground(BrandColors.background)
         }
+        // MODIFIED: Use new background for sheet
+        .sheet(isPresented: $showVerifyPrompt, content: {
+            SimpleVerifySheet(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                primary: primary,
+                resendCooldown: $resendCooldown,
+                errorText: $inlineVerifyError,
+                onResend: { Task { await resendVerification() } },
+                onClose: { withAnimation { showVerifyPrompt = false } }
+            )
+            .presentationBackground(BrandColors.background)
+        })
     }
 
     // MARK: - Full name validation (last name optional)
@@ -545,30 +590,36 @@ struct SignUpView: View {
             }
         } label: {
             Text(r.rawValue)
-                .font(.custom("Poppins", size: 16))
-                .fontWeight(.medium)
+                // MODIFIED: Use new font
+                .font(.system(size: 16, weight: .medium, design: .rounded))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .foregroundColor(isSelected ? .white : primary.opacity(0.8))
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(isSelected ? primary : Color.clear)
+                        // MODIFIED: Add shadow to selected pill
+                        .shadow(color: isSelected ? primary.opacity(0.3) : .clear, radius: 8, y: 4)
                 )
-                .padding(2) // Inner padding to show the gray background of the main HStacK
+                .padding(2)
         }
     }
-    // -----------------------------------
-    
-    // Original rolePill is now removed/replaced
 
     private func fieldLabel(_ title: String, required: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(title).font(.custom("Poppins", size: 14)).foregroundColor(primary.opacity(0.75))
+            Text(title)
+                // MODIFIED: Use new font
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(primary.opacity(0.75))
             if required {
-                Text("*").font(.system(size: 12, weight: .bold)).foregroundColor(.red).padding(.top, -2)
+                Text("*")
+                    // MODIFIED: Use new font
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.red).padding(.top, -2)
             }
         }
     }
+    
     private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 16)
@@ -576,10 +627,13 @@ struct SignUpView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(.white)
+                    // MODIFIED: Use new background/shadow
+                    .fill(BrandColors.background)
                     .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
             )
     }
+    
     private func buttonLikeField<Content: View>(action: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
         Button(action: action) {
             content()
@@ -588,22 +642,30 @@ struct SignUpView: View {
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(.white)
+                        // MODIFIED: Use new background/shadow
+                        .fill(BrandColors.background)
                         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                 )
         }
     }
+    
     private func passwordRuleRow(_ text: String, satisfied: Bool) -> some View {
         let color = satisfied ? primary : Color.gray.opacity(0.7)
-        let icon  = satisfied ? "checkmark.circle.fill" : "circle"
+        let icon  = satisfied ? "checkmark.circle.fill" : "circle"
         return HStack(alignment: .center, spacing: 8) {
             Image(systemName: icon).foregroundColor(color)
-            Text(text).font(.system(size: 13)).foregroundColor(color)
+            Text(text)
+                // MODIFIED: Use new font
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(color)
         }
     }
+    
     private func formatDate(_ date: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "dd/MM/yyyy"; return f.string(from: date)
     }
+    
     private func firstLast(from full: String) -> (String, String?) {
         let parts = full.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ").map(String.init)
         let first = parts.first ?? ""
@@ -637,17 +699,21 @@ struct SimpleVerifySheet: View {
                 .padding(.horizontal, 8).padding(.top, 6)
 
                 Text("Verify your email")
-                    .font(.system(size: 20, weight: .semibold))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(.primary)
 
                 Text("We’ve sent a verification link to \(email).\nOpen the link to verify your email so you can continue sign-up and complete your profile.")
-                    .font(.system(size: 14)).foregroundColor(.secondary)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
 
                 Button(action: { if resendCooldown == 0 { onResend() } }) {
                     Text(resendCooldown > 0 ? "Resend (\(resendCooldown)s)" : "Resend")
-                        .font(.system(size: 16, weight: .semibold))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(.primary)
                         .padding(.horizontal, 32)
                         .padding(.vertical, 10)
@@ -658,7 +724,8 @@ struct SimpleVerifySheet: View {
 
                 if let errorText, !errorText.isEmpty {
                     Text(errorText)
-                        .font(.system(size: 13))
+                        // MODIFIED: Use new font
+                        .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16).padding(.top, 2)
@@ -670,7 +737,8 @@ struct SimpleVerifySheet: View {
             .frame(maxWidth: 320)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white)
+                    // MODIFIED: Use new background
+                    .fill(BrandColors.background)
                     .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
             )
             Spacer()

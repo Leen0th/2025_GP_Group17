@@ -9,10 +9,11 @@ struct PlayerProfileContentView: View {
     @StateObject private var viewModel = PlayerProfileViewModel()
     @State private var selectedContent: ContentType = .posts
 
+    // MODIFIED: New 3-column grid for posts
     private let postColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.flexible(), spacing: 2), // Reduced spacing
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2)
     ]
     
     @State private var showDeleteAlert = false
@@ -20,10 +21,8 @@ struct PlayerProfileContentView: View {
     @State private var selectedPost: Post? = nil
     @State private var goToSettings = false
     
-    // --- ADDED: State for new notifications sheet ---
     @State private var showNotificationsList = false
     
-    // --- MODIFIED: Enums for new filter/sort ---
     enum PostFilter: String, CaseIterable {
         case all = "All"
         case `public` = "Public"
@@ -40,13 +39,9 @@ struct PlayerProfileContentView: View {
     @State private var postFilter: PostFilter = .all
     @State private var postSort: PostSort = .newestFirst
     
-    // --- ADDED: State for search text ---
     @State private var searchText = ""
 
-    // --- MODIFIED: This property now handles all filtering, searching, and sorting ---
     private var filteredAndSortedPosts: [Post] {
-        
-        // 1. Search Filter (by caption)
         let searched: [Post]
         if searchText.isEmpty {
             searched = viewModel.posts
@@ -54,250 +49,252 @@ struct PlayerProfileContentView: View {
             searched = viewModel.posts.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
         }
 
-        // 2. Type Filter
         let filtered: [Post]
         switch postFilter {
-        case .all:
-            filtered = searched
-        case .public:
-            filtered = searched.filter { !$0.isPrivate }
-        case .private:
-            filtered = searched.filter { $0.isPrivate }
+        case .all: filtered = searched
+        case .public: filtered = searched.filter { !$0.isPrivate }
+        case .private: filtered = searched.filter { $0.isPrivate }
         }
 
-        // 3. Sort
         switch postSort {
         case .newestFirst:
-            // The listener already sorts by uploadDateTime descending,
-            // so we just return the filtered list in its preserved order.
             return filtered
         case .oldestFirst:
-            // Return the reversed list.
             return filtered.reversed()
         case .matchDateNewest:
-            // Sort by matchDate descending. Posts without a date (nil) go to the end.
             return filtered.sorted {
-                guard let d1 = $0.matchDate else { return false } // nil d1 goes to end
-                guard let d2 = $1.matchDate else { return true }  // nil d2 goes to end
-                return d1 > d2 // Compare actual dates
+                guard let d1 = $0.matchDate else { return false }
+                guard let d2 = $1.matchDate else { return true }
+                return d1 > d2
             }
         case .matchDateOldest:
-            // Sort by matchDate ascending. Posts without a date (nil) go to the end.
             return filtered.sorted {
-                guard let d1 = $0.matchDate else { return false } // nil d1 goes to end
-                guard let d2 = $1.matchDate else { return true }  // nil d2 goes to end
-                return d1 < d2 // Compare actual dates
+                guard let d1 = $0.matchDate else { return false }
+                guard let d2 = $1.matchDate else { return true }
+                return d1 < d2
             }
         }
     }
 
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
-                .overlay(
-                    ScrollView {
-                        if viewModel.isLoading {
-                            ProgressView().padding(.top, 50)
-                        } else {
-                            VStack(spacing: 24) {
-                                // --- MODIFIED: Pass binding for notifications ---
-                                TopNavigationBar(
-                                    userProfile: viewModel.userProfile,
-                                    goToSettings: $goToSettings,
-                                    showNotifications: $showNotificationsList
-                                )
-                                ProfileHeaderView(userProfile: viewModel.userProfile)
-                                StatsGridView(userProfile: viewModel.userProfile)
-                                ContentTabView(selectedContent: $selectedContent)
+            // MODIFIED: Use new gradient background
+            BrandColors.gradientBackground.ignoresSafeArea()
 
-                                switch selectedContent {
-                                case .posts:
-                                    // --- ADDED: Search Bar ---
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "magnifyingglass")
+            ScrollView {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .padding(.top, 50)
+                        .tint(BrandColors.darkTeal) // MODIFIED: Tint
+                } else {
+                    VStack(spacing: 24) {
+                        TopNavigationBar(
+                            userProfile: viewModel.userProfile,
+                            goToSettings: $goToSettings,
+                            showNotifications: $showNotificationsList
+                        )
+                        
+                        // MODIFIED: Header now "hugs" the content below
+                        // We use a negative spacing to pull the StatsGridView "under" the header
+                        ProfileHeaderView(userProfile: viewModel.userProfile)
+                            .padding(.bottom, 0) // <-- This pulls the next view up
+                            .zIndex(1) // <-- Ensures header stays on top
+
+                        // MODIFIED: StatsGridView is now the new "Chip" design
+                        StatsGridView(userProfile: viewModel.userProfile)
+                            .zIndex(0) // <-- Stays below the header
+                        
+                        ContentTabView(selectedContent: $selectedContent)
+
+                        switch selectedContent {
+                        case .posts:
+                            // MODIFIED: New search bar style
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(BrandColors.darkTeal) // MODIFIED
+                                    .padding(.leading, 12)
+                                
+                                TextField("Search by title...", text: $searchText)
+                                    .font(.system(size: 16, design: .rounded)) // MODIFIED
+                                    .tint(BrandColors.darkTeal) // MODIFIED
+                                    .submitLabel(.search)
+                                
+                                if !searchText.isEmpty {
+                                    Button {
+                                        searchText = ""
+                                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
                                             .foregroundColor(.secondary)
-                                            .padding(.leading, 8)
-                                        
-                                        TextField("Search by title...", text: $searchText)
-                                            .tint(Color(hex: "#36796C"))
-                                            .submitLabel(.search)
-                                        
-                                        if !searchText.isEmpty {
-                                            Button {
-                                                searchText = ""
-                                                // Dismiss keyboard
-                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                            } label: {
-                                                Image(systemName: "xmark.circle.fill")
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            .padding(.trailing, 8)
-                                        }
                                     }
-                                    .padding(.vertical, 10)
-                                    .background(Color.black.opacity(0.05))
-                                    .clipShape(Capsule())
-                                    // --- END: Search Bar ---
-
-                                    postControls // Filter and Sort buttons
-                                    postsGrid    // The grid of posts
-                                    
-                                // --- MODIFIED: Commented placeholder and added EmptyStateView ---
-                                case .progress:
-                                    // ProgressTabView() // <-- Placeholder commented out
-                                    EmptyStateView(
-                                        imageName: "chart.bar.xaxis",
-                                        message: "Your progress analytics will appear here once you start uploading videos."
-                                    )
-                                    .padding(.top, 40)
-                                    
-                                case .endorsements:
-                                    EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
+                                    .padding(.trailing, 8)
                                 }
                             }
-                            .padding()
-                            .padding(.bottom, 100)
-                        }
-                    }
-                )
-                .task { await viewModel.fetchAllData() }
-                .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
-                    if let postId = note.userInfo?["postId"] as? String {
-                        withAnimation { viewModel.posts.removeAll { $0.id == postId } }
-                    }
-                }
-            // --- ADDED: This block listens for updates from PostDetailView ---
-                .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { note in
-                    guard let userInfo = note.userInfo,
-                          let postId = userInfo["postId"] as? String else { return }
+                            .padding(.vertical, 12)
+                            .background(BrandColors.lightGray.opacity(0.7)) // MODIFIED
+                            .clipShape(Capsule())
+                            .padding(.horizontal) // Add padding to the search bar
+                            // --- END: Search Bar ---
 
-                    // Find the index of the post to update in our main list
-                    if let index = viewModel.posts.firstIndex(where: { $0.id == postId }) {
-                        
-                        // Check for like updates
-                        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
-                            withAnimation {
-                                viewModel.posts[index].isLikedByUser = isLiked
-                                viewModel.posts[index].likeCount = likeCount
-                                // Also update the likedBy array for consistency
+                            postControls
+                                .padding(.horizontal) // Add padding to controls
+
+                            postsGrid
+                                .padding(.horizontal) // Add padding to grid
+                            
+                        case .progress:
+                        // --- MODIFIED: Commented out ProgressTabView ---
+                        // ProgressTabView() // <-- Placeholder commented out
+                        EmptyStateView(
+                            imageName: "chart.bar.xaxis",
+                            message: "Your progress analytics will appear here once you start uploading videos."
+                        )
+                        .padding(.top, 40)
+                        // --- END MODIFICATION ---
+
+                    case .endorsements:
+                        EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
+                            .padding(.horizontal)
+                    }
+                    }
+                    // MODIFIED: Removed top-level padding, applied to children
+                    .padding(.bottom, 100)
+                }
+            }
+            .task { await viewModel.fetchAllData() }
+            .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
+                if let postId = note.userInfo?["postId"] as? String {
+                    withAnimation { viewModel.posts.removeAll { $0.id == postId } }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { note in
+                guard let userInfo = note.userInfo,
+                      let postId = userInfo["postId"] as? String else { return }
+
+                if let index = viewModel.posts.firstIndex(where: { $0.id == postId }) {
+                    if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+                        withAnimation {
+                            viewModel.posts[index].isLikedByUser = isLiked
+                            viewModel.posts[index].likeCount = likeCount
+                            if let uid = Auth.auth().currentUser?.uid {
                                 if isLiked {
-                                    if let uid = Auth.auth().currentUser?.uid, !viewModel.posts[index].likedBy.contains(uid) {
+                                    if !viewModel.posts[index].likedBy.contains(uid) {
                                         viewModel.posts[index].likedBy.append(uid)
                                     }
                                 } else {
-                                    if let uid = Auth.auth().currentUser?.uid {
-                                        viewModel.posts[index].likedBy.removeAll { $0 == uid }
-                                    }
+                                    viewModel.posts[index].likedBy.removeAll { $0 == uid }
                                 }
                             }
                         }
-                        
-                        // Check for comment updates
-                        if userInfo["commentAdded"] as? Bool == true {
-                            withAnimation {
-                                viewModel.posts[index].commentCount += 1
-                            }
+                    }
+                    
+                    if userInfo["commentAdded"] as? Bool == true {
+                        withAnimation {
+                            viewModel.posts[index].commentCount += 1
                         }
                     }
                 }
-                // --- MODIFIED: Pass userProfile to SettingsView ---
-                .fullScreenCover(isPresented: $goToSettings) {
-                    NavigationStack { SettingsView(userProfile: viewModel.userProfile) } // Pass object
-                }
-                // --- ADDED: Sheet for Notifications List ---
-                .fullScreenCover(isPresented: $showNotificationsList) {
-                    ProfileNotificationsListView()
-                }
-                .fullScreenCover(item: $selectedPost) { post in
-                    // This now passes the *updated* post object
-                    NavigationStack { PostDetailView(post: post) }
-                }
+            }
+            .fullScreenCover(isPresented: $goToSettings) {
+                NavigationStack { SettingsView(userProfile: viewModel.userProfile) }
+            }
+            .fullScreenCover(isPresented: $showNotificationsList) {
+                ProfileNotificationsListView()
+            }
+            .fullScreenCover(item: $selectedPost) { post in
+                NavigationStack { PostDetailView(post: post) }
+            }
         }
     }
     
-    // --- MODIFIED: postControls labels ---
     private var postControls: some View {
         HStack {
             Menu {
                 Picker("Filter", selection: $postFilter) {
                     ForEach(PostFilter.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option) // Raw value is the new label
+                        Text(option.rawValue).tag(option)
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text("Filter: \(postFilter.rawValue)") // Use raw value
+                    Text("Filter: \(postFilter.rawValue)")
                 }
-                .font(.caption).foregroundColor(.primary).padding(.horizontal, 10)
-                .padding(.vertical, 6).background(Color.black.opacity(0.05)).clipShape(Capsule())
+                // MODIFIED: New style
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundColor(BrandColors.darkTeal)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(BrandColors.lightGray)
+                .clipShape(Capsule())
             }
             
             Menu {
                 Picker("Sort", selection: $postSort) {
                     ForEach(PostSort.allCases, id: \.self) { option in
-                         Text(option.rawValue).tag(option) // Raw value is the new label
+                         Text(option.rawValue).tag(option)
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.arrow.down.circle")
-                    Text("Sort: \(postSort.rawValue)") // Use raw value
+                    Text("Sort: \(postSort.rawValue)")
                 }
-                .font(.caption).foregroundColor(.primary).padding(.horizontal, 10)
-                .padding(.vertical, 6).background(Color.black.opacity(0.05)).clipShape(Capsule())
+                // MODIFIED: New style
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundColor(BrandColors.darkTeal)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(BrandColors.lightGray)
+                .clipShape(Capsule())
             }
             Spacer()
         }
         .padding(.top, 8)
     }
 
-    // --- MODIFIED: postsGrid to show caption ---
     private var postsGrid: some View {
-        LazyVGrid(columns: postColumns, spacing: 12) {
+        // MODIFIED: Reduced spacing to 2
+        LazyVGrid(columns: postColumns, spacing: 2) {
             ForEach(filteredAndSortedPosts) { post in
                 Button { selectedPost = post } label: {
                     ZStack(alignment: .bottomLeading) {
-                        // Main Image
                         AsyncImage(url: URL(string: post.imageName)) { $0.resizable().aspectRatio(1, contentMode: .fill) }
                         placeholder: {
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.black.opacity(0.05))
-                                .aspectRatio(1, contentMode: .fill) // Ensure placeholder is 1:1
+                            RoundedRectangle(cornerRadius: 0) // MODIFIED: No corner radius
+                                .fill(BrandColors.lightGray) // MODIFIED
+                                .aspectRatio(1, contentMode: .fill)
                         }
-                        .aspectRatio(1, contentMode: .fill) // Ensure image is 1:1
+                        .aspectRatio(1, contentMode: .fill)
                         .frame(minWidth: 0, maxWidth: .infinity)
                         .clipped()
 
-                        // Gradient Overlay
                         LinearGradient(
                             gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
                             startPoint: .center,
                             endPoint: .bottom
                         )
                         
-                        // --- ADDED: Caption Text ---
                         Text(post.caption)
-                            .font(.caption.weight(.semibold))
+                            // MODIFIED: New font
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
                             .lineLimit(2)
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         
-                        // Privacy Icon
                         if post.isPrivate {
                             Image(systemName: "lock.fill").font(.caption).foregroundColor(.white)
                                 .padding(6).background(Color.red.opacity(0.8)).clipShape(Circle())
                                 .padding(8)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing) // Position top-right
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         }
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    // MODIFIED: No corner radius or shadow on individual posts
                 }
                 .buttonStyle(.plain)
             }
         }
-        // Animate changes from any of the three controls
         .animation(.default, value: filteredAndSortedPosts)
         .refreshable { await viewModel.fetchAllData() }
     }
@@ -338,7 +335,7 @@ struct EditProfileView: View {
     @State private var overlayMessage = ""
     @State private var overlayIsError = false
     
-    private let primary = Color(hex: "#36796C")
+    private let primary = BrandColors.darkTeal
     private let db = Firestore.firestore()
     private let positions = ["Attacker", "Midfielder", "Defender"]
     
@@ -391,7 +388,9 @@ struct EditProfileView: View {
 
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            // MODIFIED: Use new gradient background
+            BrandColors.gradientBackground.ignoresSafeArea()
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
@@ -407,6 +406,7 @@ struct EditProfileView: View {
             }
             
             if showInfoOverlay {
+                // MODIFIED: Pass new primary color
                 InfoOverlay(primary: primary, title: overlayMessage, isError: overlayIsError, onOk: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showInfoOverlay = false }
                     if !overlayIsError { dismiss() }
@@ -431,11 +431,15 @@ struct EditProfileView: View {
 
     private var header: some View {
         ZStack {
-            Text("Edit Profile").font(.custom("Poppins", size: 28)).fontWeight(.medium).foregroundColor(primary)
+            // MODIFIED: Use new font
+            Text("Edit Profile")
+                .font(.system(size: 28, weight: .medium, design: .rounded)) // MODIFIED
+                .foregroundColor(primary)
+            
             HStack {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left").font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(primary).padding(10).background(Circle().fill(Color.black.opacity(0.05)))
+                        .foregroundColor(primary).padding(10).background(Circle().fill(BrandColors.lightGray.opacity(0.7))) // MODIFIED
                 }
                 Spacer()
             }
@@ -452,14 +456,20 @@ struct EditProfileView: View {
             
             HStack(spacing: 20) {
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                    Text("Change Picture").font(.custom("Poppins", size: 16)).fontWeight(.semibold).foregroundColor(primary)
+                    // MODIFIED: Use new font
+                    Text("Change Picture")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
                 }
                 
                 if profileImage != nil {
                     Button(role: .destructive) {
                         withAnimation { self.profileImage = nil; self.selectedPhotoItem = nil }
                     } label: {
-                        Text("Remove").font(.custom("Poppins", size: 16)).fontWeight(.semibold).foregroundColor(.red)
+                        // MODIFIED: Use new font
+                        Text("Remove")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.red)
                     }
                 }
             }
@@ -473,66 +483,94 @@ struct EditProfileView: View {
             // Name
             field(label: "Name", text: $name, isValid: isNameValid)
             if !name.isEmpty && !isNameValid {
-                Text("Please enter a valid name (letters and spaces only).").font(.caption).foregroundColor(.red)
+                // MODIFIED: Use new font
+                Text("Please enter a valid name (letters and spaces only).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
             }
+            
             // Position
             fieldLabel("Position")
             buttonLikeField {
                 HStack {
-                    Text(position.isEmpty ? "Select position" : position).font(.custom("Poppins", size: 16)).foregroundColor(position.isEmpty ? .gray : primary)
+                    // MODIFIED: Use new font
+                    Text(position.isEmpty ? "Select position" : position)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(position.isEmpty ? .gray : primary)
                     Spacer()
                     Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
                 }
             } onTap: { showPositionPicker = true }
             .sheet(isPresented: $showPositionPicker) {
                 PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
-                    .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
+                    .presentationDetents([.height(300)])
+                    .presentationBackground(BrandColors.background) // MODIFIED
+                    .presentationCornerRadius(28)
             }
             
             // Height
             field(label: "Height (cm)", text: $height, keyboardType: .numberPad, isValid: isHeightValid)
             if !height.isEmpty && !isHeightValid {
-                Text("Enter a realistic height between 100–230 cm.").font(.caption).foregroundColor(.red)
+                // MODIFIED: Use new font
+                Text("Enter a realistic height between 100–230 cm.")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
             }
             
             // Weight
             field(label: "Weight (kg)", text: $weight, keyboardType: .numberPad, isValid: isWeightValid)
             if !weight.isEmpty && !isWeightValid {
-                Text("Enter a realistic weight between 15–200 kg.").font(.caption).foregroundColor(.red)
+                // MODIFIED: Use new font
+                Text("Enter a realistic weight between 15–200 kg.")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
             }
             
             // DOB
             fieldLabel("Date of birth")
             buttonLikeField {
                 HStack {
-                    Text(dob.map { formatDate($0) } ?? "Select date").font(.custom("Poppins", size: 16)).foregroundColor(dob == nil ? .gray : primary)
+                    // MODIFIED: Use new font
+                    Text(dob.map { formatDate($0) } ?? "Select date")
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(dob == nil ? .gray : primary)
                     Spacer()
                     Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
                 }
             } onTap: { tempDOB = dob ?? Date(); showDOBPicker = true }
             .sheet(isPresented: $showDOBPicker) {
                 DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
-                    .presentationDetents([.height(300)]).presentationBackground(.white).presentationCornerRadius(28)
+                    .presentationDetents([.height(300)])
+                    .presentationBackground(BrandColors.background) // MODIFIED
+                    .presentationCornerRadius(28)
             }
             
             // Location
             fieldLabel("Location")
             buttonLikeField {
                 HStack {
-                    Text(location.isEmpty ? "Select city" : location).font(.custom("Poppins", size: 16)).foregroundColor(location.isEmpty ? .gray : primary)
+                    // MODIFIED: Use new font
+                    Text(location.isEmpty ? "Select city" : location)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(location.isEmpty ? .gray : primary)
                     Spacer()
                     Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
                 }
             } onTap: { locationSearch = ""; showLocationPicker = true }
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(title: "Select your city", allCities: SAUDI_CITIES, selection: $location, searchText: $locationSearch, showSheet: $showLocationPicker, accent: primary)
-                    .presentationDetents([.large]).presentationBackground(.white).presentationCornerRadius(28)
+                    .presentationDetents([.large])
+                    .presentationBackground(BrandColors.background) // MODIFIED
+                    .presentationCornerRadius(28)
             }
             
             // Email
             field(label: "Email", text: $email, keyboardType: .emailAddress, isValid: isEmailFieldValid)
             if !email.isEmpty && !isEmailFieldValid {
-                Text("Please enter a valid email address.").font(.system(size: 13)).foregroundColor(.red)
+                // MODIFIED: Use new font
+                Text("Please enter a valid email address.")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
             }
             
             // Phone Field
@@ -541,8 +579,9 @@ struct EditProfileView: View {
                 HStack(spacing: 10) {
                     Button { showDialPicker = true } label: {
                         HStack(spacing: 6) {
+                            // MODIFIED: Use new font
                             Text(selectedDialCode.code)
-                                .font(.custom("Poppins", size: 16))
+                                .font(.system(size: 16, design: .rounded))
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 12, weight: .semibold))
                         }
@@ -563,20 +602,29 @@ struct EditProfileView: View {
                         }
                     ))
                     .keyboardType(.numberPad)
-                    .font(.custom("Poppins", size: 16))
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, design: .rounded))
                     .foregroundColor(primary)
                     .tint(primary)
                 }
             }
             // Error messages for phone
             if phoneNonDigitError {
-                Text("Numbers only (0–9).").font(.system(size: 13)).foregroundColor(.red)
+                // MODIFIED: Use new font
+                Text("Numbers only (0–9).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
             } else if !phoneLocal.isEmpty && !isPhoneNumberValid {
-                // Special message for KSA
                 if selectedDialCode.code == "+966" {
-                    Text("Must be 9 digits and start with 5.").font(.system(size: 13)).foregroundColor(.red)
+                    // MODIFIED: Use new font
+                    Text("Must be 9 digits and start with 5.")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
                 } else {
-                    Text("Enter a valid phone number.").font(.system(size: 13)).foregroundColor(.red)
+                    // MODIFIED: Use new font
+                    Text("Enter a valid phone number.")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
                 }
             }
         }
@@ -593,7 +641,10 @@ struct EditProfileView: View {
     private var updateButton: some View {
         Button { Task { await saveChanges() } } label: {
             HStack {
-                Text("Update").font(.custom("Poppins", size: 18)).foregroundColor(.white)
+                // MODIFIED: Use new font
+                Text("Update")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.white)
                 if isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
             }
             .frame(maxWidth: .infinity).padding(.vertical, 16).background(primary).clipShape(Capsule())
@@ -703,7 +754,9 @@ struct EditProfileView: View {
             fieldLabel(label)
             roundedField {
                 TextField("", text: text)
-                    .font(.custom("Poppins", size: 16)).foregroundColor(primary)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
                     .tint(primary).keyboardType(keyboardType)
                     .onChange(of: text.wrappedValue) { oldValue, newValue in
                         if keyboardType == .numberPad {
@@ -720,14 +773,20 @@ struct EditProfileView: View {
     
     private func toggleRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Text(title).font(.custom("Poppins", size: 16)).foregroundColor(.black)
+            // MODIFIED: Use new font
+            Text(title)
+                .font(.system(size: 16, design: .rounded))
+                .foregroundColor(BrandColors.darkGray) // MODIFIED
             Spacer()
             Toggle("", isOn: isOn).labelsHidden().tint(primary)
         }
     }
 
     private func fieldLabel(_ title: String) -> some View {
-        Text(title).font(.custom("Poppins", size: 14)).foregroundColor(.gray)
+        // MODIFIED: Use new font
+        Text(title)
+            .font(.system(size: 14, design: .rounded))
+            .foregroundColor(.gray)
     }
 
     private func roundedField<Content: View>(@ViewBuilder c: () -> Content) -> some View {
@@ -735,8 +794,10 @@ struct EditProfileView: View {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 14).fill(.white)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.2), lineWidth: 1))
+                // MODIFIED: Use new shadow spec
+                RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
             )
     }
     
@@ -745,7 +806,12 @@ struct EditProfileView: View {
             content()
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14).fill(.white).shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2))
+                // MODIFIED: Use new shadow spec and background
+                .background(
+                    RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                )
         }
     }
     
@@ -754,32 +820,31 @@ struct EditProfileView: View {
     }
 }
 
-// MARK: - Profile Helper Views
-// --- MODIFIED: Added notification button and binding ---
+// MARK: - Profile Helper Views (Styling Update)
 struct TopNavigationBar: View {
     @ObservedObject var userProfile: UserProfile
     @Binding var goToSettings: Bool
-    @Binding var showNotifications: Bool // <-- ADDED
+    @Binding var showNotifications: Bool
 
     var body: some View {
-        HStack(spacing: 16) { // <-- Added spacing
+        HStack(spacing: 16) {
             Spacer()
             
-            // --- ADDED: Notifications Button ---
             Button { showNotifications = true } label: {
                 Image(systemName: "bell")
                     .font(.title2)
-                    .foregroundColor(.primary)
+                    // MODIFIED: Use new color
+                    .foregroundColor(BrandColors.darkTeal)
                     .padding(8)
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
 
-            // Settings Button
             Button { goToSettings = true } label: {
                 Image(systemName: "gearshape")
                     .font(.title2)
-                    .foregroundColor(.primary)
+                    // MODIFIED: Use new color
+                    .foregroundColor(BrandColors.darkTeal)
                     .padding(8)
             }
             .buttonStyle(.plain)
@@ -797,116 +862,163 @@ struct ProfileHeaderView: View {
             Image(uiImage: userProfile.profileImage ?? UIImage(systemName: "person.circle.fill")!)
                 .resizable().aspectRatio(contentMode: .fill)
                 .frame(width: 100, height: 100).clipShape(Circle())
-                .overlay(Circle().stroke(Color.white, lineWidth: 4)).shadow(radius: 5)
+                .overlay(Circle().stroke(BrandColors.background, lineWidth: 4)) // MODIFIED
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 5) // MODIFIED
                 .foregroundColor(.gray.opacity(0.5))
-            Text(userProfile.name).font(.title2).fontWeight(.bold).foregroundColor(Color(hex: "#36796C"))
+            
+            // MODIFIED: Use new font and color
+            Text(userProfile.name)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(BrandColors.darkTeal)
         }
     }
 }
 
+// MARK: - Stats Grid (COMPLETE REDESIGN - Refined)
 struct StatsGridView: View {
     @ObservedObject var userProfile: UserProfile
     @State private var showContactInfo = false
-    
-    // MARK: - Stat Groups
-    
-    private var userInputStats: [PlayerStat] {
-        [
-            .init(title: "Position", value: userProfile.position),
-            .init(title: "Age", value: userProfile.age),
-            .init(title: "Weight", value: userProfile.weight),
-            .init(title: "Height", value: userProfile.height),
-            .init(title: "Residence", value: userProfile.location)
-        ]
-    }
-    
-    private var givenStats: [PlayerStat] {
-        [
-            .init(title: "Team", value: userProfile.team),
-            .init(title: "Rank", value: userProfile.rank),
-            .init(title: "Score", value: userProfile.score)
-        ]
-    }
-    
-    private var contactStats: [PlayerStat] {
-        var stats: [PlayerStat] = []
-        if userProfile.isEmailVisible {
-            stats.append(.init(title: "Email", value: userProfile.email))
-        }
-        if userProfile.isPhoneNumberVisible {
-            stats.append(.init(title: "Phone", value: userProfile.phoneNumber))
-        }
-        return stats
-    }
-    
-    // MARK: - Grid Columns
-    
-    private let userInputGridColumns = [
-        GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible()) // 5th column
-    ]
-    
-    private let givenGridColumns = [
-        GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10)
-    ]
-    
-    let accentColor = Color(hex: "#36796C")
 
-    // MARK: - Body
-    
+    let accentColor = BrandColors.darkTeal
+    let goldColor = BrandColors.gold
+
+    // --- REFINED: Helper for User-Provided Stats (Centered) ---
+    @ViewBuilder
+    private func UserStatItem(title: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundColor(accentColor.opacity(0.8))
+            Text(value.isEmpty ? "-" : value)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
+                .multilineTextAlignment(.center)
+            // --- MODIFIED: Allow vertical expansion ---
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        // --- MODIFIED: Remove explicit width constraints, allow natural sizing ---
+        // .frame(minWidth: 60) // Removed
+        // .frame(maxWidth: .infinity) // Removed - let HStack distribute/
+    }
+    // Helper for System Stats (Centered)
+    @ViewBuilder
+    private func SystemStatItem(title: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundColor(accentColor)
+            Text(value.isEmpty ? "-" : value)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
+                .multilineTextAlignment(.center) // Ensure value is centered
+        }
+         .frame(maxWidth: .infinity) // Allow expansion
+    }
+
+    // MARK: - Body (Redesigned & Rearranged)
     var body: some View {
-        VStack(spacing: 24) { // Increased spacing between sections
-            
-            // --- Section 1: User Input Stats ---
-            VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(columns: userInputGridColumns, spacing: 20) { // Using 5-column grid
-                    ForEach(userInputStats) { stat in statItemView(for: stat, alignment: .center) }
-                }
+        VStack(spacing: 18) { // Slightly reduced main spacing
+
+            // --- 1. Hero Stat (Score) ---
+            VStack(spacing: 8) {
+                Text("Overall Score")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(accentColor)
+
+                Text(userProfile.score.isEmpty ? "0" : userProfile.score)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundColor(goldColor)
             }
-            
-            // --- Section 2: Given Stats ---
-            VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(columns: givenGridColumns, spacing: 20) { // Using 3-column grid
-                    ForEach(givenStats) { stat in statItemView(for: stat, alignment: .center) }
-                }
+            .padding(.top, 10)
+
+            // --- 2. User-Provided Stats (Centered HStack) ---
+            HStack(alignment: .top) { // Removed explicit spacing
+                Spacer(minLength: 3) // Add minLength to ensure some space
+                UserStatItem(title: "POSITION", value: userProfile.position)
+                Spacer(minLength: 3)
+                UserStatItem(title: "AGE", value: userProfile.age)
+                Spacer(minLength: 3)
+                UserStatItem(title: "WEIGHT", value: userProfile.weight)
+                Spacer(minLength: 3)
+                UserStatItem(title: "HEIGHT", value: userProfile.height)
+                Spacer(minLength: 3)
+                UserStatItem(title: "RESIDENCE", value: userProfile.location)
+                Spacer(minLength: 3)
             }
-            
-            // --- Section 3: Contact Info (Unchanged) ---
-            if !contactStats.isEmpty {
+            .padding(.horizontal, 5) // Minimal padding around the HStack itself
+
+            Divider().padding(.horizontal)
+
+            // --- 3. System Stats (Centered HStack) ---
+            HStack(alignment: .top) {
+                Spacer()
+                SystemStatItem(title: "Team", value: userProfile.team)
+                Spacer()
+                SystemStatItem(title: "Rank", value: userProfile.rank)
+                Spacer()
+                // Removed Residence from here
+            }
+             .padding(.horizontal, 20) // Add padding to space out Team/Rank
+
+            // --- 4. Contact Info ---
+            // (Keep this section as it was)
+            if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
                 Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
                     HStack(spacing: 4) {
                         Text(showContactInfo ? "Show less" : "Show contact info")
                         Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
                     }
-                    .font(.caption).fontWeight(.bold).foregroundColor(accentColor).padding(.top, 8)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(accentColor)
+                    .padding(.top, 8) // Keep padding above button
                 }
+
                 if showContactInfo {
-                    VStack(alignment: .leading, spacing: 20) {
-                        ForEach(contactStats) { stat in statItemView(for: stat, alignment: .leading) }
+                    VStack(alignment: .center, spacing: 12) { // Centered alignment
+                        if userProfile.isEmailVisible {
+                            contactItem(icon: "envelope.fill", value: userProfile.email)
+                        }
+                        if userProfile.isPhoneNumberVisible {
+                            contactItem(icon: "phone.fill", value: userProfile.phoneNumber)
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 25) // Adjusted vertical padding slightly
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(BrandColors.background)
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+        )
+        .padding(.horizontal)
     }
 
-    private func statItemView(for stat: PlayerStat, alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 4) {
-            Text(stat.title).font(.caption).foregroundColor(accentColor)
-            Text(stat.value).font(.headline).fontWeight(.semibold)
-                .multilineTextAlignment(alignment == .leading ? .leading : .center)
+    // Contact Item Helper (Unchanged)
+    private func contactItem(icon: String, value: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(accentColor)
+                .frame(width: 20)
+            Text(value)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
         }
-        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 }
 
+// MARK: - Content Tab (Styling Update)
 struct ContentTabView: View {
     @Binding var selectedContent: ContentType
     @Namespace private var animation
-    let accentColor = Color(hex: "#36796C")
+    
+    // MODIFIED: Use new color
+    let accentColor = BrandColors.darkTeal
 
     var body: some View {
         HStack(spacing: 12) {
@@ -914,7 +1026,8 @@ struct ContentTabView: View {
             ContentTabButton(title: "My progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
             ContentTabButton(title: "Endorsements", type: .endorsements, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
-        .font(.headline).fontWeight(.medium)
+        // MODIFIED: Use new font
+        .font(.system(size: 16, weight: .medium, design: .rounded))
     }
 }
 
@@ -926,7 +1039,9 @@ fileprivate struct ContentTabButton: View {
     var body: some View {
         Button(action: { withAnimation(.easeInOut) { selectedContent = type } }) {
             VStack(spacing: 8) {
-                Text(title).foregroundColor(selectedContent == type ? accentColor : .secondary)
+                Text(title)
+                    .foregroundColor(selectedContent == type ? accentColor : .secondary)
+                
                 if selectedContent == type {
                     Rectangle().frame(height: 2).foregroundColor(accentColor)
                         .matchedGeometryEffect(id: "underline", in: animation)
@@ -936,11 +1051,13 @@ fileprivate struct ContentTabButton: View {
     }
 }
 
+// MARK: - Endorsements (Styling Update)
 struct EndorsementsListView: View {
     let endorsements: [CoachEndorsement]
     var body: some View {
         VStack(spacing: 16) {
             if endorsements.isEmpty {
+                // MODIFIED: Use new font in EmptyStateView
                 EmptyStateView(
                     imageName: "person.badge.shield.checkmark",
                     message: "Endorsements from coaches will appear here once you receive them."
@@ -952,6 +1069,7 @@ struct EndorsementsListView: View {
         }
     }
 }
+
 struct EndorsementCardView: View {
     let endorsement: CoachEndorsement
     var body: some View {
@@ -960,7 +1078,9 @@ struct EndorsementCardView: View {
                 Image(endorsement.coachImage).resizable().aspectRatio(contentMode: .fill)
                     .frame(width: 44, height: 44).clipShape(Circle())
                 VStack(alignment: .leading) {
-                    Text(endorsement.coachName).font(.headline).fontWeight(.bold)
+                    // MODIFIED: Use new font
+                    Text(endorsement.coachName)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
                     HStack(spacing: 2) {
                         ForEach(0..<5) { i in
                             Image(systemName: i < endorsement.rating ? "star.fill" : "star")
@@ -969,14 +1089,25 @@ struct EndorsementCardView: View {
                     }
                 }
             }
-            Text(endorsement.endorsementText).font(.subheadline).foregroundColor(.secondary)
+            // MODIFIED: Use new font
+            Text(endorsement.endorsementText)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding().frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white).cornerRadius(12).shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+        // MODIFIED: Use new shadow spec
+        .background(BrandColors.background)
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(BrandColors.darkTeal.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 
+// MARK: - Info Overlay (Styling Update)
 struct InfoOverlay: View {
     let primary: Color, title: String, isError: Bool
     var onOk: () -> Void
@@ -986,13 +1117,21 @@ struct InfoOverlay: View {
             VStack(spacing: 20) {
                 Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 50)).foregroundColor(isError ? .red : primary)
-                Text(title).font(.custom("Poppins", size: 16)).multilineTextAlignment(.center).padding(.horizontal)
+                
+                // MODIFIED: Use new font
+                Text(title)
+                    .font(.system(size: 16, design: .rounded))
+                    .multilineTextAlignment(.center).padding(.horizontal)
+                
                 Button("OK") { onOk() }
-                    .font(.custom("Poppins", size: 18)).foregroundColor(.white)
+                    // MODIFIED: Use new font
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity).padding(.vertical, 12).background(primary).clipShape(Capsule())
             }
             .padding(EdgeInsets(top: 30, leading: 20, bottom: 20, trailing: 20))
-            .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(BrandColors.background) // MODIFIED
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10).padding(.horizontal, 40)
         }
     }

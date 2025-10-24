@@ -16,10 +16,12 @@ struct EmptyStateView: View {
         VStack(spacing: 20) {
             Image(systemName: imageName)
                 .font(.system(size: 50))
-                .foregroundColor(.secondary.opacity(0.6))
+                // MODIFIED: Use new color
+                .foregroundColor(BrandColors.darkTeal.opacity(0.6))
             
             Text(message)
-                .font(.custom("Poppins", size: 16))
+                // MODIFIED: Use new font
+                .font(.system(size: 16, design: .rounded))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
