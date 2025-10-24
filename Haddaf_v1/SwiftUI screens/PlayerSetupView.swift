@@ -35,8 +35,9 @@ struct PlayerSetupView: View {
     @State private var goToProfile = false // Navigation trigger
 
     // MARK: - Theme
-    private let primary = Color("#36796C")
-    private let bg = Color("#EFF5EC")
+    // MODIFIED: Uses the Color(hex:) extension from AppModels.swift
+    private let primary = Color(hex: "#36796C")
+    private let bg = Color(hex: "#EFF5EC")
 
     // MARK: - Validation (realistic ranges)
     private var weightInt: Int? { Int(weight) }
@@ -446,139 +447,5 @@ struct PlayerSetupView: View {
                         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
                 )
         }
-    }
-}
-
-
-// MARK: - Wheel sheet for Position (Unchanged)
-private struct PositionWheelPickerSheet: View {
-    let positions: [String]
-    @Binding var selection: String
-    @Binding var showSheet: Bool
-    @State private var tempSelection: String = ""
-    private let primary = Color("#36796C")
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Select your position")
-                .font(.custom("Poppins", size: 18))
-                .foregroundColor(primary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
-
-            Picker("", selection: $tempSelection) {
-                ForEach(positions, id: \.self) { pos in
-                    Text(pos).tag(pos)
-                }
-            }
-            .pickerStyle(.wheel)
-            .labelsHidden()
-            .frame(height: 180)
-
-            Button("Done") {
-                selection = tempSelection
-                showSheet = false
-            }
-            .font(.custom("Poppins", size: 18))
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(primary)
-            .clipShape(Capsule())
-            .padding(.bottom, 16)
-        }
-        .onAppear { tempSelection = selection.isEmpty ? (positions.first ?? "") : selection }
-        .padding(.horizontal, 20)
-    }
-}
-
-// MARK: - Location Picker (Unchanged)
-private struct LocationPickerSheet: View {
-    let title: String
-    let allCities: [String]
-    @Binding var selection: String
-    @Binding var searchText: String
-    @Binding var showSheet: Bool
-    let accent: Color
-
-    var filtered: [String] {
-        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return allCities }
-        return allCities.filter { $0.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(filtered, id: \.self) { city in
-                    Button {
-                        selection = city
-                        showSheet = false
-                    } label: {
-                        HStack {
-                            Text(city).foregroundColor(.black)
-                            Spacer()
-                            if city == selection {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(accent)
-                            }
-                        }
-                        .contentShape(Rectangle()) // Make entire row tappable
-                    }
-                    .buttonStyle(.plain) // Use plain style for list rows
-                }
-            }
-            .listStyle(.plain)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search city")
-            .navigationTitle(Text(title))
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { // Changed to leading for standard iOS 'X'
-                    Button {
-                        showSheet = false
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Saudi cities (Unchanged)
-private let SAUDI_CITIES: [String] = [
-    "Riyadh", "Jeddah", "Mecca", "Medina", "Dammam", "Khobar", "Dhahran", "Taif",
-    "Tabuk", "Abha", "Khamis Mushait", "Jizan", "Najran", "Hail", "Buraydah", "Unaizah",
-    "Al Hofuf", "Al Mubarraz", "Jubail", "Yanbu", "Rabigh", "Al Baha", "Bisha", "Al Majmaah",
-    "Al Zulfi", "Sakaka", "Arar", "Qurayyat", "Rafha", "Turaif", "Tarut", "Qatif", "Safwa",
-    "Saihat", "Al Khafji", "Al Ahsa", "Al Qassim", "Al Qaisumah", "Sharurah", "Tendaha",
-    "Wadi ad-Dawasir", "Al Qurayyat", "Tayma", "Umluj", "Haql", "Al Wajh",
-    "Al Lith", "Al Qunfudhah", "Sabya", "Abu Arish", "Samtah",
-    "Baljurashi", "Al Mandaq", "Qilwah", "Al Namas", "Tanomah",
-    "Mahd adh Dhahab", "Badr", "Al Ula", "Khaybar",
-    "Al Bukayriyah", "Riyadh Al Khabra", "Al Rass",
-    "Diriyah", "Al Kharj", "Hotat Bani Tamim", "Al Hariq", "Wadi Al Dawasir",
-    "Afif", "Dawadmi", "Shaqra", "Thadig", "Muzahmiyah", "Rumah",
-    "Ad Dilam", "Al Quwayiyah",
-    "Duba", "Turaif", "Ar Ruwais", "Farasan", "Al Dayer", "Fifa", "Al Aridhah",
-    "Al Bahah City", "King Abdullah Economic City", "Al Uyaynah", "Al Badayea",
-    "Al Uwayqilah", "Bathaa", "Al Jafr", "Thuqbah", "Buqayq (Abqaiq)", "Ain Dar",
-    "Nairyah", "Al Hassa", "Salwa", "Ras Tanura", "Khafji", "Manfouha", "Al Muzahmiyah"
-].sorted()
-
-// MARK: - Color hex init (Unchanged)
-extension Color {
-    init(_ hex: String) {
-        let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: s).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch s.count {
-        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default: (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
     }
 }

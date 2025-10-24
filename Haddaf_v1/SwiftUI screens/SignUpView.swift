@@ -3,64 +3,22 @@ import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 
-// MARK: - Color helper
-private func colorHex(_ hex: String) -> Color {
-    let s = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-    var int: UInt64 = 0
-    Scanner(string: s).scanHexInt64(&int)
-    let a, r, g, b: UInt64
-    switch s.count {
-    case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-    case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-    case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-    default:(a, r, g, b) = (255, 0, 0, 0)
-    }
-    return Color(.sRGB, red: Double(r)/255, green: Double(g)/255, blue: Double(b)/255, opacity: Double(a)/255)
-}
+// MARK: - Color helper (REMOVED)
+// This is now handled by the extension in AppModels.swift
 
 // MARK: - User Role
 enum UserRole: String { case player = "Player", coach = "Coach" }
 
-// MARK: - Country code model/data
-struct CountryDialCode: Identifiable { let id = UUID(); let name: String; let code: String }
-private let countryCodes: [CountryDialCode] = [
-    .init(name: "Saudi Arabia", code: "+966"),
-    .init(name: "Qatar", code: "+974"),
-    .init(name: "United Arab Emirates", code: "+971"),
-    .init(name: "Kuwait", code: "+965"),
-    .init(name: "Bahrain", code: "+973"),
-    .init(name: "Oman", code: "+968"),
-    .init(name: "Jordan", code: "+962"),
-    .init(name: "Egypt", code: "+20"),
-    .init(name: "United States", code: "+1"),
-    .init(name: "United Kingdom", code: "+44"),
-    .init(name: "Germany", code: "+49"),
-    .init(name: "France", code: "+33"),
-    .init(name: "Spain", code: "+34"),
-    .init(name: "Italy", code: "+39"),
-    .init(name: "India", code: "+91"),
-    .init(name: "Pakistan", code: "+92"),
-    .init(name: "Philippines", code: "+63"),
-    .init(name: "Indonesia", code: "+62"),
-    .init(name: "Malaysia", code: "+60"),
-    .init(name: "South Africa", code: "+27"),
-    .init(name: "Canada", code: "+1"),
-    .init(name: "Mexico", code: "+52"),
-    .init(name: "Brazil", code: "+55"),
-    .init(name: "Argentina", code: "+54"),
-    .init(name: "Nigeria", code: "+234"),
-    .init(name: "Russia", code: "+7"),
-    .init(name: "China", code: "+86"),
-    .init(name: "Japan", code: "+81"),
-    .init(name: "South Korea", code: "+82")
-]
+// MARK: - Country code model/data (REMOVED)
+// These are now defined in PlayerProfileContentView.swift
 
 // MARK: - Sign Up
 struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
 
-    private let primary = colorHex("#36796C")
-    private let bg = colorHex("#EFF5EC")
+    // MODIFIED: Use Color(hex:) extension
+    private let primary = Color(hex: "#36796C")
+    private let bg = Color(hex: "#EFF5EC")
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     // Fields
@@ -69,7 +27,7 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var selectedDialCode: CountryDialCode = countryCodes.first { $0.code == "+966" } ?? countryCodes[0]
     @State private var showDialPicker = false
-    @State private var phoneLocal = ""                 // digits only
+    @State private var phoneLocal = "" // digits only
     @State private var phoneNonDigitError = false
     @State private var password = ""
     @State private var isHidden = true
@@ -718,79 +676,5 @@ struct SimpleVerifySheet: View {
             Spacer()
         }
         .padding().background(Color.clear)
-    }
-}
-
-// MARK: - Date picker sheet
-private struct DateWheelPickerSheet: View {
-    @Binding var selection: Date?
-    @Binding var tempSelection: Date
-    @Binding var showSheet: Bool
-    private let primary = colorHex("#36796C")
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Select your birth date")
-                .font(.custom("Poppins", size: 18))
-                .foregroundColor(primary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
-
-            DatePicker("", selection: $tempSelection, in: ...Date(), displayedComponents: .date)
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .tint(primary)
-                .frame(height: 180)
-
-            Button("Done") {
-                selection = tempSelection
-                showSheet = false
-            }
-            .font(.custom("Poppins", size: 18))
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(primary)
-            .clipShape(Capsule())
-            .padding(.bottom, 16)
-        }
-        .padding(.horizontal, 20)
-    }
-}
-
-// MARK: - Country code picker
-private struct CountryCodePickerSheet: View {
-    @Binding var selected: CountryDialCode
-    let primary: Color
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    
-    var body: some View {
-        NavigationView {
-            List {
-                TextField("Search Country Code", text: $query)
-                    .autocorrectionDisabled(true)
-                ForEach(countryCodes.filter { query.isEmpty ? true : $0.name.lowercased().contains(query.lowercased()) }, id: \.id) { country in
-                    Button {
-                        selected = country
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(country.name)
-                            Spacer()
-                            Text(country.code)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .foregroundColor(.primary)
-                }
-            }
-            .navigationTitle("Select Code")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") { dismiss() }
-                }
-            }
-        }
     }
 }

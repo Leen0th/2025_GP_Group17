@@ -4,6 +4,9 @@ import FirebaseMessaging
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    
+    // --- ADDED: To pass to EditProfileView ---
+    @ObservedObject var userProfile: UserProfile
 
     private let primary = colorHex("#36796C")
     private let dividerColor = Color.black.opacity(0.15)
@@ -45,6 +48,15 @@ struct SettingsView: View {
 
                 // List
                 VStack(spacing: 0) {
+                    // --- ADDED: Navigation to Edit Profile ---
+                    NavigationLink {
+                        // EditProfileView is defined in PlayerProfileContentView.swift
+                        EditProfileView(userProfile: userProfile)
+                    } label: {
+                        settingsRow(icon: "person", title: "Edit Profile",
+                                    iconColor: primary, showChevron: true, showDivider: true)
+                    }
+                    
                     NavigationLink {
                         NotificationsView()
                     } label: {
@@ -230,7 +242,3 @@ private func colorHex(_ hex: String) -> Color {
                  red: Double(r)/255, green: Double(g)/255,
                  blue: Double(b)/255, opacity: Double(a)/255)
 }
-
-
-
-

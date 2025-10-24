@@ -7,7 +7,8 @@ struct NotificationsView: View {
     // القيم الافتراضية
     @State private var newChallenge = true
     @State private var upcomingMatch = true
-    @State private var goalAchievement1 = false
+    // --- MODIFIED: Renamed state variable ---
+    @State private var personalMilestones = false
     @State private var endorsements = false
     @State private var likes = true
     @State private var comments = true
@@ -48,7 +49,7 @@ struct NotificationsView: View {
                     divider
                     notifRow(title: "Upcoming Match Reminders", isOn: $upcomingMatch)
                     divider
-                    notifRow(title: "Goal Achievement", isOn: $goalAchievement1)
+                    notifRow(title: "Performance Milestones", isOn: $personalMilestones)
                     divider
                     notifRow(title: "Endorsements", isOn: $endorsements)
                     divider
@@ -90,6 +91,3 @@ struct NotificationsView: View {
         .padding(.horizontal, 8)
     }
 }
-
-
-
