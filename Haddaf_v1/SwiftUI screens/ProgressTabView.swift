@@ -31,24 +31,21 @@ struct ProgressTabView: View {
     let overallScore: Double = 2.4
     
     let averagePerformance: [ProgressStat] = [
-        .init(label: "GOALS", value: 2, maxValue: 10),
-        .init(label: "TOTAL ATTEMPTS", value: 9, maxValue: 15),
-        .init(label: "BLOCKED", value: 3, maxValue: 10),
-        .init(label: "SHOTS ON TARGET", value: 12, maxValue: 15),
-        .init(label: "CORNERS", value: 9, maxValue: 20),
-        .init(label: "OFFSIDES", value: 4, maxValue: 10)
+        .init(label: "DRIBBLE", value: 2, maxValue: 10),
+        .init(label: "PASS", value: 9, maxValue: 15),
+        .init(label: "SHOOT", value: 3, maxValue: 10)
     ]
 
     let trendDataSets: [TrendDataSet] = [
-        .init(metricName: "Speed", dataPoints: [
+        .init(metricName: "DRIBBLE", dataPoints: [
             .init(month: "Jan", score: 20), .init(month: "Feb", score: 28), .init(month: "Mar", score: 22),
             .init(month: "Apr", score: 35), .init(month: "May", score: 30), .init(month: "Jun", score: 25)
         ], color: Color(hex: "#36796C")),
-        .init(metricName: "Shots", dataPoints: [
+        .init(metricName: "PASS", dataPoints: [
             .init(month: "Jan", score: 10), .init(month: "Feb", score: 15), .init(month: "Mar", score: 42),
             .init(month: "Apr", score: 30), .init(month: "May", score: 25), .init(month: "Jun", score: 18)
         ], color: .green.opacity(0.8)),
-        .init(metricName: "Goals", dataPoints: [
+        .init(metricName: "SHOOT", dataPoints: [
             .init(month: "Jan", score: 15), .init(month: "Feb", score: 22), .init(month: "Mar", score: 12),
             .init(month: "Apr", score: 20), .init(month: "May", score: 22), .init(month: "Jun", score: 15)
         ], color: Color(hex: "#36796C").opacity(0.6))

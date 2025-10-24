@@ -15,15 +15,16 @@ struct ProfileNotificationsListView: View {
     @State private var selectedFilter: AppNotificationType = .all
 
     // Mock data for demonstration
+    // --- MODIFIED: Set to empty by default to show the new empty state ---
     @State private var allNotifications: [AppNotification] = [
-        .init(type: .likes, title: "New Like", message: "Ahmed liked your latest video.", date: .now.addingTimeInterval(-300)),
-        .init(type: .comments, title: "New Comment", message: "Sara commented: 'Great skills!'", date: .now.addingTimeInterval(-1800)),
-        .init(type: .newChallenge, title: "Challenge Issued", message: "Coach Karim has issued a new dribbling challenge.", date: .now.addingTimeInterval(-3600)),
-        .init(type: .upcomingMatch, title: "Match Reminder", message: "Your match against 'Riyadh FC' is tomorrow at 7:00 PM.", date: .now.addingTimeInterval(-7200)),
-        .init(type: .personalMilestones, title: "Milestone Reached!", message: "Congratulations! You've reached 1000 views on your posts.", date: .now.addingTimeInterval(-14400)),
-        .init(type: .endorsements, title: "New Endorsement", message: "Coach Jesus left you a 5-star endorsement.", date: .now.addingTimeInterval(-86400)),
-        .init(type: .likes, title: "New Like", message: "Fahad liked your video.", date: .now.addingTimeInterval(-90000)),
-        .init(type: .comments, title: "New Comment", message: "Ali replied to your comment.", date: .now.addingTimeInterval(-100000))
+        // .init(type: .likes, title: "New Like", message: "Ahmed liked your latest video.", date: .now.addingTimeInterval(-300)),
+        // .init(type: .comments, title: "New Comment", message: "Sara commented: 'Great skills!'", date: .now.addingTimeInterval(-1800)),
+        // .init(type: .newChallenge, title: "Challenge Issued", message: "Coach Karim has issued a new dribbling challenge.", date: .now.addingTimeInterval(-3600)),
+        // .init(type: .upcomingMatch, title: "Match Reminder", message: "Your match against 'Riyadh FC' is tomorrow at 7:00 PM.", date: .now.addingTimeInterval(-7200)),
+        // .init(type: .personalMilestones, title: "Milestone Reached!", message: "Congratulations! You've reached 1000 views on your posts.", date: .now.addingTimeInterval(-14400)),
+        // .init(type: .endorsements, title: "New Endorsement", message: "Coach Jesus left you a 5-star endorsement.", date: .now.addingTimeInterval(-86400)),
+        // .init(type: .likes, title: "New Like", message: "Fahad liked your video.", date: .now.addingTimeInterval(-90000)),
+        // .init(type: .comments, title: "New Comment", message: "Ali replied to your comment.", date: .now.addingTimeInterval(-100000))
     ]
 
     // Computed property to filter the list based on the selection
@@ -57,19 +58,22 @@ struct ProfileNotificationsListView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 14)
                 
-                // Filter Pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(AppNotificationType.allCases) { type in
-                            FilterPill(type: type, isSelected: selectedFilter == type) {
-                                withAnimation {
-                                    selectedFilter = type
+                // --- MODIFIED: Hide filter pills if there are no notifications at all ---
+                if !allNotifications.isEmpty {
+                    // Filter Pills
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(AppNotificationType.allCases) { type in
+                                FilterPill(type: type, isSelected: selectedFilter == type) {
+                                    withAnimation {
+                                        selectedFilter = type
+                                    }
                                 }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
                 }
 
                 // List of Notifications
@@ -79,17 +83,25 @@ struct ProfileNotificationsListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
                 .listStyle(.plain)
+                // --- MODIFIED: Updated overlay logic ---
                 .overlay {
-                    if filteredNotifications.isEmpty {
-                        Text("No notifications for this category.")
-                            .font(.custom("Poppins", size: 16))
-                            .foregroundColor(.secondary)
+                    if allNotifications.isEmpty {
+                        EmptyStateView(
+                            imageName: "bell.badge",
+                            message: "You have no notifications yet. We'll let you know when something important happens!"
+                        )
+                    } else if filteredNotifications.isEmpty {
+                        EmptyStateView(
+                            imageName: "tray",
+                            message: "No notifications found in this category."
+                        )
                     }
                 }
+                // --- END MODIFICATION ---
             }
         }
     }
-
+    
     // A single row in the notification list
     @ViewBuilder
     private func notificationRow(notification: AppNotification) -> some View {

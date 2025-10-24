@@ -187,12 +187,9 @@ class VideoProcessingViewModel: ObservableObject {
             }
         } else {
             postStats = [
-                PostStat(label: "GOALS",           value: 0),
-                PostStat(label: "TOTAL ATTEMPTS",  value: 0),
-                PostStat(label: "BLOCKED",         value: 0),
-                PostStat(label: "SHOTS ON TARGET", value: 0),
-                PostStat(label: "CORNERS",         value: 0),
-                PostStat(label: "OFFSIDES",        value: 0)
+                PostStat(label: "DRIBBLE", value: 0),
+                PostStat(label: "PASS",    value: 0),
+                PostStat(label: "SHOOT",   value: 0)
             ]
         }
 
@@ -315,12 +312,9 @@ class VideoProcessingViewModel: ObservableObject {
 
     private func generateMockStatsAfterDelay() async -> [PFPostStat] {
         [
-            .init(label: "GOALS", value: Int.random(in: 0...5), maxValue: 5),
-            .init(label: "TOTAL ATTEMPTS", value: Int.random(in: 5...20), maxValue: 20),
-            .init(label: "BLOCKED", value: Int.random(in: 0...10), maxValue: 10),
-            .init(label: "SHOTS ON TARGET", value: Int.random(in: 1...15), maxValue: 20),
-            .init(label: "CORNERS", value: Int.random(in: 0...15), maxValue: 15),
-            .init(label: "OFFSIDES", value: Int.random(in: 0...8), maxValue: 10)
+            .init(label: "DRIBBLE", value: Int.random(in: 0...5), maxValue: 5),
+            .init(label: "PASS", value: Int.random(in: 5...20), maxValue: 20),
+            .init(label: "SHOOT", value: Int.random(in: 0...10), maxValue: 10)
         ]
     }
 }

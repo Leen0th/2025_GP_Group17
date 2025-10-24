@@ -142,8 +142,15 @@ struct PlayerProfileContentView: View {
                                     postControls // Filter and Sort buttons
                                     postsGrid    // The grid of posts
                                     
+                                // --- MODIFIED: Commented placeholder and added EmptyStateView ---
                                 case .progress:
-                                    ProgressTabView() // Assumed to exist
+                                    // ProgressTabView() // <-- Placeholder commented out
+                                    EmptyStateView(
+                                        imageName: "chart.bar.xaxis",
+                                        message: "Your progress analytics will appear here once you start uploading videos."
+                                    )
+                                    .padding(.top, 40)
+                                    
                                 case .endorsements:
                                     EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
                                 }
@@ -934,14 +941,17 @@ struct EndorsementsListView: View {
     var body: some View {
         VStack(spacing: 16) {
             if endorsements.isEmpty {
-                Text("No endorsements yet.").font(.headline).foregroundColor(.secondary).padding(.top, 40)
+                EmptyStateView(
+                    imageName: "person.badge.shield.checkmark",
+                    message: "Endorsements from coaches will appear here once you receive them."
+                )
+                .padding(.top, 40)
             } else {
                 ForEach(endorsements) { endorsement in EndorsementCardView(endorsement: endorsement) }
             }
         }
     }
 }
-
 struct EndorsementCardView: View {
     let endorsement: CoachEndorsement
     var body: some View {

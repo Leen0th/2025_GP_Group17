@@ -399,12 +399,9 @@ struct PostDetailView: View {
     // MARK: - Placeholder Stats (Fixed Values)
     private var placeholderStats: [PostStat] {
         [
-            PostStat(label: "GOALS",           value: 4),
-            PostStat(label: "TOTAL ATTEMPTS",  value: 5),
-            PostStat(label: "BLOCKED",         value: 3),
-            PostStat(label: "SHOTS ON TARGET", value: 13),
-            PostStat(label: "CORNERS",         value: 13),
-            PostStat(label: "OFFSIDES",        value: 3)
+            PostStat(label: "DRIBBLE",           value: 4),
+            PostStat(label: "PASS",  value: 5),
+            PostStat(label: "SHOOT",         value: 3)
         ]
     }
 
