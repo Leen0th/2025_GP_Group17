@@ -291,6 +291,16 @@ class VideoProcessingViewModel: ObservableObject {
         let profilePic = (data["profilePic"] as? String) ?? ""
         self.uploadProgress = 0.7
 
+        // --- Create the performanceFeedback data array ---
+        // This format matches what PlayerProfileViewModel expects (Array of Dictionaries)
+        let performanceFeedbackData = self.performanceStats.map { stat -> [String: Any] in
+            return [
+                "label": stat.label,
+                "value": stat.value,       // This is an Int from PFPostStat
+                "maxValue": stat.maxValue  // This is an Int from PFPostStat
+            ]
+        }
+
         let postRef = db.collection("videoPosts").document(postID)
         var postData: [String: Any] = [
             "authorId": userRef,
@@ -303,7 +313,9 @@ class VideoProcessingViewModel: ObservableObject {
             "visibility": !isPrivate,
             "likeCount": 0,
             "commentCount": 0,
-            "likedBy": []
+            "likedBy": [],
+            // --- Add the feedback data directly to the post document ---
+            "performanceFeedback": performanceFeedbackData
         ]
         
         if let matchDate = matchDate {
@@ -311,24 +323,12 @@ class VideoProcessingViewModel: ObservableObject {
         }
         
         try await postRef.setData(postData)
-        self.uploadProgress = 0.8
-
-        let perfRef = postRef.collection("performanceFeedback").document("feedback")
-        let perfData: [String: Any]
-        if !self.performanceStats.isEmpty {
-            perfData = [
-                "stats": Dictionary(uniqueKeysWithValues: self.performanceStats.map {
-                    ($0.label, ["value": $0.value])
-                })
-            ]
-        } else {
-            perfData = ["stats": [:]]
-        }
-        try await perfRef.setData(perfData)
         self.uploadProgress = 0.9
 
+        // --- Add maxValue to the PostStat initializer ---
         let postStats = self.performanceStats.map { s in
-            PostStat(label: s.label, value: Double(s.value))
+            // Create the PostStat model (for the notification) using all required fields
+            PostStat(label: s.label, value: Double(s.value), maxValue: Double(s.maxValue))
         }
 
         let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
@@ -346,7 +346,7 @@ class VideoProcessingViewModel: ObservableObject {
             commentCount: 0,
             likedBy: [],
             isLikedByUser: false,
-            stats: postStats,
+            stats: postStats, // Now this 'postStats' object is correctly formed
             matchDate: matchDate
         )
         NotificationCenter.default.post(name: .postCreated, object: nil, userInfo: ["post": newPost])

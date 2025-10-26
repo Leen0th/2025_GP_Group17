@@ -189,62 +189,92 @@ final class PlayerProfileViewModel: ObservableObject {
 
     // MARK: - Posts (with static placeholder stats)
     func listenToMyPosts() {
-            postsListener?.remove()
+        postsListener?.remove()
 
-            guard let uid = Auth.auth().currentUser?.uid else { return }
-            let userRef = db.collection("users").document(uid)
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let userRef = db.collection("users").document(uid)
 
-            postsListener = db.collection("videoPosts")
-                .whereField("authorId", isEqualTo: userRef)
-                .order(by: "uploadDateTime", descending: true)
-                .addSnapshotListener { [weak self] snap, err in
-                    guard let self, let docs = snap?.documents else {
-                        if let err = err { print("listenToMyPosts error: \(err)") }
-                        return
-                    }
+        postsListener = db.collection("videoPosts")
+            .whereField("authorId", isEqualTo: userRef)
+            .order(by: "uploadDateTime", descending: true)
+            .addSnapshotListener { [weak self] snap, err in
+                guard let self, let docs = snap?.documents else {
+                    if let err = err { print("listenToMyPosts error: \(err)") }
+                    return
+                }
 
-                    Task {
-                        let mappedPosts: [Post] = await docs.asyncMap { doc in
-                            let d = doc.data()
-                            let postStats: [PostStat] = self.placeholderStats // Using placeholder
-                            let likedBy = (d["likedBy"] as? [String]) ?? []
-                            
-                            // --- MODIFIED: Fetch the match date as a Date object ---
-                            let matchDateTimestamp = d["matchDate"] as? Timestamp
-                            let matchDate: Date? = matchDateTimestamp?.dateValue()
-
-                            return Post(
-                                id: doc.documentID,
-                                imageName: (d["thumbnailURL"] as? String) ?? "",
-                                videoURL: (d["url"] as? String) ?? "",
-                                caption: (d["caption"] as? String) ?? "",
-                                timestamp: self.df.string(
-                                    from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()
-                                ),
-                                isPrivate: !((d["visibility"] as? Bool) ?? true),
-                                authorName: (d["authorUsername"] as? String) ?? "",
-                                authorImageName: (d["profilePic"] as? String) ?? "",
-                                likeCount: (d["likeCount"] as? Int) ?? 0,
-                                commentCount: (d["commentCount"] as? Int) ?? 0,
-                                likedBy: likedBy,
-                                isLikedByUser: likedBy.contains(uid),
-                                stats: postStats,
-                                matchDate: matchDate // --- MODIFIED ---
-                            )
+                Task {
+                    let mappedPosts: [Post] = await docs.asyncMap { doc in
+                        let d = doc.data()
+                        
+                        // --- MODIFIED: Robust parsing to include maxValue ---
+                        var postStats: [PostStat] = []
+                        
+                        // Helper function to safely convert Any to Double
+                        func toDouble(_ val: Any?) -> Double? {
+                            return val as? Double ?? (val as? Int).map(Double.init)
                         }
                         
-                        await MainActor.run {
-                            self.posts = mappedPosts
+                        if let feedbackMap = d["performanceFeedback"] as? [String: Any] {
+                            // Case 1: Stats are stored as a Map, e.g., {"dribble": 7.0, "pass": 5.0}
+                            // This format DOESN'T have maxValue, so we default to 10.
+                            postStats = feedbackMap.compactMap { (key, anyValue) in
+                                guard let value = toDouble(anyValue) else { return nil }
+                                return PostStat(
+                                    label: key.uppercased(),
+                                    value: value,
+                                    maxValue: 10.0 // Default to 10
+                                )
+                            }
+                            .sorted { $0.label < $1.label }
+                            
+                        } else if let feedbackArray = d["performanceFeedback"] as? [[String: Any]] {
+                            // Case 2: Stats are stored as an Array, e.g., [{"label": "DRIBBLE", "value": 7, "maxValue": 10}]
+                            // This is the PREFERRED format.
+                            postStats = feedbackArray.compactMap { dict in
+                                guard let label = dict["label"] as? String,
+                                      let value = toDouble(dict["value"])
+                                else {
+                                    return nil
+                                }
+                                
+                                // Get maxValue, but default to 10.0 if it's missing
+                                let maxValue = toDouble(dict["maxValue"]) ?? 10.0
+                                
+                                return PostStat(label: label, value: value, maxValue: maxValue)
+                            }
                         }
+                        // --- END MODIFICATION ---
+
+                        let likedBy = (d["likedBy"] as? [String]) ?? []
+                        
+                        let matchDateTimestamp = d["matchDate"] as? Timestamp
+                        let matchDate: Date? = matchDateTimestamp?.dateValue()
+
+                        return Post(
+                            id: doc.documentID,
+                            imageName: (d["thumbnailURL"] as? String) ?? "",
+                            videoURL: (d["url"] as? String) ?? "",
+                            caption: (d["caption"] as? String) ?? "",
+                            timestamp: self.df.string(
+                                from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()
+                            ),
+                            isPrivate: !((d["visibility"] as? Bool) ?? true),
+                            authorName: (d["authorUsername"] as? String) ?? "",
+                            authorImageName: (d["profilePic"] as? String) ?? "",
+                            likeCount: (d["likeCount"] as? Int) ?? 0,
+                            commentCount: (d["commentCount"] as? Int) ?? 0,
+                            likedBy: likedBy,
+                            isLikedByUser: likedBy.contains(uid),
+                            stats: postStats, // <-- Pass the correctly parsed stats
+                            matchDate: matchDate
+                        )
+                    }
+                    
+                    await MainActor.run {
+                        self.posts = mappedPosts
                     }
                 }
-        }
-
-    private var placeholderStats: [PostStat] {
-        [
-            PostStat(label: "DRIBBLE", value: 4),
-            PostStat(label: "PASS",    value: 5),
-            PostStat(label: "SHOOT",   value: 3)
-        ]
+            }
     }
 }

@@ -98,6 +98,7 @@ struct PostStat: Identifiable, Equatable {
     let id = UUID()
     let label: String
     let value: Double
+    let maxValue: Double 
 }
 
 struct Comment: Identifiable {

@@ -43,7 +43,7 @@ struct PostDetailView: View {
                     captionAndMetadata
                     authorInfoAndInteractions
                     Divider()
-                    statsSection
+                    statsSection // <-- This view will now use post.stats
                 }
                 .padding(.horizontal)
             }
@@ -368,33 +368,33 @@ struct PostDetailView: View {
         return df_dateOnly.string(from: date)
     }
 
-    // --- MODIFIED: statsSection to use new card style ---
+    // --- MODIFIED: statsSection to use post.stats from the Post object ---
+    // --- MODIFIED: statsSection to use post.stats from the Post object ---
+    @ViewBuilder // <-- ADD THIS ATTRIBUTE
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("AI Performance Analysis")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(BrandColors.darkGray)
-                .padding(.bottom, 4)
-            
-            ForEach(placeholderStats) { stat in
-                // MODIFIED: Use new PostStatBarView
-                PostStatBarView(stat: stat, accentColor: accentColor)
+        // Only show this section if stats exist and are not empty
+        if let stats = post.stats, !stats.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("AI Performance Analysis")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                    .padding(.bottom, 4)
+                
+                // Iterate over the stats from the post object
+                ForEach(stats) { stat in
+                    PostStatBarView(stat: stat, accentColor: accentColor)
+                }
             }
+            .padding(20)
+            .background(BrandColors.background)
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+        } else {
+            // If post.stats is nil or empty, show nothing
+            EmptyView()
         }
-        .padding(20)
-        .background(BrandColors.background)
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
-
-    private var placeholderStats: [PostStat] {
-        [
-            PostStat(label: "DRIBBLE", value: 4),
-            PostStat(label: "PASS",  value: 5),
-            PostStat(label: "SHOOT", value: 3)
-        ]
-    }
-
+    
     // ... (formatNumber logic is unchanged) ...
     private func formatNumber(_ number: Int) -> String {
         if number >= 1000 {
@@ -653,6 +653,8 @@ struct PostStatBarView: View {
     
     // MODIFIED: Add logic for gradients
     let gradient: LinearGradient
+    
+    // This init logic is unchanged
     init(stat: PostStat, accentColor: Color) {
         self.stat = stat
         self.accentColor = accentColor
@@ -690,7 +692,8 @@ struct PostStatBarView: View {
                     
                     Capsule()
                         .fill(gradient) // Use the new gradient
-                        .frame(width: (geometry.size.width * CGFloat(stat.value) / 10.0), height: 8) // Assuming max 10
+                        // MODIFIED: Use stat.maxValue instead of 10.0
+                        .frame(width: (geometry.size.width * CGFloat(stat.value) / CGFloat(stat.maxValue)), height: 8)
                         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: stat.value)
                 }
             }
@@ -698,7 +701,6 @@ struct PostStatBarView: View {
         }
     }
 }
-
 
 // MARK: - Popup Views (Styling Update)
 struct PrivacyWarningPopupView: View {
