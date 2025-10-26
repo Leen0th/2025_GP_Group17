@@ -4,6 +4,10 @@ import FirebaseFirestore
 import FirebaseAuth
 import FirebaseStorage
 
+extension Notification.Name {
+    static let profileUpdated = Notification.Name("profileUpdated")
+}
+
 // MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
     @StateObject private var viewModel = PlayerProfileViewModel()
@@ -162,6 +166,13 @@ struct PlayerProfileContentView: View {
                 }
             }
             .task { await viewModel.fetchAllData() }
+            // This watches the userProfile.position. If it changes
+            // (like after EditProfileView saves), it will re-run the calculation.
+            .onChange(of: viewModel.userProfile.position) { _, _ in
+                Task {
+                    await viewModel.calculateAndUpdateScore()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
                 if let postId = note.userInfo?["postId"] as? String {
                     withAnimation { viewModel.posts.removeAll { $0.id == postId } }
@@ -738,6 +749,9 @@ struct EditProfileView: View {
                 overlayMessage = "Profile updated successfully"
                 overlayIsError = false
                 showInfoOverlay = true
+                
+                // This tells the app the profile has changed
+                NotificationCenter.default.post(name: .profileUpdated, object: nil)
             }
         } catch {
             overlayMessage = "Failed to update profile: \(error.localizedDescription)"

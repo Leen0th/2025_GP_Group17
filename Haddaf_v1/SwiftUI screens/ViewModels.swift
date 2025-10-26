@@ -28,12 +28,11 @@ final class PlayerProfileViewModel: ObservableObject {
     // Observers for post create/delete events
     private var postCreatedObs: NSObjectProtocol?
     private var postDeletedObs: NSObjectProtocol?
+    private var profileUpdatedObs: NSObjectProtocol?
 
     init() {
         df.dateFormat = "dd/MM/yyyy HH:mm"
         
-        // --- REMOVED: df_dateOnly is no longer needed here ---
-
         // Insert new post immediately into My posts (optimistic UI)
         postCreatedObs = NotificationCenter.default.addObserver(
             forName: .postCreated, object: nil, queue: .main
@@ -58,12 +57,24 @@ final class PlayerProfileViewModel: ObservableObject {
             else { return }
             self.posts.removeAll { $0.id == postId }
         }
+        
+        // This listens for the change from EditProfileView
+        profileUpdatedObs = NotificationCenter.default.addObserver(
+            forName: .profileUpdated, object: nil, queue: .main
+        ) { [weak self] _ in
+            print("Profile updated, recalculating score...")
+            Task {
+                await self?.calculateAndUpdateScore()
+            }
+        }
+            
     }
     
     deinit {
         postsListener?.remove()
         if let t = postCreatedObs { NotificationCenter.default.removeObserver(t) }
         if let t = postDeletedObs { NotificationCenter.default.removeObserver(t) }
+        if let t = profileUpdatedObs { NotificationCenter.default.removeObserver(t) }
     }
 
     // MODIFIED: Made sequential to prevent race condition
@@ -76,6 +87,7 @@ final class PlayerProfileViewModel: ObservableObject {
         await fetchProfile()
         
         // 2. ONLY after the profile is loaded, attach the listener for posts.
+        //    The listener will now also trigger the score calculation.
         listenToMyPosts()
         
         // 3. Now that all data is fetched and listeners are attached, stop loading.
@@ -144,7 +156,11 @@ final class PlayerProfileViewModel: ObservableObject {
 
             userProfile.team  = "Unassigned"
             userProfile.rank  = "0"
-            userProfile.score = "0"
+            
+            // Set score from profile, or default to 0
+            // This will be overwritten by calculateAndUpdateScore()
+            userProfile.score = (p["score"] as? String) ?? "0"
+            
         } catch {
             print("fetchProfile error: \(error)")
         }
@@ -273,8 +289,89 @@ final class PlayerProfileViewModel: ObservableObject {
                     
                     await MainActor.run {
                         self.posts = mappedPosts
+                        
+                        // --- ADDED (1 of 2) ---
+                        // After posts are loaded, calculate the new score
+                        Task {
+                            await self.calculateAndUpdateScore()
+                        }
+                        // --- END ADDED ---
                     }
                 }
             }
     }
+    
+    // --- ADDED (2 of 2) ---
+    // This is the new function that calculates and saves the score
+    @MainActor
+    func calculateAndUpdateScore() async {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            print("Error: No user ID found.")
+            return
+        }
+
+        // Weights are now Integers
+        let weights: [String: [String: Int]] = [
+            "Attacker": ["PASS": 3, "DRIBBLE": 8, "SHOOT": 10],
+            "Midfielder": ["PASS": 8, "DRIBBLE": 7, "SHOOT": 6],
+            "Defender": ["PASS": 9, "DRIBBLE": 3, "SHOOT": 1],
+            "Default": ["PASS": 1, "DRIBBLE": 1, "SHOOT": 1]
+        ]
+        
+        // 1. Get the player's position
+        let position = self.userProfile.position
+        
+        // 2. Select the correct weights
+        let positionWeights = weights[position] ?? weights["Default"]!
+
+        // 3. Filter for posts that actually have AI data
+        let scoredPosts = self.posts.filter { !($0.stats?.isEmpty ?? true) }
+
+        if scoredPosts.isEmpty {
+            // No posts with scores yet, set score to 0
+            self.userProfile.score = "0"
+            return
+        }
+
+        // 4. Loop, calculate score for each post, and get the sum
+        let totalScore = scoredPosts.reduce(0.0) { (accumulator, post) in
+            
+            let passValue = post.stats?.first { $0.label.uppercased() == "PASS" }?.value ?? 0.0
+            let dribbleValue = post.stats?.first { $0.label.uppercased() == "DRIBBLE" }?.value ?? 0.0
+            let shootValue = post.stats?.first { $0.label.uppercased() == "SHOOT" }?.value ?? 0.0
+
+            // Apply weights (we cast the Int weight to Double for the math)
+            let passScore = passValue * Double(positionWeights["PASS"] ?? 1)
+            let dribbleScore = dribbleValue * Double(positionWeights["DRIBBLE"] ?? 1)
+            let shootScore = shootValue * Double(positionWeights["SHOOT"] ?? 1)
+            
+            return accumulator + passScore + dribbleScore + shootScore
+        }
+        
+        // 5. Calculate the average
+        let averageScore = totalScore / Double(scoredPosts.count)
+        
+        // --- MODIFIED: Round to nearest whole number and convert to String ---
+        let roundedScore = Int(averageScore.rounded())
+        let scoreString = String(roundedScore)
+
+        // 6. Update the UI *immediately*
+        self.userProfile.score = scoreString
+
+        // 7. Save the new score back to Firestore
+        Task(priority: .background) {
+            do {
+                let profileRef = Firestore.firestore()
+                    .collection("users").document(uid)
+                    .collection("player").document("profile")
+                
+                try await profileRef.setData(["score": scoreString], merge: true)
+                print("Successfully saved new score: \(scoreString)")
+                
+            } catch {
+                print("Error saving new score to Firestore: \(error.localizedDescription)")
+            }
+        }
+    }
+    // --- END ADDED ---
 }
