@@ -7,7 +7,7 @@ struct DiscoveryView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             Text("Discovery Page")
                 // MODIFIED: Use new font
                 .font(.system(size: 32, design: .rounded))
@@ -20,7 +20,7 @@ struct TeamsView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             Text("Teams Page")
                 // MODIFIED: Use new font
                 .font(.system(size: 32, design: .rounded))
@@ -33,7 +33,7 @@ struct ChallengeView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             Text("Challenge Page")
                 // MODIFIED: Use new font
                 .font(.system(size: 32, design: .rounded))
@@ -61,7 +61,7 @@ struct VideoUploadView: View {
         NavigationStack {
             ZStack {
                 // MODIFIED: Use new background
-                BrandColors.gradientBackground.ignoresSafeArea()
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
                     // Header

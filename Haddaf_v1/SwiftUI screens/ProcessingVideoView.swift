@@ -30,7 +30,7 @@ struct ProcessingVideoView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
             VStack(spacing: 20) {
                 ZStack {

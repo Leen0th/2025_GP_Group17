@@ -41,17 +41,35 @@ class VideoProcessingViewModel: ObservableObject {
         do {
             processingStateMessage = "Accessing video file..."
             self.videoURL = url
-            self.progress = 0.1 // 10%
 
             // Generate thumbnail
             processingStateMessage = "Generating thumbnail..."
             self.thumbnail = try await generateThumbnail(for: url)
-            self.progress = 0.2 // 20%
 
             // 🚀 Send video to Railway API with Retry
-            processingStateMessage = "Uploading to AI server..."
+            processingStateMessage = "Analyzing your performance..."
+            
+            // Flag to stop progress animation when server responds
+            var shouldContinueProgress = true
+            
+            // Start progress animation from 0% - reach 99% in ~8 minutes
+            let progressTask = Task {
+                // From 0% to 99% = 99% progress over ~480 seconds
+                // Update every 2 seconds, increment by ~0.4125% each time
+                while shouldContinueProgress && self.progress < 0.99 && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000) // Update every 2 seconds
+                    if shouldContinueProgress {
+                        self.progress = min(self.progress + 0.004125, 0.99) // Increment by ~0.4125%
+                    }
+                }
+            }
+            
             let actionCounts = try await sendToAPIWithRetry(videoURL: url, pinpoint: pinpoint, frameWidth: frameWidth, frameHeight: frameHeight)
-            self.progress = 0.8 // 80%
+            
+            // Stop progress animation immediately and set to 100%
+            shouldContinueProgress = false
+            progressTask.cancel()
+            self.progress = 1.0 // 100%
 
             // Convert to performanceStats
             processingStateMessage = "Processing results..."
@@ -60,7 +78,6 @@ class VideoProcessingViewModel: ObservableObject {
                 PFPostStat(label: "PASS", value: actionCounts["pass"] ?? 0, maxValue: 50),
                 PFPostStat(label: "SHOOT", value: actionCounts["shoot"] ?? 0, maxValue: 15)
             ]
-            self.progress = 0.9 // 90%
 
             // Keep spinner visible for smooth UX
             let elapsed = Date().timeIntervalSince(start)
@@ -69,7 +86,6 @@ class VideoProcessingViewModel: ObservableObject {
                 try await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
             }
             
-            self.progress = 1.0 // 100%
             processingComplete = true
             
         } catch {
@@ -97,7 +113,7 @@ class VideoProcessingViewModel: ObservableObject {
                 
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 
-                processingStateMessage = "Uploading to AI server..."
+                processingStateMessage = "Analyzing performance..."
                 continue
             } catch {
                 // Other errors - don't retry
@@ -185,13 +201,7 @@ class VideoProcessingViewModel: ObservableObject {
                 fileHandle.write(chunk)
                 totalBytesRead += UInt64(chunk.count)
                 
-                // Update progress
-                if fileSize > 0 {
-                    let uploadProgress = Double(totalBytesRead) / Double(fileSize) * 0.3 // 30% of total progress
-                    await MainActor.run {
-                        self.progress = 0.2 + uploadProgress
-                    }
-                }
+                // Progress is now handled by the animation in processVideo
             }
             
             try videoHandle.close()

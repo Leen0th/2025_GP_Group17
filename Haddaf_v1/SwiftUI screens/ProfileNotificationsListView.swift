@@ -41,7 +41,7 @@ struct ProfileNotificationsListView: View {
         NavigationStack {
             // MODIFIED: Use new gradient background
             ZStack {
-                BrandColors.gradientBackground.ignoresSafeArea()
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
                     // Header

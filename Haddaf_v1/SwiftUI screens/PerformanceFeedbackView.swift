@@ -158,7 +158,7 @@ struct PerformanceFeedbackView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 100)
             }
-            .background(BrandColors.gradientBackground)
+            .background(BrandColors.backgroundGradientEnd)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
             .onChange(of: viewModel.videoURL) { _, newURL in

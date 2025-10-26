@@ -24,7 +24,7 @@ struct PostDetailView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new gradient background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -457,7 +457,7 @@ struct CommentsView: View {
                 }
                  // --- END MODIFICATION ---
             }
-            .background(BrandColors.gradientBackground) // Keep background
+            .background(BrandColors.backgroundGradientEnd) // Keep background
 
             // --- Comment Input Area ---
             HStack(spacing: 12) {

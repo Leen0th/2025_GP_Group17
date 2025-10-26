@@ -6,7 +6,7 @@ struct ChangePasswordView: View {
     // MODIFIED: Use new BrandColors
     private let primary = BrandColors.darkTeal
     private let fieldBorder = Color.black.opacity(0.1) // MODIFIED
-    private let bg = BrandColors.gradientBackground // MODIFIED
+    private let bg = BrandColors.backgroundGradientEnd // MODIFIED
 
     @Environment(\.dismiss) private var dismiss
 

@@ -127,7 +127,7 @@ struct PinpointPlayerView: View {
                 Spacer()
                 footerButtons
             }
-            .background(BrandColors.gradientBackground)
+            .background(BrandColors.backgroundGradientEnd)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
             .onAppear {

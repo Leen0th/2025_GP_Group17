@@ -19,7 +19,7 @@ struct NotificationsView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new gradient background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Header

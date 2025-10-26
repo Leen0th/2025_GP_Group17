@@ -79,7 +79,7 @@ struct PlayerProfileContentView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new gradient background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             ScrollView {
                 if viewModel.isLoading {
@@ -389,7 +389,7 @@ struct EditProfileView: View {
     var body: some View {
         ZStack {
             // MODIFIED: Use new gradient background
-            BrandColors.gradientBackground.ignoresSafeArea()
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
