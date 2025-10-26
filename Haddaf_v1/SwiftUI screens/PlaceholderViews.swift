@@ -122,6 +122,18 @@ struct VideoUploadView: View {
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
+                        // --- ADDED DISCLAIMER ---
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.headline)
+                                .padding(.top, 2)
+                            Text("Upload and pinpoint only videos that feature you personally. Using someone else's video or identity is strictly prohibited.")
+                                // MODIFIED: Use new font
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        // --- END ADDED DISCLAIMER ---
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 30)

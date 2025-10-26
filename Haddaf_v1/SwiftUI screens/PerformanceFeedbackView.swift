@@ -9,11 +9,10 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Stat Bar (MODIFIED)
+// MARK: - Stat Bar (Unchanged)
 struct PFStatBarView: View {
     let stat: PFPostStat
     
-    // MODIFIED: Use brand colors
     let gradient: LinearGradient
     
     init(stat: PFPostStat) {
@@ -35,18 +34,15 @@ struct PFStatBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                // MODIFIED: Use new font
                 Text(stat.label)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
                 Spacer()
-                // MODIFIED: Use new font
                 Text("\(stat.value)")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
             }
             
-            // MODIFIED: Use new progress bar style
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -54,7 +50,7 @@ struct PFStatBarView: View {
                         .frame(height: 8)
                     
                     Capsule()
-                        .fill(gradient) // Use the new gradient
+                        .fill(gradient)
                         .frame(width: (geometry.size.width * CGFloat(stat.value) / CGFloat(stat.maxValue)), height: 8)
                         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: stat.value)
                 }
@@ -64,50 +60,40 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - AVPlayerViewController wrapper (controls visible, primed to show big play)
+// MARK: - AVPlayerViewController wrapper (Unchanged)
 struct AVKitPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
 
-    // 1. Create a Coordinator class to observe the player item
     class Coordinator {
         var itemObservation: NSKeyValueObservation?
     }
 
-    // 2. Implement makeCoordinator
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    // 3. makeUIViewController is now simple
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
         vc.showsPlaybackControls = true
         vc.videoGravity = .resizeAspect
-        // We will set the player and observer in 'update'
         return vc
     }
 
-    // 4. updateUIViewController does all the work
     func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
         
-        // Don't do anything if the player is the same object
         guard vc.player !== player else { return }
         
         vc.player = player
         
-        // Clean up any old observer
         context.coordinator.itemObservation?.invalidate()
         context.coordinator.itemObservation = nil
         
-        // Get the new player's item
         guard let item = player?.currentItem else {
-            return // No item, nothing to observe
+            return
         }
 
-        // 5. Observe the item's 'status' property
         context.coordinator.itemObservation = item.observe(\.status, options: [.new, .initial]) { [weak vc] (playerItem, change) in
             
-            // 6. When status is '.readyToPlay', pause and seek
             if playerItem.status == .readyToPlay {
                 vc?.player?.pause()
                 vc?.player?.seek(to: .zero)
@@ -116,7 +102,7 @@ struct AVKitPlayerView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Main View
+// MARK: - Main View (Unchanged)
 struct PerformanceFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: VideoProcessingViewModel
@@ -137,18 +123,16 @@ struct PerformanceFeedbackView: View {
     @State private var showExitWarning = false
     @State private var isAnimating = false
 
-    // MODIFIED: Use new BrandColors
     private let primary = BrandColors.darkTeal
 
-    // MODIFIED: Use new BrandColors
     private var customSpinner: some View {
         ZStack {
-            Circle().stroke(lineWidth: 8).fill(BrandColors.lightGray) // MODIFIED
+            Circle().stroke(lineWidth: 8).fill(BrandColors.lightGray)
             
             Circle()
                 .trim(from: 0, to: 0.75)
                 .stroke(style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-                .fill(primary) // Use 'primary' color (darkTeal)
+                .fill(primary)
                 .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
                 .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
         }
@@ -163,18 +147,17 @@ struct PerformanceFeedbackView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) { // MODIFIED: Increased spacing
+                VStack(alignment: .leading, spacing: 24) {
                     header
                     videoSection
                     statsSection
-                    titleVisibilitySection
+                    titleVisibilitySection // This section is now fixed
                     dateRowSection
                     Spacer().frame(height: 100)
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 100)
             }
-            // MODIFIED: Use new background
             .background(BrandColors.gradientBackground)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
@@ -192,14 +175,12 @@ struct PerformanceFeedbackView: View {
                 if viewModel.isUploading {
                     Color.black.opacity(0.4).ignoresSafeArea()
                     
-                    // MODIFIED: Card styling
                     VStack(spacing: 20) {
                         customSpinner
                             .onAppear { isAnimating = true }
                             .onDisappear { isAnimating = false }
                         
                         Text("Posting...")
-                            // MODIFIED: Use new font
                             .font(.system(size: 18, weight: .medium, design: .rounded))
                         
                         ProgressView(value: viewModel.uploadProgress)
@@ -208,13 +189,11 @@ struct PerformanceFeedbackView: View {
                             .padding(.horizontal, 20)
                         
                         Text(String(format: "%.0f%%", viewModel.uploadProgress * 100))
-                            // MODIFIED: Use new font
                             .font(.system(size: 14, design: .rounded))
                             .foregroundColor(primary)
                             .animation(nil, value: viewModel.uploadProgress)
                     }
                     .padding(30)
-                    // MODIFIED: Use new card style
                     .background(BrandColors.background)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
@@ -241,7 +220,6 @@ struct PerformanceFeedbackView: View {
         .sheet(isPresented: $showDateSheet) {
             VStack(spacing: 16) {
                 Text("Select match date")
-                    // MODIFIED: Use new font
                     .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(primary)
                     .frame(maxWidth: .infinity)
@@ -258,11 +236,9 @@ struct PerformanceFeedbackView: View {
                         matchDate = nil
                         showDateSheet = false
                     }
-                    // MODIFIED: Use new font
                     .font(.system(size: 16, design: .rounded))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    // MODIFIED: Use new colors
                     .background(BrandColors.lightGray)
                     .foregroundColor(primary.opacity(0.8))
                     .clipShape(Capsule())
@@ -271,7 +247,6 @@ struct PerformanceFeedbackView: View {
                         matchDate = tempSheetDate
                         showDateSheet = false
                     }
-                    // MODIFIED: Use new font
                     .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -283,17 +258,15 @@ struct PerformanceFeedbackView: View {
             }
             .padding(.horizontal, 20)
             .presentationDetents([.height(320)])
-            // MODIFIED: Use new background
             .presentationBackground(BrandColors.background)
             .presentationCornerRadius(28)
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (Unchanged)
     private var header: some View {
         ZStack {
             Text("Performance Feedback")
-                // MODIFIED: Use new font
                 .font(.system(size: 28, weight: .medium, design: .rounded))
                 .foregroundColor(primary)
                 .offset(y: 6)
@@ -307,7 +280,6 @@ struct PerformanceFeedbackView: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.secondary)
                         .padding(8)
-                        // MODIFIED: Use new color
                         .background(BrandColors.lightGray.opacity(0.7))
                         .clipShape(Circle())
                 }
@@ -316,7 +288,7 @@ struct PerformanceFeedbackView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Video (AVKit controls visible)
+    // MARK: - Video (Unchanged)
     private var videoSection: some View {
         Group {
             if viewModel.videoURL != nil {
@@ -330,13 +302,11 @@ struct PerformanceFeedbackView: View {
                     .overlay(Text("No Video Found").foregroundColor(.white))
             }
         }
-        // MODIFIED: Add new shadow
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Stats
+    // MARK: - Stats (Unchanged)
     private var statsSection: some View {
-        // MODIFIED: Wrap in card
         VStack(alignment: .leading, spacing: 16) {
             Text("AI Performance Analysis")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
@@ -344,7 +314,6 @@ struct PerformanceFeedbackView: View {
                 .padding(.bottom, 4)
             
             ForEach(viewModel.performanceStats) { s in
-                // MODIFIED: Call new StatBarView init
                 PFStatBarView(stat: s)
             }
         }
@@ -354,40 +323,37 @@ struct PerformanceFeedbackView: View {
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Title + Visibility
+    // MARK: - Title + Visibility (FIXED)
     private var titleVisibilitySection: some View {
-        // MODIFIED: Wrap in card
+        // This VStack is now correctly styled as a card
         VStack(alignment: .leading, spacing: 18) {
             // Title (mandatory)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Text("Add a title")
-                        // MODIFIED: Use new font
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundColor(.secondary)
                     Text("*").font(.subheadline).fontWeight(.bold).foregroundColor(.red)
                     Spacer()
-                    // MODIFIED: Use new font
                     Text("\(title.count)/\(titleLimit)")
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(title.count > titleLimit ? .red : .secondary)
                 }
 
                 TextField("Enter a short title…", text: $title)
-                    // MODIFIED: Use new font
                     .font(.system(size: 16, design: .rounded))
                     .textInputAutocapitalization(.sentences)
                     .disableAutocorrection(true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(
-                        // MODIFIED: Use new card style
+                        // FIX: Changed fill to contrast with the parent card
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(BrandColors.background)
-                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            .fill(BrandColors.lightGray.opacity(0.7)) // <-- CHANGED
+                            // .shadow(...) // <-- REMOVED shadow from inner element
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                     )
-                    .cornerRadius(12)
+                    .cornerRadius(12) // Note: This .cornerRadius is redundant, but harmless
                     .accessibilityLabel("Post title (required)")
             }
             .padding(.top, 4)
@@ -395,39 +361,41 @@ struct PerformanceFeedbackView: View {
             // Visibility
             VStack(alignment: .leading, spacing: 10) {
                 Text("Post Visibility")
-                    // MODIFIED: Use new font
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
 
                 Button(action: { isPrivate.toggle() }) {
-                    HStack(spacing: 12) { // MODIFIED: Increased spacing
+                    HStack(spacing: 12) {
                         Image(systemName: isPrivate ? "lock.fill" : "lock.open.fill")
                             .foregroundColor(isPrivate ? .red : primary)
-                        // MODIFIED: Use new font
                         Text(isPrivate ? "Private" : "Public")
                             .font(.system(size: 16, design: .rounded))
                             .foregroundColor(BrandColors.darkGray)
                         Spacer()
                     }
                     .padding()
-                    // MODIFIED: Use new card style
                     .background(
+                        // FIX: Changed fill to contrast with the parent card
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(BrandColors.background)
-                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            .fill(BrandColors.lightGray.opacity(0.7)) // <-- CHANGED
+                            // .shadow(...) // <-- REMOVED shadow from inner element
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                     )
                 }
             }
             .padding(.top, 6)
         }
+        // FIX: Added card modifiers to the whole section
+        .padding(20)
+        .background(BrandColors.background)
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Match Date Row
+    // MARK: - Match Date Row (Unchanged)
     private var dateRowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Match Date (optional)")
-                // MODIFIED: Use new font
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary)
 
@@ -438,7 +406,6 @@ struct PerformanceFeedbackView: View {
                 HStack {
                     Image(systemName: "calendar")
                         .foregroundColor(primary)
-                    // MODIFIED: Use new font
                     Text(matchDate.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .none) } ?? "Select date")
                         .font(.system(size: 16, design: .rounded))
                         .foregroundColor(matchDate == nil ? .secondary : BrandColors.darkGray)
@@ -448,7 +415,6 @@ struct PerformanceFeedbackView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding()
-                // MODIFIED: Use new card style
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(BrandColors.background)
@@ -460,7 +426,7 @@ struct PerformanceFeedbackView: View {
         .padding(.top, 6)
     }
 
-    // MARK: - Post Button
+    // MARK: - Post Button (Unchanged)
     private var postButton: some View {
         VStack {
             Button {
@@ -480,7 +446,6 @@ struct PerformanceFeedbackView: View {
             } label: {
                 Text("post")
                     .textCase(.lowercase)
-                    // MODIFIED: Use new font
                     .font(.system(size: 18, weight: .medium, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -493,11 +458,10 @@ struct PerformanceFeedbackView: View {
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
-        // MODIFIED: Use new background
         .background(BrandColors.background)
     }
 
-    // MARK: - Player setup / teardown
+    // MARK: - Player setup / teardown (Unchanged)
     private func configurePlayer(with url: URL?) {
         teardownPlayer()
 
@@ -524,7 +488,7 @@ struct PerformanceFeedbackView: View {
         player = nil
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers (Unchanged)
     private func cancelAndDismiss() {
         teardownPlayer()
         viewModel.resetAfterPosting()

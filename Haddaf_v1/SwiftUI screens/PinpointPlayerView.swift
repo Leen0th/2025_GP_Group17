@@ -79,7 +79,6 @@ fileprivate struct TimeLabel: View {
     }()
     var body: some View {
         Text(Self.formatter.string(from: time) ?? "00:00")
-            // MODIFIED: Use new font
             .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
             .foregroundColor(.secondary)
     }
@@ -96,6 +95,8 @@ struct PinpointPlayerView: View {
     @State private var isFrameConfirmed = false
     @State private var selectedPoint: CGPoint?
     @State private var navigateToProcessing = false
+    @State private var frameWidth: CGFloat = 1920 // Fallback
+    @State private var frameHeight: CGFloat = 1080 // Fallback
     
     // MODIFIED: Use new BrandColors
     private let accentColor = BrandColors.darkTeal
@@ -114,7 +115,6 @@ struct PinpointPlayerView: View {
                 
                 videoPlayerWithOverlay
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    // MODIFIED: Add shadow
                     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                     .padding(.horizontal)
                 
@@ -127,14 +127,29 @@ struct PinpointPlayerView: View {
                 Spacer()
                 footerButtons
             }
-            // MODIFIED: Use new background
             .background(BrandColors.gradientBackground)
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
+            .onAppear {
+                // Load video dimensions
+                Task {
+                    do {
+                        let asset = AVAsset(url: videoURL)
+                        if let track = try await asset.loadTracks(withMediaType: .video).first {
+                            let size = try await track.load(.naturalSize)
+                            frameWidth = size.width
+                            frameHeight = size.height
+                            print("📏 Video dimensions: \(frameWidth)x\(frameHeight)")
+                        }
+                    } catch {
+                        print("⚠️ Error loading video dimensions: \(error)")
+                    }
+                }
+            }
             .onDisappear { viewModel.cleanup() }
             .navigationDestination(isPresented: $navigateToProcessing) {
                 if let point = selectedPoint {
-                    ProcessingVideoView(videoURL: videoURL, pinpoint: point)
+                    ProcessingVideoView(videoURL: videoURL, pinpoint: point, frameWidth: frameWidth, frameHeight: frameHeight)
                 }
             }
         }
@@ -145,7 +160,6 @@ struct PinpointPlayerView: View {
     private var headerView: some View {
         ZStack {
             Text("Spot Yourself in Action")
-                // MODIFIED: Use new font
                 .font(.system(size: 28, weight: .medium, design: .rounded))
                 .foregroundColor(accentColor)
             
@@ -155,7 +169,6 @@ struct PinpointPlayerView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(accentColor)
                         .padding(10)
-                        // MODIFIED: Use new color
                         .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                 }
                 Spacer()
@@ -167,7 +180,7 @@ struct PinpointPlayerView: View {
     }
     
     private var instructionsView: some View {
-        HStack(alignment: .top, spacing: 12) { // MODIFIED: Spacing
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: isFrameConfirmed ? "2.circle.fill" : "1.circle.fill")
                 .font(.title2)
                 .foregroundColor(accentColor)
@@ -175,7 +188,6 @@ struct PinpointPlayerView: View {
             Text(isFrameConfirmed
                 ? "Tap on yourself in the video to mark your position clearly. Then click Continue to proceed."
                 : "Use the timeline below to find a scene where you are fully visible. Then click Confirm Scene.")
-                // MODIFIED: Use new font
                 .font(.system(size: 16, design: .rounded))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,7 +266,6 @@ struct PinpointPlayerView: View {
                 } label: {
                     HStack {
                         Text("Confirm Scene")
-                            // MODIFIED: Use new font
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Image(systemName: "checkmark")
                     }
@@ -264,10 +275,8 @@ struct PinpointPlayerView: View {
                     .background(
                         RoundedRectangle(cornerRadius: 25)
                             .stroke(accentColor, lineWidth: 2)
-                            // MODIFIED: Add background
                             .background(BrandColors.background.clipShape(Capsule()))
                     )
-                    // MODIFIED: Add shadow
                     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                 }
                 .padding(.horizontal)
@@ -280,7 +289,6 @@ struct PinpointPlayerView: View {
                 } label: {
                     HStack {
                         Text("Change Scene")
-                            // MODIFIED: Use new font
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Image(systemName: "arrow.left")
                     }
@@ -293,7 +301,6 @@ struct PinpointPlayerView: View {
             } label: {
                 HStack {
                     Text("Continue")
-                        // MODIFIED: Use new font
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
                     Image(systemName: "arrow.right")
                 }
@@ -302,7 +309,6 @@ struct PinpointPlayerView: View {
                 .padding(.vertical, 14)
                 .background(accentColor)
                 .clipShape(Capsule())
-                // MODIFIED: Add shadow
                 .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
             }
             .padding(.horizontal)

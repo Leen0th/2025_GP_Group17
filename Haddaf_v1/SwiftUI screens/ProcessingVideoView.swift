@@ -6,14 +6,18 @@ struct ProcessingVideoView: View {
     @StateObject private var viewModel: VideoProcessingViewModel
     @Environment(\.dismiss) private var dismiss
 
-    // MODIFIED: Update the inputs for this view
+    // MODIFIED: Add frameWidth and frameHeight
     let videoURL: URL
     let pinpoint: CGPoint
+    let frameWidth: CGFloat
+    let frameHeight: CGFloat
 
     // MODIFIED: Update the initializer
-    init(videoURL: URL, pinpoint: CGPoint) {
+    init(videoURL: URL, pinpoint: CGPoint, frameWidth: CGFloat, frameHeight: CGFloat) {
         self.videoURL = videoURL
         self.pinpoint = pinpoint
+        self.frameWidth = frameWidth
+        self.frameHeight = frameHeight
         _viewModel = StateObject(wrappedValue: VideoProcessingViewModel())
     }
 
@@ -67,7 +71,10 @@ struct ProcessingVideoView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationBarBackButtonHidden(true)
-        .task { await viewModel.processVideo(url: videoURL, pinpoint: pinpoint) }
+        .task {
+            // MODIFIED: Pass frameWidth and frameHeight to processVideo
+            await viewModel.processVideo(url: videoURL, pinpoint: pinpoint, frameWidth: frameWidth, frameHeight: frameHeight)
+        }
         .onAppear { isAnimating = true }
         .onChange(of: viewModel.processingComplete) { _, v in
             if v { navigateToFeedback = true }

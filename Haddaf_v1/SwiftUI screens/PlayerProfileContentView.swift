@@ -921,7 +921,7 @@ struct StatsGridView: View {
 
             // --- 1. Hero Stat (Score) ---
             VStack(spacing: 8) {
-                Text("Overall Score")
+                Text("Performance Score")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundColor(accentColor)
 
@@ -954,7 +954,7 @@ struct StatsGridView: View {
                 Spacer()
                 SystemStatItem(title: "Team", value: userProfile.team)
                 Spacer()
-                SystemStatItem(title: "Rank", value: userProfile.rank)
+                SystemStatItem(title: "Challenge Rank", value: userProfile.rank)
                 Spacer()
                 // Removed Residence from here
             }
