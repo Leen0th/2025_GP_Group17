@@ -347,7 +347,7 @@ struct PerformanceFeedbackView: View {
                         .foregroundColor(title.count > titleLimit ? .red : .secondary)
                 }
 
-                TextField("Enter a short title…", text: $title)
+                TextField("", text: $title)
                     .font(.system(size: 16, design: .rounded))
                     .textInputAutocapitalization(.sentences)
                     .disableAutocorrection(true)

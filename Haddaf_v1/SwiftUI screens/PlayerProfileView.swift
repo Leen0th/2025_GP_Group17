@@ -30,6 +30,7 @@ struct PlayerProfileView: View {
 }
 
 // MARK: - Tab Bar
+// MARK: - Tab Bar
 struct CustomTabBar: View {
     @Binding var selectedTab: Tab
     @Binding var showVideoUpload: Bool
@@ -38,31 +39,44 @@ struct CustomTabBar: View {
     let accentColor = BrandColors.darkTeal
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack { // <-- 1. Remove alignment: .top
+
+            // 2. BACKGROUND: Make it fill the bottom
+            // This VStack is the visual bar.
             VStack(spacing: 0) {
                 // MODIFIED: Subtle divider
                 Divider().background(Color.black.opacity(0.1))
                 
                 // MODIFIED: Use new background color
                 BrandColors.background
-                    .frame(height: 85)
-                    // MODIFIED: Use new shadow spec
-                    .shadow(color: .black.opacity(0.08), radius: 12, y: -5)
+                    // Give it a height *above* the safe area
+                    .frame(height: 80) // <-- NOTE: This is the visible bar height now
             }
+            // MODIFIED: Use new shadow spec, applied to the VStack
+            .shadow(color: .black.opacity(0.08), radius: 12, y: -5)
+            .frame(maxHeight: .infinity, alignment: .bottom) // <-- Align VStack to bottom
+            .ignoresSafeArea() // <-- **** KEY: Make background fill safe area
             
+
+            // 3. BUTTONS: Align to bottom, but add padding for safe area
             HStack {
                 TabButton(tab: .discovery, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .teams, selectedTab: $selectedTab, accentColor: accentColor)
-                // ✅ 3. WIDER SPACER: Increased from 80 to 90 to match new button
-                Spacer().frame(width: 80)
+                // ✅ 3. WIDER SPACER: Increased from 80 to 90
+                Spacer().frame(width: 80) // You had 80, this might need to be 90
                 TabButton(tab: .challenge, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .profile, selectedTab: $selectedTab, accentColor: accentColor)
             }
-            // ✅ 3. LESS PADDING: Reduced from 30 to 20 to give icons space
+            // ✅ 3. LESS PADDING: Reduced from 30 to 20
             .padding(.horizontal, 20)
             .frame(height: 80) // This height is for the buttons themselves
-            .padding(.top, 10) // Increased top padding
+            // .padding(.top, 10) // <-- REMOVE this
+            .frame(maxHeight: .infinity, alignment: .bottom) // <-- Align HStack to bottom
+            // Add padding to keep buttons out of the home indicator area
+            // .padding(.bottom, 5) // <-- Adjust this value as needed
 
+
+            // 4. MIDDLE BUTTON: Align to bottom, then offset
             Button(action: { showVideoUpload = true }) {
                 ZStack {
                     Circle()
@@ -80,9 +94,14 @@ struct CustomTabBar: View {
                 }
             }
             .buttonStyle(.plain)
-             // ✅ 3. ADJUSTED OFFSET: Adjusted for new button/bar size
+            // Align to bottom, *then* offset it up
+            .frame(maxHeight: .infinity, alignment: .bottom)
+             // ✅ 3. ADJUSTED OFFSET: This offset is now relative to the bottom edge
             .offset(y: -35)
+            
         }
+        // Give the whole ZStack a larger, fixed height to contain everything
+        .frame(height: 120)
         // MODIFIED: Add animation for tab scaling
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
     }
