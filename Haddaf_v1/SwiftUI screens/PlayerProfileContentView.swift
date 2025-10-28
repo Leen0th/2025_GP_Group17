@@ -478,7 +478,7 @@ struct EditProfileView: View {
                         withAnimation { self.profileImage = nil; self.selectedPhotoItem = nil }
                     } label: {
                         // MODIFIED: Use new font
-                        Text("Remove")
+                        Text("Remove Picture")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(.red)
                     }

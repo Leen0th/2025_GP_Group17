@@ -145,6 +145,17 @@ enum Tab {
         }
     }
     
+    var selectedImageName: String {
+            switch self {
+            // "magnifyingglass" is already filled, so it stays the same
+            case .discovery: return "magnifyingglass"
+            case .teams: return "person.3.fill"
+            case .action: return ""
+            case .challenge: return "chart.bar.fill"
+            case .profile: return "person.fill"
+            }
+        }
+    
     var title: String {
         switch self {
         case .discovery: return "Discovery"

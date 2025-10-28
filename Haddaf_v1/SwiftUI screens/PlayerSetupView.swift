@@ -214,8 +214,8 @@ struct PlayerSetupView: View {
                         }
                     }
 
-                    // ========= Residence (Mandatory) =========
-                    fieldLabel("Residence", required: true)
+                    // ========= City of Residence (Mandatory) =========
+                    fieldLabel("City of Residence", required: true)
                     buttonLikeField(action: {
                         locationSearch = ""
                         showLocationPicker = true

@@ -95,7 +95,7 @@ struct VideoUploadView: View {
                                 .foregroundColor(accentColor)
                                 .font(.headline)
                                 .padding(.top, 2)
-                            Text("Upload a video of you playing.")
+                            Text("Upload a video of yourself playing football.")
                                 // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
@@ -128,8 +128,17 @@ struct VideoUploadView: View {
                                 .foregroundColor(.orange)
                                 .font(.headline)
                                 .padding(.top, 2)
-                            Text("Upload and pinpoint only videos that feature you personally. Using someone else's video or identity is strictly prohibited.")
-                                // MODIFIED: Use new font
+                            Text("Upload videos that include you as a player. Do not upload someone else’s videos.")
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.headline)
+                                .padding(.top, 2)
+                            Text("When selecting a player in the video, make sure to pinpoint yourself not another person.")
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }

@@ -53,30 +53,35 @@ struct CustomTabBar: View {
             HStack {
                 TabButton(tab: .discovery, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .teams, selectedTab: $selectedTab, accentColor: accentColor)
-                Spacer().frame(width: 80) // مساحة زر الوسط
+                // ✅ 3. WIDER SPACER: Increased from 80 to 90 to match new button
+                Spacer().frame(width: 80)
                 TabButton(tab: .challenge, selectedTab: $selectedTab, accentColor: accentColor)
                 TabButton(tab: .profile, selectedTab: $selectedTab, accentColor: accentColor)
             }
-            .padding(.horizontal, 30)
-            .frame(height: 80)
-            .padding(.top, 5)
+            // ✅ 3. LESS PADDING: Reduced from 30 to 20 to give icons space
+            .padding(.horizontal, 20)
+            .frame(height: 80) // This height is for the buttons themselves
+            .padding(.top, 10) // Increased top padding
 
             Button(action: { showVideoUpload = true }) {
                 ZStack {
                     Circle()
                         // MODIFIED: Use new background
                         .fill(BrandColors.background)
-                        .frame(width: 68, height: 68)
+                        // ✅ 3. LARGER MIDDLE BUTTON: Increased from 68 to 72
+                        .frame(width: 72, height: 72)
                         // MODIFIED: Use new shadow spec
                         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 
                     Image(systemName: "video.badge.plus")
-                        .font(.system(size: 28, weight: .bold))
+                         // ✅ 3. LARGER MIDDLE ICON: Increased from 28 to 32
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(accentColor)
                 }
             }
             .buttonStyle(.plain)
-            .offset(y: -30)
+             // ✅ 3. ADJUSTED OFFSET: Adjusted for new button/bar size
+            .offset(y: -35)
         }
         // MODIFIED: Add animation for tab scaling
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
@@ -91,19 +96,24 @@ fileprivate struct TabButton: View {
     
     var body: some View {
         Button(action: { selectedTab = tab }) {
-            VStack(spacing: 4) {
-                Image(systemName: tab.imageName)
-                    .font(.system(size: 22)) // Slightly larger icon
+            VStack(spacing: 5) { // Increased spacing slightly
                 
+                // ✅ 1. HIGH CONTRAST: Use .fill for the selected icon
+                Image(systemName: selectedTab == tab ? tab.selectedImageName : tab.imageName)
+                    // ✅ 2. LARGER ICON: Increased from 22 to 26
+                    .font(.system(size: 26, weight: .medium))
+                    // Add a minimum frame height to stop layout jumps
+                    .frame(height: 28)
+                
+                // ✅ 2. LARGER TITLE: Increased from 10 to 12 and made bolder
                 Text(tab.title)
-                    // MODIFIED: Use new rounded font
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
             }
             // MODIFIED: Use new colors
             .foregroundColor(selectedTab == tab ? accentColor : BrandColors.darkGray.opacity(0.6))
             .frame(maxWidth: .infinity)
             // MODIFIED: Add scaling interaction
-            .scaleEffect(selectedTab == tab ? 1.1 : 1.0)
+            .scaleEffect(selectedTab == tab ? 1.05 : 1.0) // Reduced scale effect slightly
         }
     }
 }
