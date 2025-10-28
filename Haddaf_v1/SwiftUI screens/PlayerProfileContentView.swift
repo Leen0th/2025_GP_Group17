@@ -9,9 +9,11 @@ extension Notification.Name {
 }
 
 // MARK: - Main Profile Content View
+// MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
     @StateObject private var viewModel = PlayerProfileViewModel()
     @State private var selectedContent: ContentType = .posts
+    @State private var showScoreInfoAlert = false
 
     // MODIFIED: New 3-column grid for posts
     private let postColumns = [
@@ -82,9 +84,10 @@ struct PlayerProfileContentView: View {
 
     var body: some View {
         ZStack {
-            // MODIFIED: Use new gradient background
+            // VIEW 1: The background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
+            // VIEW 2: The ScrollView and ALL its modifiers
             ScrollView {
                 if viewModel.isLoading {
                     ProgressView()
@@ -97,7 +100,7 @@ struct PlayerProfileContentView: View {
                             goToSettings: $goToSettings,
                             showNotifications: $showNotificationsList
                         )
-                        
+                         
                         // MODIFIED: Header now "hugs" the content below
                         // We use a negative spacing to pull the StatsGridView "under" the header
                         ProfileHeaderView(userProfile: viewModel.userProfile)
@@ -105,9 +108,10 @@ struct PlayerProfileContentView: View {
                             .zIndex(1) // <-- Ensures header stays on top
 
                         // MODIFIED: StatsGridView is now the new "Chip" design
-                        StatsGridView(userProfile: viewModel.userProfile)
+                        // --- PASSED BINDING ---
+                        StatsGridView(userProfile: viewModel.userProfile, showScoreInfoAlert: $showScoreInfoAlert)
                             .zIndex(0) // <-- Stays below the header
-                        
+                       
                         ContentTabView(selectedContent: $selectedContent)
 
                         switch selectedContent {
@@ -117,12 +121,12 @@ struct PlayerProfileContentView: View {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundColor(BrandColors.darkTeal) // MODIFIED
                                     .padding(.leading, 12)
-                                
+                           
                                 TextField("Search by title...", text: $searchText)
                                     .font(.system(size: 16, design: .rounded)) // MODIFIED
                                     .tint(BrandColors.darkTeal) // MODIFIED
                                     .submitLabel(.search)
-                                
+                           
                                 if !searchText.isEmpty {
                                     Button {
                                         searchText = ""
@@ -145,40 +149,40 @@ struct PlayerProfileContentView: View {
 
                             postsGrid
                                 .padding(.horizontal) // Add padding to grid
-                            
+                       
                         case .progress:
-                        // --- MODIFIED: Commented out ProgressTabView ---
-                        // ProgressTabView() // <-- Placeholder commented out
-                        EmptyStateView(
-                            imageName: "chart.bar.xaxis",
-                            message: "Your progress analytics will appear here once you start uploading videos."
-                        )
-                        .padding(.top, 40)
-                        // --- END MODIFICATION ---
+                            // --- MODIFIED: Commented out ProgressTabView ---
+                            // ProgressTabView() // <-- Placeholder commented out
+                            EmptyStateView(
+                                imageName: "chart.bar.xaxis",
+                                message: "Your progress analytics will appear here once you start uploading videos."
+                            )
+                            .padding(.top, 40)
+                            // --- END MODIFICATION ---
 
-                    case .endorsements:
-                        EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
-                            .padding(.horizontal)
-                    }
+                        case .endorsements:
+                            EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
+                                .padding(.horizontal)
+                        }
                     }
                     // MODIFIED: Removed top-level padding, applied to children
                     .padding(.bottom, 100)
                 }
             }
-            .task { await viewModel.fetchAllData() }
+            .task { await viewModel.fetchAllData() } // <-- MODIFIER MOVED HERE
             // This watches the userProfile.position. If it changes
             // (like after EditProfileView saves), it will re-run the calculation.
-            .onChange(of: viewModel.userProfile.position) { _, _ in
+            .onChange(of: viewModel.userProfile.position) { _, _ in // <-- MODIFIER MOVED HERE
                 Task {
                     await viewModel.calculateAndUpdateScore()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in
+            .onReceive(NotificationCenter.default.publisher(for: .postDeleted)) { note in // <-- MODIFIER MOVED HERE
                 if let postId = note.userInfo?["postId"] as? String {
                     withAnimation { viewModel.posts.removeAll { $0.id == postId } }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { note in
+            .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { note in // <-- MODIFIER MOVED HERE
                 guard let userInfo = note.userInfo,
                       let postId = userInfo["postId"] as? String else { return }
 
@@ -198,7 +202,7 @@ struct PlayerProfileContentView: View {
                             }
                         }
                     }
-                    
+                     
                     if userInfo["commentAdded"] as? Bool == true {
                         withAnimation {
                             viewModel.posts[index].commentCount += 1
@@ -206,16 +210,23 @@ struct PlayerProfileContentView: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $goToSettings) {
+            .fullScreenCover(isPresented: $goToSettings) { // <-- MODIFIER MOVED HERE
                 NavigationStack { SettingsView(userProfile: viewModel.userProfile) }
             }
-            .fullScreenCover(isPresented: $showNotificationsList) {
+            .fullScreenCover(isPresented: $showNotificationsList) { // <-- MODIFIER MOVED HERE
                 ProfileNotificationsListView()
             }
-            .fullScreenCover(item: $selectedPost) { post in
+            .fullScreenCover(item: $selectedPost) { post in // <-- MODIFIER MOVED HERE
                 NavigationStack { PostDetailView(post: post) }
             }
-        }
+
+            // VIEW 3: The new popup
+            if showScoreInfoAlert {
+                ScoreInfoPopupView(isPresented: $showScoreInfoAlert)
+            }
+            
+        } // <-- End of ZStack
+        .animation(.easeInOut, value: showScoreInfoAlert)
     }
     
     private var postControls: some View {
@@ -310,6 +321,63 @@ struct PlayerProfileContentView: View {
         .refreshable { await viewModel.fetchAllData() }
     }
 }
+
+// MARK: - Score Info Popup
+struct ScoreInfoPopupView: View {
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        ZStack {
+            // 1. Black background
+            Color.black.opacity(0.4).ignoresSafeArea()
+                .onTapGesture { withAnimation { isPresented = false } }
+                .transition(.opacity)
+
+            // 2. Main content VStack
+            VStack(spacing: 20) {
+                // 3. Title
+                Text("Score Calculation")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+
+                // 4. Message
+                Text("""
+                1. Weights assigned by position:
+                
+                   Pos.   Pass   Drib   Shoot
+                   -------------------------
+                   ATK     3      8      10
+                   MID     8      7       6
+                   DEF     9      3       1
+                
+                2. Score calculated for each post.
+                
+                3. Scores averaged & rounded.
+                """)
+                .font(.system(size: 13, design: .monospaced)) // Monospaced for table
+                .multilineTextAlignment(.leading)   // Aligned left
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12) // Give text a bit more room
+
+                // 5. Button
+                Button("OK") { withAnimation { isPresented = false } }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(BrandColors.darkTeal) // Use your accent color
+                    .cornerRadius(12)
+                    .padding(.top, 4)
+            }
+            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
+            .frame(width: 320) // Matches your other popups
+            .background(BrandColors.background)
+            .cornerRadius(20)
+            .shadow(radius: 12)
+            .transition(.scale) // Add the transition
+        }
+    }
+}
+
 
 // MARK: - Edit Profile View
 struct EditProfileView: View {
@@ -892,7 +960,10 @@ struct ProfileHeaderView: View {
 struct StatsGridView: View {
     @ObservedObject var userProfile: UserProfile
     @State private var showContactInfo = false
-
+    
+    // --- ADDED STATE FOR ALERT ---
+    @Binding var showScoreInfoAlert: Bool
+    
     let accentColor = BrandColors.darkTeal
     let goldColor = BrandColors.gold
 
@@ -926,7 +997,7 @@ struct StatsGridView: View {
                 .foregroundColor(BrandColors.darkGray)
                 .multilineTextAlignment(.center) // Ensure value is centered
         }
-         .frame(maxWidth: .infinity) // Allow expansion
+           .frame(maxWidth: .infinity) // Allow expansion
     }
 
     // MARK: - Body (Redesigned & Rearranged)
@@ -935,9 +1006,22 @@ struct StatsGridView: View {
 
             // --- 1. Hero Stat (Score) ---
             VStack(spacing: 8) {
-                Text("Performance Score")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(accentColor)
+                
+                // --- MODIFICATION: Added (i) button ---
+                HStack(spacing: 8) {
+                    Text("Performance Score")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(accentColor)
+                    
+                    Button {
+                        showScoreInfoAlert = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(accentColor)
+                    }
+                }
+                // --- END MODIFICATION ---
 
                 Text(userProfile.score.isEmpty ? "0" : userProfile.score)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
@@ -972,7 +1056,7 @@ struct StatsGridView: View {
                 Spacer()
                 // Removed Residence from here
             }
-             .padding(.horizontal, 20) // Add padding to space out Team/Rank
+               .padding(.horizontal, 20) // Add padding to space out Team/Rank
 
             // --- 4. Contact Info ---
             // (Keep this section as it was)
