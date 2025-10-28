@@ -4,7 +4,6 @@ import AVFoundation
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
-
 @MainActor
 class VideoProcessingViewModel: ObservableObject {
     // UI state
@@ -19,58 +18,78 @@ class VideoProcessingViewModel: ObservableObject {
     @Published var thumbnail: UIImage?
     @Published var videoURL: URL?
     @Published var performanceStats: [PFPostStat] = []
-
+    
+    // 🆕 حالة جديدة لإظهار نافذة الخطأ والاحتفاظ بالخطأ
+    @Published var showingAnalysisFailure = false
+    @Published var lastProcessingError: Error?
+    
+    // 🆕 متغيرات لحفظ البيانات اللازمة لإعادة المحاولة
+    private var lastVideoURL: URL?
+    private var lastPinpoint: CGPoint?
+    private var lastFrameWidth: CGFloat?
+    private var lastFrameHeight: CGFloat?
+    
+    // 🆕 مهمة لتشغيل شريط التقدم يمكن إلغاؤها عند الخطأ
+    private var progressTask: Task<Void, Error>?
     // Firebase
     let db = Firestore.firestore()
     let storage = Storage.storage()
     
     // 🔥 Railway API URL
     private let apiURL = "https://footballanalysis-production.up.railway.app/analyze"
-
     // MARK: - Processing pipeline
     func processVideo(url: URL, pinpoint: CGPoint, frameWidth: CGFloat, frameHeight: CGFloat) async {
         isProcessing = true
-        defer { isProcessing = false }
+        // ⚠️ تم إزالة: defer { isProcessing = false } - يتم الإيقاف يدوياً في النهاية أو عند الفشل
         
-        self.progress = 0.0
+        // 🆕 حفظ المعاملات لإعادة المحاولة
+        self.lastVideoURL = url
+        self.lastPinpoint = pinpoint
+        self.lastFrameWidth = frameWidth
+        self.lastFrameHeight = frameHeight
         
+        // 🆕 إعادة تعيين حالة الخطأ
+        showingAnalysisFailure = false
+        lastProcessingError = nil
+        
+        // إعادة تعيين شريط التقدم فقط إذا كانت بداية جديدة
+        if self.progress == 0.0 || self.progress >= 0.99 {
+            self.progress = 0.0
+        }
         print("🎯 Player pinpointed at (x,y): (\(pinpoint.x), \(pinpoint.y)), frame: \(frameWidth)x\(frameHeight)")
-
         let start = Date()
-
+        // علم لإيقاف الرسوم المتحركة للتقدم عند استجابة الخادم أو حدوث خطأ
+        var shouldContinueProgress = true
+        
         do {
             processingStateMessage = "Accessing video file..."
             self.videoURL = url
-
             // Generate thumbnail
             processingStateMessage = "Generating thumbnail..."
             self.thumbnail = try await generateThumbnail(for: url)
-
             // 🚀 Send video to Railway API with Retry
             processingStateMessage = "Analyzing your performance..."
             
-            // Flag to stop progress animation when server responds
-            var shouldContinueProgress = true
-            
-            // Start progress animation from 0% - reach 99% in ~8 minutes
-            let progressTask = Task {
-                // From 0% to 99% = 99% progress over ~480 seconds
-                // Update every 2 seconds, increment by ~0.4125% each time
-                while shouldContinueProgress && self.progress < 0.99 && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000) // Update every 2 seconds
-                    if shouldContinueProgress {
-                        self.progress = min(self.progress + 0.004125, 0.99) // Increment by ~0.4125%
+            // 🆕 بدء مهمة شريط التقدم
+            if self.progress < 0.99 {
+                progressTask = Task {
+                    // From 0% to 99% = 99% progress over ~480 seconds
+                    // Update every 2 seconds, increment by ~0.4125% each time
+                    while shouldContinueProgress && self.progress < 0.99 && !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000) // Update every 2 seconds
+                        if shouldContinueProgress {
+                            self.progress = min(self.progress + 0.004125, 0.99) // Increment by ~0.4125%
+                        }
                     }
                 }
             }
             
             let actionCounts = try await sendToAPIWithRetry(videoURL: url, pinpoint: pinpoint, frameWidth: frameWidth, frameHeight: frameHeight)
             
-            // Stop progress animation immediately and set to 100%
+            // إيقاف الرسوم المتحركة للتقدم فوراً وتعيينها على 100%
             shouldContinueProgress = false
-            progressTask.cancel()
+            progressTask?.cancel() // 🆕 إلغاء المهمة
             self.progress = 1.0 // 100%
-
             // Convert to performanceStats
             processingStateMessage = "Processing results..."
             self.performanceStats = [
@@ -78,7 +97,6 @@ class VideoProcessingViewModel: ObservableObject {
                 PFPostStat(label: "PASS", value: actionCounts["pass"] ?? 0, maxValue: 50),
                 PFPostStat(label: "SHOOT", value: actionCounts["shoot"] ?? 0, maxValue: 15)
             ]
-
             // Keep spinner visible for smooth UX
             let elapsed = Date().timeIntervalSince(start)
             if elapsed < 3 {
@@ -89,11 +107,40 @@ class VideoProcessingViewModel: ObservableObject {
             processingComplete = true
             
         } catch {
-            processingStateMessage = "Error: \(error.localizedDescription)"
+            // 🛑 معالجة الخطأ: إيقاف التقدم وعرض النافذة المنبثقة
+            shouldContinueProgress = false
+            progressTask?.cancel() // 🆕 إلغاء مهمة التقدم
+            
+            self.lastProcessingError = error
+            self.processingStateMessage = "Analysis failed. Tap Retry."
+            self.showingAnalysisFailure = true // 🆕 تشغيل النافذة المنبثقة
+            
             print("❌ processVideo error: \(error)")
+        }
+        
+        // 🆕 التأكد من إعادة تعيين isProcessing فقط عند الخروج النهائي أو عند الفشل
+        if !showingAnalysisFailure {
+            isProcessing = false
         }
     }
     
+    // 🆕 دالة لإعادة محاولة التحليل
+    func retryAnalysis() async {
+        guard let url = lastVideoURL,
+              let pinpoint = lastPinpoint,
+              let frameWidth = lastFrameWidth,
+              let frameHeight = lastFrameHeight else {
+            self.processingStateMessage = "Error: Missing video data for retry."
+            return
+        }
+        
+        // إعادة تعيين حالة الفشل قبل إعادة المحاولة
+        showingAnalysisFailure = false
+        lastProcessingError = nil
+        
+        // إعادة تشغيل مسار المعالجة الرئيسي
+        await processVideo(url: url, pinpoint: pinpoint, frameWidth: frameWidth, frameHeight: frameHeight)
+    }
     // MARK: - Retry Wrapper
     private func sendToAPIWithRetry(videoURL: URL, pinpoint: CGPoint, frameWidth: CGFloat, frameHeight: CGFloat, maxRetries: Int = 3) async throws -> [String: Int] {
         var lastError: Error?
@@ -271,7 +318,6 @@ class VideoProcessingViewModel: ObservableObject {
             throw error
         }
     }
-
     // MARK: - Create post
     func createPost(title: String, isPrivate: Bool, matchDate: Date?) async throws {
         self.isUploading = true
@@ -287,11 +333,9 @@ class VideoProcessingViewModel: ObservableObject {
         }
         
         self.uploadProgress = 0.1
-
         let postID = UUID().uuidString
         let (videoDL, thumbDL) = try await uploadFiles(videoURL: localVideoURL, thumbnail: thumb, userID: uid, postID: postID)
         self.uploadProgress = 0.6
-
         let userRef = db.collection("users").document(uid)
         let userDoc = try await userRef.getDocument()
         let data = userDoc.data() ?? [:]
@@ -300,7 +344,6 @@ class VideoProcessingViewModel: ObservableObject {
         let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
         let profilePic = (data["profilePic"] as? String) ?? ""
         self.uploadProgress = 0.7
-
         // --- Create the performanceFeedback data array ---
         // This format matches what PlayerProfileViewModel expects (Array of Dictionaries)
         let performanceFeedbackData = self.performanceStats.map { stat -> [String: Any] in
@@ -310,7 +353,6 @@ class VideoProcessingViewModel: ObservableObject {
                 "maxValue": stat.maxValue  // This is an Int from PFPostStat
             ]
         }
-
         let postRef = db.collection("videoPosts").document(postID)
         var postData: [String: Any] = [
             "authorId": userRef,
@@ -334,13 +376,11 @@ class VideoProcessingViewModel: ObservableObject {
         
         try await postRef.setData(postData)
         self.uploadProgress = 0.9
-
         // --- Add maxValue to the PostStat initializer ---
         let postStats = self.performanceStats.map { s in
             // Create the PostStat model (for the notification) using all required fields
             PostStat(label: s.label, value: Double(s.value), maxValue: Double(s.maxValue))
         }
-
         let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
         
         let newPost = Post(
@@ -364,7 +404,7 @@ class VideoProcessingViewModel: ObservableObject {
         self.uploadProgress = 1.0
         self.isUploading = false
     }
-
+    // 🆕 إعادة تعيين شاملة لحالات المعالجة وإعادة المحاولة
     func resetAfterPosting() {
         processingComplete = false
         videoURL = nil
@@ -374,8 +414,15 @@ class VideoProcessingViewModel: ObservableObject {
         self.progress = 0.0
         self.isUploading = false
         self.uploadProgress = 0.0
+        
+        // 🆕 إعادة تعيين متغيرات إعادة المحاولة
+        lastVideoURL = nil
+        lastPinpoint = nil
+        lastFrameWidth = nil
+        lastFrameHeight = nil
+        showingAnalysisFailure = false
+        lastProcessingError = nil
     }
-
     // MARK: - Private helpers
     private func generateThumbnail(for url: URL) async throws -> UIImage {
         let asset = AVAsset(url: url)
@@ -385,16 +432,13 @@ class VideoProcessingViewModel: ObservableObject {
         let cgimg = try await gen.image(at: time).image
         return UIImage(cgImage: cgimg)
     }
-
     private func uploadFiles(videoURL: URL, thumbnail: UIImage, userID: String, postID: String) async throws -> (videoURL: URL, thumbnailURL: URL) {
         let videoRef = storage.reference().child("posts/\(userID)/\(postID).mov")
         let thumbRef = storage.reference().child("posts/\(userID)/\(postID)_thumb.jpg")
-
         let metaVideo = StorageMetadata()
         metaVideo.contentType = "video/mp4"
         let metaThumb = StorageMetadata()
         metaThumb.contentType = "image/jpeg"
-
         func retry<T>(_ task: @escaping () async throws -> T) async throws -> T {
             var attempt = 0
             while true {
@@ -412,21 +456,16 @@ class VideoProcessingViewModel: ObservableObject {
                 }
             }
         }
-
         let videoData = try Data(contentsOf: videoURL)
         try await retry { _ = try await videoRef.putDataAsync(videoData, metadata: metaVideo) }
-
         try await Task.sleep(nanoseconds: 500_000_000)
         let videoDownloadURL = try await retry { try await videoRef.downloadURL() }
-
         guard let thumbData = thumbnail.jpegData(compressionQuality: 0.8) else {
             throw NSError(domain: "Upload", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not compress thumbnail."])
         }
         try await retry { _ = try await thumbRef.putDataAsync(thumbData, metadata: metaThumb) }
-
         try await Task.sleep(nanoseconds: 500_000_000)
         let thumbDownloadURL = try await retry { try await thumbRef.downloadURL() }
-
         return (videoDownloadURL, thumbDownloadURL)
     }
 }
