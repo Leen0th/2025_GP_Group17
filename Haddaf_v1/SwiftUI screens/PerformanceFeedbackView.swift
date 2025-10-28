@@ -145,71 +145,78 @@ struct PerformanceFeedbackView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
-                    header
-                    videoSection
-                    statsSection
-                    titleVisibilitySection // This section is now fixed
-                    dateRowSection
-                    Spacer().frame(height: 100)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 100)
-            }
-            .background(BrandColors.backgroundGradientEnd)
-            .navigationBarBackButtonHidden(true)
-            .navigationTitle("")
-            .onChange(of: viewModel.videoURL) { _, newURL in
-                configurePlayer(with: newURL)
-            }
-            .onAppear { configurePlayer(with: viewModel.videoURL) }
-            .onDisappear { teardownPlayer() }
-
-            postButton
-        }
-        .disabled(viewModel.isUploading)
-        .overlay(
-            ZStack {
-                if viewModel.isUploading {
-                    Color.black.opacity(0.4).ignoresSafeArea()
-                    
-                    VStack(spacing: 20) {
-                        customSpinner
-                            .onAppear { isAnimating = true }
-                            .onDisappear { isAnimating = false }
+        // --- MODIFIED: Removed progress bar from here ---
+        VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        header
                         
-                        Text("Posting...")
-                            .font(.system(size: 18, weight: .medium, design: .rounded))
+                        // --- MODIFIED: Timeline moved here ---
+                        MultiStepProgressBar(currentStep: .feedback)
                         
-                        ProgressView(value: viewModel.uploadProgress)
-                            .progressViewStyle(LinearProgressViewStyle(tint: primary))
-                            .animation(.linear, value: viewModel.uploadProgress)
-                            .padding(.horizontal, 20)
-                        
-                        Text(String(format: "%.0f%%", viewModel.uploadProgress * 100))
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(primary)
-                            .animation(nil, value: viewModel.uploadProgress)
+                        videoSection
+                        statsSection
+                        titleVisibilitySection // This section is now fixed
+                        dateRowSection
+                        Spacer().frame(height: 100)
                     }
-                    .padding(30)
-                    .background(BrandColors.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
-                    .padding(.horizontal, 40)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    .padding(.horizontal)
+                    .padding(.bottom, 100)
                 }
+                .background(BrandColors.backgroundGradientEnd)
+                .navigationBarBackButtonHidden(true)
+                .navigationTitle("")
+                .onChange(of: viewModel.videoURL) { _, newURL in
+                    configurePlayer(with: newURL)
+                }
+                .onAppear { configurePlayer(with: viewModel.videoURL) }
+                .onDisappear { teardownPlayer() }
+
+                postButton
             }
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isUploading)
-        )
-        .alert("Discard Video?", isPresented: $showExitWarning) {
+            .disabled(viewModel.isUploading)
+            .overlay(
+                ZStack {
+                    if viewModel.isUploading {
+                        Color.black.opacity(0.4).ignoresSafeArea()
+                        
+                        VStack(spacing: 20) {
+                            customSpinner
+                                .onAppear { isAnimating = true }
+                                .onDisappear { isAnimating = false }
+                            
+                            Text("Posting...")
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                            
+                            ProgressView(value: viewModel.uploadProgress)
+                                .progressViewStyle(LinearProgressViewStyle(tint: primary))
+                                .animation(.linear, value: viewModel.uploadProgress)
+                                .padding(.horizontal, 20)
+                            
+                            Text(String(format: "%.0f%%", viewModel.uploadProgress * 100))
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(primary)
+                                .animation(nil, value: viewModel.uploadProgress)
+                        }
+                        .padding(30)
+                        .background(BrandColors.background)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+                        .padding(.horizontal, 40)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isUploading)
+            )
+        }
+        .alert("Discard Video", isPresented: $showExitWarning) {
             Button("Discard", role: .destructive) {
                 cancelAndDismiss()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("Your video and performance analysis will be discarded.")
+            Text("Are you sure you want to discard your video and performance analysis?")
         }
         .alert("Error", isPresented: .constant(postingError != nil)) {
             Button("OK") { postingError = nil }

@@ -86,8 +86,12 @@ struct VideoUploadView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 20)
-                    .padding(.bottom, 50)
-
+                    .padding(.bottom, 20) // Reduced bottom padding
+                    
+                    // --- MODIFIED: Timeline added here ---
+                    MultiStepProgressBar(currentStep: .upload)
+                        .padding(.bottom, 30) // Add spacing after timeline
+                    
                     // --- ADDED GUIDELINES ---
                     VStack(alignment: .leading, spacing: 16) {
                         HStack(alignment: .top, spacing: 12) {
@@ -193,6 +197,10 @@ struct VideoUploadView: View {
                         RoundedRectangle(cornerRadius: 20)
                             .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [10]))
                             .foregroundColor(accentColor.opacity(0.4))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(accentColor, lineWidth: 3)
                     )
                     .cornerRadius(20)
                     .padding(.horizontal)

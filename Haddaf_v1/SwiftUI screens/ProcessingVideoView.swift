@@ -54,7 +54,7 @@ struct ProcessingVideoView: View {
                     .opacity(viewModel.isProcessing || viewModel.progress > 0.0 ? 1 : 0)
                     .animation(.linear, value: viewModel.progress)
                 Text(String(format: "%.0f%%", viewModel.progress * 100))
-                    .font(.system(size: 14, design: .rounded))
+                    .font(.system(size: 20, design: .rounded))
                     .foregroundColor(accentColor)
                     .animation(nil, value: viewModel.progress)
             }

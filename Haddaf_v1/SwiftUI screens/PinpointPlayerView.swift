@@ -98,6 +98,9 @@ struct PinpointPlayerView: View {
     @State private var frameWidth: CGFloat = 1920 // Fallback
     @State private var frameHeight: CGFloat = 1080 // Fallback
     
+    // The view now starts at .selectScene, which shows .upload as complete
+    @State private var step: UploadStep = .selectScene
+    
     // MODIFIED: Use new BrandColors
     private let accentColor = BrandColors.darkTeal
     
@@ -110,7 +113,15 @@ struct PinpointPlayerView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                headerView
+                
+                // --- MODIFIED: headerView removed ---
+                
+                // This now correctly shows step 1 (Upload) as complete
+                // and step 2 (Scene) as current.
+                // --- We add padding to give it space from the top ---
+                MultiStepProgressBar(currentStep: step)
+                    .padding(.top, 20)
+                
                 instructionsView
                 
                 videoPlayerWithOverlay
@@ -127,7 +138,7 @@ struct PinpointPlayerView: View {
                 Spacer()
                 footerButtons
             }
-            .background(BrandColors.backgroundGradientEnd)
+            .background(BrandColors.backgroundGradientEnd.ignoresSafeArea()) // Apply background to VStack
             .navigationBarBackButtonHidden(true)
             .navigationTitle("")
             .onAppear {
@@ -157,42 +168,19 @@ struct PinpointPlayerView: View {
     
     // MARK: - Subviews
     
-    private var headerView: some View {
-        ZStack {
-            Text("Spot Yourself in Action")
-                .font(.system(size: 28, weight: .medium, design: .rounded))
-                .foregroundColor(accentColor)
-            
-            HStack {
-                Button { isPresented = false } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(accentColor)
-                        .padding(10)
-                        .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
-                }
-                Spacer()
-            }
-        }
-        .padding(.horizontal)
-        .padding(.top, 20)
-        .padding(.bottom, 30)
-    }
+    // --- MODIFIED: headerView removed ---
     
     private var instructionsView: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: isFrameConfirmed ? "2.circle.fill" : "1.circle.fill")
-                .font(.title2)
-                .foregroundColor(accentColor)
-            
             Text(isFrameConfirmed
                 ? "Tap on yourself in the video to mark your position clearly. Then click Continue to proceed."
-                : "Use the timeline below to find a scene where you are fully visible. Then click Confirm Scene.")
+                : "Use the timeline below to find a scene where you are fully visible. Then click Continue to proceed.")
                 .font(.system(size: 16, design: .rounded))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal)
+        .padding(.top, 20)
         .padding(.bottom, 20)
         .animation(.easeInOut, value: isFrameConfirmed)
     }
@@ -255,66 +243,101 @@ struct PinpointPlayerView: View {
         .padding(.vertical, 8)
     }
     
+    // --- MODIFIED: Button layout updated for consistency ---
     private var footerButtons: some View {
         VStack(spacing: 15) {
             if !isFrameConfirmed {
-                Button {
-                    withAnimation {
-                        isFrameConfirmed = true
-                        viewModel.player.pause()
+                // --- STEP 2: SELECT SCENE ---
+                HStack(spacing: 12) {
+                    // Back Button (goes back to Upload screen)
+                    Button {
+                        isPresented = false
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.left")
+                            Text("Back")
+                        }
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 24)
+                        .background(
+                            Capsule()
+                                .fill(BrandColors.lightGray.opacity(0.7))
+                        )
                     }
-                } label: {
-                    HStack {
-                        Text("Confirm Scene")
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        Image(systemName: "checkmark")
+                    
+                    // Continue Button (goes to Pinpoint step)
+                    Button {
+                        withAnimation {
+                            isFrameConfirmed = true
+                            viewModel.player.pause()
+                            step = .pinpoint // Update step
+                        }
+                    } label: {
+                        HStack {
+                            Text("Continue")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .clipShape(Capsule())
+                        .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
                     }
-                    .foregroundColor(accentColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 25)
-                            .stroke(accentColor, lineWidth: 2)
-                            .background(BrandColors.background.clipShape(Capsule()))
-                    )
-                    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
                 }
                 .padding(.horizontal)
+
             } else {
-                Button {
-                    withAnimation {
-                        isFrameConfirmed = false
-                        selectedPoint = nil
-                    }
-                } label: {
-                    HStack {
-                        Text("Change Scene")
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        Image(systemName: "arrow.left")
-                    }
-                    .foregroundColor(.secondary)
-                }
-            }
-            
-            Button {
-                navigateToProcessing = true
-            } label: {
-                HStack {
-                    Text("Continue")
+                // --- STEP 3: PINPOINT ---
+                HStack(spacing: 12) {
+                    // Back Button (goes back to Select Scene step)
+                    Button {
+                        withAnimation {
+                            isFrameConfirmed = false
+                            selectedPoint = nil
+                            step = .selectScene // Revert step
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.left")
+                            Text("Back") // CHANGED from "Change Scene"
+                        }
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    Image(systemName: "arrow.right")
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 24)
+                        .background(
+                            Capsule()
+                                .fill(BrandColors.lightGray.opacity(0.7))
+                        )
+                    }
+                    
+                    // Continue Button (goes to Processing screen)
+                    Button {
+                        navigateToProcessing = true
+                    } label: {
+                        HStack {
+                            Text("Continue")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .clipShape(Capsule())
+                        .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
+                    }
+                    .disabled(selectedPoint == nil)
+                    .opacity(selectedPoint == nil ? 0.6 : 1.0)
                 }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(accentColor)
-                .clipShape(Capsule())
-                .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
-            .disabled(selectedPoint == nil)
-            .opacity(selectedPoint == nil ? 0.6 : 1.0)
         }
         .padding(.bottom, 24)
+        .background(BrandColors.backgroundGradientEnd) // Ensure background covers this area
     }
 }
