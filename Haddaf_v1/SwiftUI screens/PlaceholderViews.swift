@@ -3,19 +3,6 @@ import PhotosUI
 import AVKit
 
 // MARK: - Placeholder Tab Screens
-struct DiscoveryView: View {
-    var body: some View {
-        ZStack {
-            // MODIFIED: Use new background
-            BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            Text("Discovery Page")
-                // MODIFIED: Use new font
-                .font(.system(size: 32, design: .rounded))
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
 struct TeamsView: View {
     var body: some View {
         ZStack {

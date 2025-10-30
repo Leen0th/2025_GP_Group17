@@ -111,6 +111,7 @@ struct Comment: Identifiable {
 
 // MODIFIED: Post struct updated for Firebase data and made Equatable
 struct Post: Identifiable, Equatable {
+    var authorUid: String?
     var id: String? // Firestore Document ID
     var imageName: String // Thumbnail URL
     var videoURL: String?

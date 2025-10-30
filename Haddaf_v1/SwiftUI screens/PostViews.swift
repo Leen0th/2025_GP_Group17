@@ -1,3 +1,12 @@
+//
+//  PostViews.swift
+//  Haddaf_v1
+//
+//  Created by Leen Thamer on 30/10/2025.
+//
+//  --- FULLY FIXED FILE ---
+//
+
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -22,14 +31,25 @@ struct PostDetailView: View {
     
     // Back to 15
     private let captionLimit = 15
+    
+    // Get the current user's ID
+    private var currentUserID: String? {
+        Auth.auth().currentUser?.uid
+    }
+    
+    // Check if the current user is the author
+    private var isOwner: Bool {
+        // This works because we added 'authorUid' to the Post model
+        post.authorUid == currentUserID
+    }
 
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
-            // --- MODIFICATION: Reverted to simple ScrollView ---
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // --- FIX: This header now correctly hides the trash icon ---
                     header
                     
                     if let videoStr = post.videoURL, let url = URL(string: videoStr) {
@@ -40,10 +60,10 @@ struct PostDetailView: View {
                     } else {
                         VideoPlayerPlaceholderView(post: post)
                     }
-
+                    
+                    // --- FIX: This section now correctly hides edit/privacy buttons ---
                     captionAndMetadata
                     
-                    // --- MODIFICATION: Moved back to its original position ---
                     authorInfoAndInteractions
                     
                     Divider()
@@ -52,8 +72,10 @@ struct PostDetailView: View {
                 .padding(.horizontal)
             }
             .navigationBarBackButtonHidden(true)
-            .disabled(isDeleting || isSavingCaption) // Moved modifier back here
-
+            .disabled(isDeleting || isSavingCaption)
+            
+            // --- FIX: REMOVED THE DUPLICATE .toolbar MODIFIER ---
+            // (The .toolbar I gave you before was here, it is now GONE)
             
             // --- Popups remain on top ---
             if showPrivacyAlert {
@@ -123,13 +145,18 @@ struct PostDetailView: View {
                         .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                 }
                 Spacer()
-                Button { showDeleteConfirmation = true } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.red)
-                        .padding(10)
-                        .background(Circle().fill(Color.red.opacity(0.1)))
+                
+                // --- FIX: This button is now conditional ---
+                if isOwner {
+                    Button { showDeleteConfirmation = true } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.red)
+                            .padding(10)
+                            .background(Circle().fill(Color.red.opacity(0.1)))
+                    }
                 }
+                // --- END FIX ---
             }
         }
         .padding(.bottom, 8)
@@ -231,24 +258,26 @@ struct PostDetailView: View {
                         .foregroundColor(BrandColors.darkGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     
-                    Button {
-                        editedCaption = post.caption
-                        withAnimation { isEditingCaption = true }
-                    } label: {
-                        Image(systemName: "pencil.line")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(8)
-                            .background(BrandColors.lightGray)
-                            .clipShape(Circle())
+                    // --- FIX: This button is now conditional ---
+                    if isOwner {
+                        Button {
+                            editedCaption = post.caption
+                            withAnimation { isEditingCaption = true }
+                        } label: {
+                            Image(systemName: "pencil.line")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(8)
+                                .background(BrandColors.lightGray)
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    // --- END FIX ---
                 }
             }
 
             // --- METADATA SECTION ---
-            
-            // --- MODIFICATION: Removed "!isEditingCaption" so it's always visible ---
             if let matchDate = post.matchDate {
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
@@ -266,13 +295,18 @@ struct PostDetailView: View {
                 }
                 
                 Spacer()
-                Button(action: { showPrivacyAlert = true }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
-                        Text(post.isPrivate ? "Private" : "Public")
+                
+                // --- FIX: This button is now conditional ---
+                if isOwner {
+                    Button(action: { showPrivacyAlert = true }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
+                            Text(post.isPrivate ? "Private" : "Public")
+                        }
+                        .foregroundColor(post.isPrivate ? .red : accentColor)
                     }
-                    .foregroundColor(post.isPrivate ? .red : accentColor)
                 }
+                // --- END FIX ---
             }
             .font(.system(size: 12, design: .rounded))
             .foregroundColor(.secondary)
@@ -444,9 +478,15 @@ struct CommentsView: View {
             // --- Scrollable Comments List ---
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    if viewModel.comments.isEmpty {
+                    if viewModel.isLoading {
                         ProgressView()
                             .tint(accentColor)
+                            .padding(.top, 40)
+                            .frame(maxWidth: .infinity)
+                    } else if viewModel.comments.isEmpty {
+                         Text("No comments yet. Be the first!")
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(.secondary)
                             .padding(.top, 40)
                             .frame(maxWidth: .infinity)
                     } else {
@@ -457,16 +497,15 @@ struct CommentsView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onAppear {
-                    print("CommentsView appeared for post: \(postId). Fetching comments.")
-                    viewModel.fetchComments(for: postId)
-                }
-                .onDisappear {
-                    print("CommentsView disappeared. Stopping listener.")
-                    viewModel.stopListening()
-                }
             }
             .background(BrandColors.backgroundGradientEnd)
+            // --- FIX: Use .onAppear for fetching ---
+            .onAppear {
+                viewModel.fetchComments(for: postId)
+            }
+            .onDisappear {
+                viewModel.stopListening()
+            }
 
             // --- Comment Input Area ---
             HStack(spacing: 12) {
@@ -485,9 +524,6 @@ struct CommentsView: View {
             .padding()
             .background(BrandColors.background)
         }
-        .onDisappear {
-             viewModel.stopListening()
-        }
     }
 
     private func addComment() {
@@ -501,26 +537,46 @@ struct CommentsView: View {
     }
 }
 
-@MainActor
 final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
+    @Published var isLoading = true
+    
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
+    
+    // --- FIX: Add a lock to protect the listener ---
+    private let lock = NSLock()
+
+    deinit {
+        stopListening()
+    }
 
     func fetchComments(for postId: String) {
-        stopListening()
+        lock.lock() // --- FIX: Lock
+        guard listener == nil else {
+            lock.unlock() // --- FIX: Unlock if we return early
+            return
+        }
+        lock.unlock() // --- FIX: Unlock
+        
+        // This @Published property update will automatically dispatch to the main queue
+        isLoading = true
+        
         let ref = db.collection("videoPosts").document(postId).collection("comments").order(by: "createdAt", descending: false)
-        listener = ref.addSnapshotListener { [weak self] snap, error in
+        
+        // Firestore's listener defaults to calling back on the main thread,
+        // so we don't need to manually dispatch 'comments' or 'isLoading' updates.
+        let newListener = ref.addSnapshotListener { [weak self] snap, error in
             guard let self, let docs = snap?.documents else {
                 print("Error fetching comments: \(error?.localizedDescription ?? "Unknown error")")
+                self?.isLoading = false
                 return
             }
-            print("Listener fired: Fetched \(docs.count) comment documents.")
+            
             let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
             self.comments = docs.compactMap { doc in
                 let d = doc.data()
                 guard let timestamp = d["createdAt"] as? Timestamp else {
-                    print("Skipping comment, createdAt is not a Timestamp: \(d)")
                     return nil
                 }
                 return Comment(
@@ -530,10 +586,22 @@ final class CommentsViewModel: ObservableObject {
                     timestamp: df.string(from: timestamp.dateValue())
                 )
             }
-            print("Listener fired: Mapped \(self.comments.count) comments.")
+            self.isLoading = false
         }
+        
+        lock.lock() // --- FIX: Lock
+        self.listener = newListener // Save the listener
+        lock.unlock() // --- FIX: Unlock
     }
-    func stopListening() { listener?.remove(); listener = nil }
+    
+    // --- FIX: This function is now non-isolated and thread-safe ---
+    func stopListening() {
+        lock.lock() // --- FIX: Lock
+        listener?.remove()
+        listener = nil
+        lock.unlock() // --- FIX: Unlock
+        print("Comments listener stopped.")
+    }
 
     func addComment(text: String, for postId: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -555,32 +623,22 @@ final class CommentsViewModel: ObservableObject {
                 "createdAt": FieldValue.serverTimestamp()
             ]
 
-            let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
-            let localTimestamp = df.string(from: Date())
-            let optimisticComment = Comment(
-                username: username.isEmpty ? "Unknown" : username,
-                userImage: userImage,
-                text: trimmed,
-                timestamp: localTimestamp
-            )
+            // 3. Write to Firestore & Increment Count in a batch
+            let postRef = db.collection("videoPosts").document(postId)
+            let commentRef = postRef.collection("comments").document()
+            
+            let batch = db.batch()
+            batch.setData(commentData, forDocument: commentRef)
+            batch.updateData(["commentCount": FieldValue.increment(Int64(1))], forDocument: postRef)
+            try await batch.commit()
 
-            // 3. Write to Firestore
-            let newCommentRef = db.collection("videoPosts").document(postId).collection("comments").document()
-            try await newCommentRef.setData(commentData)
-            print("Successfully wrote comment to Firestore.")
-
-            // 4. Optimistic UI Update
-            self.comments.append(optimisticComment)
-            print("Optimistically added comment to UI.")
-
-            // 5. Increment Count
-            try await db.collection("videoPosts").document(postId).updateData(["commentCount": FieldValue.increment(Int64(1))])
-
-            // 6. Post Notification
+            // 4. Post Notification
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
                 "postId": postId,
                 "commentAdded": true
             ])
+            
+            // Note: No optimistic UI update needed, listener will catch it
 
         } catch {
             print("Failed to add comment: \(error)")
