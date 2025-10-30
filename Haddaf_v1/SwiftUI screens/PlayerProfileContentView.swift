@@ -1,3 +1,11 @@
+//
+//  PlayerProfileContentView.swift
+//  Haddaf_v1
+//
+//  Created by Leen Thamer on 30/10/2025.
+//
+//
+
 import SwiftUI
 import PhotosUI
 import FirebaseFirestore
@@ -11,7 +19,10 @@ extension Notification.Name {
 // MARK: - Main Profile Content View
 // MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
-    @StateObject private var viewModel = PlayerProfileViewModel()
+    // --- MODIFIED: ViewModel is now injected ---
+    @StateObject private var viewModel: PlayerProfileViewModel
+    // --- END MODIFICATION ---
+    
     @State private var selectedContent: ContentType = .posts
     @State private var showScoreInfoAlert = false
 
@@ -28,6 +39,10 @@ struct PlayerProfileContentView: View {
     @State private var goToSettings = false
     
     @State private var showNotificationsList = false
+    
+    // --- MODIFIED: Added flag to track if this is the current user's profile ---
+    private var isCurrentUser: Bool
+    // --- END MODIFICATION ---
     
     enum PostFilter: String, CaseIterable {
         case all = "All"
@@ -47,6 +62,22 @@ struct PlayerProfileContentView: View {
     
     @State private var searchText = ""
 
+    // --- MODIFIED: Added two initializers ---
+    init() {
+        // This init is for the Tab Bar (current user)
+        _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: nil)) // nil = current user
+        self.isCurrentUser = true
+    }
+    
+    init(userID: String) {
+        // This init is for viewing another user's profile
+        _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: userID))
+        // Check if the provided ID is the same as the current user's ID
+        self.isCurrentUser = (userID == Auth.auth().currentUser?.uid)
+    }
+    // --- END MODIFICATION ---
+
+
     private var filteredAndSortedPosts: [Post] {
         let searched: [Post]
         if searchText.isEmpty {
@@ -55,12 +86,19 @@ struct PlayerProfileContentView: View {
             searched = viewModel.posts.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
         }
 
+        // --- MODIFIED: Filter logic now depends on isCurrentUser ---
         let filtered: [Post]
-        switch postFilter {
-        case .all: filtered = searched
-        case .public: filtered = searched.filter { !$0.isPrivate }
-        case .private: filtered = searched.filter { $0.isPrivate }
+        if isCurrentUser {
+            switch postFilter {
+            case .all: filtered = searched
+            case .public: filtered = searched.filter { !$0.isPrivate }
+            case .private: filtered = searched.filter { $0.isPrivate }
+            }
+        } else {
+            // If viewing a public profile, only show public posts
+            filtered = searched.filter { !$0.isPrivate }
         }
+        // --- END MODIFICATION ---
 
         switch postSort {
         case .newestFirst:
@@ -95,11 +133,14 @@ struct PlayerProfileContentView: View {
                         .tint(BrandColors.darkTeal) // MODIFIED: Tint
                 } else {
                     VStack(spacing: 24) {
+                        // --- MODIFIED: Pass isCurrentUser to TopNavigationBar ---
                         TopNavigationBar(
                             userProfile: viewModel.userProfile,
                             goToSettings: $goToSettings,
-                            showNotifications: $showNotificationsList
+                            showNotifications: $showNotificationsList,
+                            isCurrentUser: isCurrentUser
                         )
+                        // --- END MODIFICATION ---
                          
                         // MODIFIED: Header now "hugs" the content below
                         // We use a negative spacing to pull the StatsGridView "under" the header
@@ -112,40 +153,46 @@ struct PlayerProfileContentView: View {
                         StatsGridView(userProfile: viewModel.userProfile, showScoreInfoAlert: $showScoreInfoAlert)
                             .zIndex(0) // <-- Stays below the header
                        
-                        ContentTabView(selectedContent: $selectedContent)
+                        // --- MODIFIED: Pass isCurrentUser to ContentTabView ---
+                        ContentTabView(selectedContent: $selectedContent, isCurrentUser: isCurrentUser)
+                        // --- END MODIFICATION ---
 
                         switch selectedContent {
                         case .posts:
-                            // MODIFIED: New search bar style
-                            HStack(spacing: 8) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundColor(BrandColors.darkTeal) // MODIFIED
-                                    .padding(.leading, 12)
-                           
-                                TextField("Search by title...", text: $searchText)
-                                    .font(.system(size: 16, design: .rounded)) // MODIFIED
-                                    .tint(BrandColors.darkTeal) // MODIFIED
-                                    .submitLabel(.search)
-                           
-                                if !searchText.isEmpty {
-                                    Button {
-                                        searchText = ""
-                                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(.secondary)
+                            // --- MODIFIED: Conditionally show search and filter controls ---
+                            if isCurrentUser {
+                                // MODIFIED: New search bar style
+                                HStack(spacing: 8) {
+                                    Image(systemName: "magnifyingglass")
+                                        .foregroundColor(BrandColors.darkTeal) // MODIFIED
+                                        .padding(.leading, 12)
+                               
+                                    TextField("Search by title...", text: $searchText)
+                                        .font(.system(size: 16, design: .rounded)) // MODIFIED
+                                        .tint(BrandColors.darkTeal) // MODIFIED
+                                        .submitLabel(.search)
+                               
+                                    if !searchText.isEmpty {
+                                        Button {
+                                            searchText = ""
+                                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.trailing, 8)
                                     }
-                                    .padding(.trailing, 8)
                                 }
-                            }
-                            .padding(.vertical, 12)
-                            .background(BrandColors.lightGray.opacity(0.7)) // MODIFIED
-                            .clipShape(Capsule())
-                            .padding(.horizontal) // Add padding to the search bar
-                            // --- END: Search Bar ---
+                                .padding(.vertical, 12)
+                                .background(BrandColors.lightGray.opacity(0.7)) // MODIFIED
+                                .clipShape(Capsule())
+                                .padding(.horizontal) // Add padding to the search bar
+                                // --- END: Search Bar ---
 
-                            postControls
-                                .padding(.horizontal) // Add padding to controls
+                                postControls
+                                    .padding(.horizontal) // Add padding to controls
+                            }
+                            // --- END MODIFICATION ---
 
                             postsGrid
                                 .padding(.horizontal) // Add padding to grid
@@ -774,15 +821,19 @@ struct EditProfileView: View {
             try await db.collection("users").document(uid).setData(userUpdates, merge: true)
             
             // MARK: --- Sub-doc /users/{uid}/player/profile Updates ---
+            
+            // --- ⭐️⭐️⭐️ THE FIX ⭐️⭐️⭐️ ---
+            // Changed "Residence" to "location" to match the read keys.
             let profileUpdates: [String: Any] = [
                 "position": position,
                 "weight": Int(weight) ?? 0,
                 "height": Int(height) ?? 0,
-                "Residence": location,
+                "location": location, // <-- WAS "Residence"
                 "isEmailVisible": isEmailVisible,
                 "contactVisibility": isPhoneNumberVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
+            // --- ⭐️⭐️⭐️ END FIX ⭐️⭐️⭐️ ---
             
             try await db.collection("users").document(uid)
                 .collection("player").document("profile")
@@ -907,30 +958,38 @@ struct TopNavigationBar: View {
     @ObservedObject var userProfile: UserProfile
     @Binding var goToSettings: Bool
     @Binding var showNotifications: Bool
+    
+    // --- MODIFIED: Added isCurrentUser flag ---
+    var isCurrentUser: Bool
+    // --- END MODIFICATION ---
 
     var body: some View {
         HStack(spacing: 16) {
             Spacer()
             
-            Button { showNotifications = true } label: {
-                Image(systemName: "bell")
-                    .font(.title2)
-                    // MODIFIED: Use new color
-                    .foregroundColor(BrandColors.darkTeal)
-                    .padding(8)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
+            // --- MODIFIED: Conditionally show buttons ---
+            if isCurrentUser {
+                Button { showNotifications = true } label: {
+                    Image(systemName: "bell")
+                        .font(.title2)
+                        // MODIFIED: Use new color
+                        .foregroundColor(BrandColors.darkTeal)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
 
-            Button { goToSettings = true } label: {
-                Image(systemName: "gearshape")
-                    .font(.title2)
-                    // MODIFIED: Use new color
-                    .foregroundColor(BrandColors.darkTeal)
-                    .padding(8)
+                Button { goToSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.title2)
+                        // MODIFIED: Use new color
+                        .foregroundColor(BrandColors.darkTeal)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
+            // --- END MODIFICATION ---
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)
@@ -1117,12 +1176,18 @@ struct ContentTabView: View {
     
     // MODIFIED: Use new color
     let accentColor = BrandColors.darkTeal
+    
+    // --- MODIFIED: Added isCurrentUser flag ---
+    var isCurrentUser: Bool
+    // --- END MODIFICATION ---
 
     var body: some View {
         HStack(spacing: 12) {
-            ContentTabButton(title: "My posts", type: .posts, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-            ContentTabButton(title: "My progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            // --- MODIFIED: Update titles based on isCurrentUser ---
+            ContentTabButton(title: isCurrentUser ? "My posts" : "Posts", type: .posts, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: isCurrentUser ? "My progress" : "Progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
             ContentTabButton(title: "Endorsements", type: .endorsements, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            // --- END MODIFICATION ---
         }
         // MODIFIED: Use new font
         .font(.system(size: 16, weight: .medium, design: .rounded))

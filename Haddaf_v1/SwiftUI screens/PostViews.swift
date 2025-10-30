@@ -4,7 +4,6 @@
 //
 //  Created by Leen Thamer on 30/10/2025.
 //
-//  --- FULLY FIXED FILE ---
 //
 
 import SwiftUI
@@ -323,16 +322,38 @@ struct PostDetailView: View {
         }
     }
 
+    // --- MODIFIED: authorInfoAndInteractions now includes NavigationLink ---
     private var authorInfoAndInteractions: some View {
         HStack {
-            AsyncImage(url: URL(string: post.authorImageName)) { image in
-                image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
-            } placeholder: {
-                Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
+            // --- MODIFICATION: Wrap author info in a NavigationLink ---
+            if let uid = post.authorUid, !uid.isEmpty {
+                NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
+                    HStack(spacing: 8) { // Use an HStack for the image and name
+                        AsyncImage(url: URL(string: post.authorImageName)) { image in
+                            image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+                        } placeholder: {
+                            Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
+                        }
+                        Text(post.authorName)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                    }
+                }
+                .buttonStyle(.plain) // Prevent text from turning blue
+            } else {
+                // Fallback if there's no UID
+                HStack(spacing: 8) {
+                    AsyncImage(url: URL(string: post.authorImageName)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+                    } placeholder: {
+                        Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
+                    }
+                    Text(post.authorName)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                }
             }
-            Text(post.authorName)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundColor(BrandColors.darkGray)
+            // --- END MODIFICATION ---
             
             Spacer()
             
@@ -356,6 +377,7 @@ struct PostDetailView: View {
         }
         .foregroundColor(.primary)
     }
+    // --- END MODIFICATION ---
 
     private func commitCaptionEdit() async {
         guard let postId = post.id else { return }

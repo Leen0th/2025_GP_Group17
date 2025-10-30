@@ -191,19 +191,42 @@ struct DiscoveryPostCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Author Info
             HStack(spacing: 12) {
-                if let image = authorProfile.profileImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 44, height: 44)
-                        .clipShape(Circle())
+                
+                // --- MODIFIED: Added NavigationLink to profile picture ---
+                // We only add the link if the authorUid is valid and not empty
+                if let uid = post.authorUid, !uid.isEmpty {
+                    NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
+                        if let image = authorProfile.profileImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 44, height: 44)
+                                .clipShape(Circle())
+                        } else {
+                            Image(systemName: "person.circle.fill")
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 44, height: 44)
+                                .foregroundColor(BrandColors.lightGray)
+                        }
+                    }
                 } else {
-                    Image(systemName: "person.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 44, height: 44)
-                        .foregroundColor(BrandColors.lightGray)
+                    // Fallback: No link if UID is missing
+                    if let image = authorProfile.profileImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 44, height: 44)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.circle.fill")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 44, height: 44)
+                            .foregroundColor(BrandColors.lightGray)
+                    }
                 }
+                // --- END MODIFICATION ---
                 
                 VStack(alignment: .leading) {
                     Text(post.authorName)
@@ -278,7 +301,7 @@ struct FiltersSheetView: View {
     @Binding var location: String?
     
     let positions = ["Attacker", "Midfielder", "Defender"]
-    let teams = ["Unassigned", "Team A", "Team B"] // Placeholder
+    let teams = ["Unassigned"] // Placeholder
     let locations = SAUDI_CITIES
     
     @Environment(\.dismiss) private var dismiss
@@ -353,6 +376,7 @@ struct FiltersSheetView: View {
                         scoreMax = nil
                         team = nil
                         location = nil
+                        dismiss()
                     }
                     .font(.system(size: 17, design: .rounded))
                     .frame(maxWidth: .infinity, alignment: .center)

@@ -29,8 +29,18 @@ final class PlayerProfileViewModel: ObservableObject {
     private var postCreatedObs: NSObjectProtocol?
     private var postDeletedObs: NSObjectProtocol?
     private var profileUpdatedObs: NSObjectProtocol?
+    
+    // --- MODIFIED: Added properties to track target user ---
+    private var targetUserID: String?
+    private var uidToFetch: String? {
+        // If we have a targetUserID, use it. Otherwise, fall back to the current user.
+        return targetUserID ?? Auth.auth().currentUser?.uid
+    }
+    // --- END MODIFICATION ---
 
-    init() {
+    // --- MODIFIED: Updated init to accept a userID ---
+    init(userID: String? = nil) {
+        self.targetUserID = userID
         df.dateFormat = "dd/MM/yyyy HH:mm"
         
         // Insert new post immediately into My posts (optimistic UI)
@@ -69,6 +79,7 @@ final class PlayerProfileViewModel: ObservableObject {
         }
             
     }
+    // --- END MODIFICATION ---
     
     deinit {
         postsListener?.remove()
@@ -96,7 +107,9 @@ final class PlayerProfileViewModel: ObservableObject {
 
     // MODIFIED: Corrected field names to match SignUpView/PlayerSetupView
     func fetchProfile() async {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        // --- MODIFIED: Use uidToFetch ---
+        guard let uid = uidToFetch else { return }
+        // --- END MODIFICATION ---
         do {
             // 'data' is from the main '/users/{uid}' document
             let userDoc = try await db.collection("users").document(uid).getDocument()
@@ -116,7 +129,12 @@ final class PlayerProfileViewModel: ObservableObject {
             userProfile.position = (p["position"] as? String) ?? ""
             if let h = p["height"] as? Int { userProfile.height = "\(h)cm" } else { userProfile.height = "" }
             if let w = p["weight"] as? Int { userProfile.weight = "\(w)kg" } else { userProfile.weight = "" }
-            userProfile.location = (p["location"] as? String) ?? ""
+            
+            // --- ⭐️⭐️⭐️ THE READ FIX ⭐️⭐️⭐️ ---
+            // Check for "location" first, then fall back to "Residence"
+            userProfile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
+            // --- ⭐️⭐️⭐️ END FIX ⭐️⭐️⭐️ ---
+            
             userProfile.email = (data["email"] as? String) ?? ""
             
             // --- MODIFIED (1) ---
@@ -207,7 +225,9 @@ final class PlayerProfileViewModel: ObservableObject {
     func listenToMyPosts() {
         postsListener?.remove()
 
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        // --- MODIFIED: Use uidToFetch ---
+        guard let uid = uidToFetch else { return }
+        // --- END MODIFICATION ---
         let userRef = db.collection("users").document(uid)
 
         postsListener = db.collection("videoPosts")
@@ -305,7 +325,9 @@ final class PlayerProfileViewModel: ObservableObject {
     // This is the new function that calculates and saves the score
     @MainActor
     func calculateAndUpdateScore() async {
-        guard let uid = Auth.auth().currentUser?.uid else {
+        // --- MODIFIED: Use uidToFetch ---
+        guard let uid = uidToFetch else {
+        // --- END MODIFICATION ---
             print("Error: No user ID found.")
             return
         }

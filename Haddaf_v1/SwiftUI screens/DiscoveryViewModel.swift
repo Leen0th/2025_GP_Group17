@@ -59,7 +59,9 @@ final class DiscoveryViewModel: ObservableObject {
                 guard let self = self else { return }
 
                 Task {
-                    let mappedPosts: [Post] = await docs.asyncMap { doc in
+                    // --- MODIFICATION 1: Use compactMap, not asyncMap ---
+                    // We just want to map the data synchronously first.
+                    let mappedPosts: [Post] = docs.compactMap { doc in
                         let d = doc.data()
                         
                         // ... (rest of your mapping logic) ...
@@ -90,15 +92,18 @@ final class DiscoveryViewModel: ObservableObject {
                         let uid = Auth.auth().currentUser?.uid ?? ""
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
+                        
+                        // --- MODIFICATION 2: Just get the authorUid ---
                         let authorIdRef = d["authorId"] as? DocumentReference
                         let authorUid = authorIdRef?.documentID ?? ""
 
-                        if self.authorProfiles[authorUid] == nil && !authorUid.isEmpty {
-                            await self.fetchAuthorProfile(uid: authorUid)
-                        }
+                        // --- REMOVED: Do NOT fetch profile inside the loop ---
+                        // if self.authorProfiles[authorUid] == nil && !authorUid.isEmpty {
+                        //     await self.fetchAuthorProfile(uid: authorUid)
+                        // }
 
                         return Post(
-                            authorUid: authorUid,
+                            authorUid: authorUid, // Just store the UID
                             id: doc.documentID,
                             imageName: (d["thumbnailURL"] as? String) ?? "",
                             videoURL: (d["url"] as? String) ?? "",
@@ -115,7 +120,15 @@ final class DiscoveryViewModel: ObservableObject {
                             matchDate: matchDate
                         )
                     }
+                    // --- END MODIFICATION 1 ---
                     
+                    // --- MODIFICATION 3: Get all unique UIDs from the posts ---
+                    let allUIDs = Set(mappedPosts.compactMap { $0.authorUid })
+                    
+                    // --- MODIFICATION 4: Fetch all missing profiles at once ---
+                    await self.fetchAuthorProfiles(for: Array(allUIDs))
+                    
+                    // --- MODIFICATION 5: NOW publish posts, after profiles are fetched ---
                     await MainActor.run {
                         self.posts = mappedPosts
                         self.isLoadingPosts = false
@@ -123,12 +136,36 @@ final class DiscoveryViewModel: ObservableObject {
                 }
             }
         }
+    
+    // --- ADDED: New function to fetch profiles concurrently ---
+    private func fetchAuthorProfiles(for uids: [String]) async {
+        // Filter out UIDs we already have or are empty
+        let uidsToFetch = uids.filter { !$0.isEmpty && self.authorProfiles[$0] == nil }
+        
+        // If there's nothing new to fetch, just return
+        guard !uidsToFetch.isEmpty else { return }
+        
+        // Use a TaskGroup to fetch them all concurrently
+        await withTaskGroup(of: Void.self) { group in
+            for uid in uidsToFetch {
+                group.addTask {
+                    // Call the existing single-fetch function
+                    // This will update the `authorProfiles` dictionary
+                    await self.fetchAuthorProfile(uid: uid)
+                }
+            }
+        }
+    }
+    // --- END ADDED ---
 
     // Fetch author profile (similar to fetchProfile in PlayerProfileViewModel)
     private func fetchAuthorProfile(uid: String) async {
         guard !uid.isEmpty else { return } // Don't fetch for empty UID
-        // Avoid re-fetching if already in cache
+        
+        // --- MODIFIED: Check cache again, in case another task fetched it ---
+        // This check prevents duplicate fetches inside the TaskGroup
         if self.authorProfiles[uid] != nil { return }
+        // --- END MODIFICATION ---
         
         do {
             let userDoc = try await db.collection("users").document(uid).getDocument()
@@ -148,7 +185,12 @@ final class DiscoveryViewModel: ObservableObject {
             profile.position = (p["position"] as? String) ?? ""
             if let h = p["height"] as? Int { profile.height = "\(h)cm" } else { profile.height = "" }
             if let w = p["weight"] as? Int { profile.weight = "\(w)kg" } else { profile.weight = "" }
-            profile.location = (p["location"] as? String) ?? ""
+            
+            // --- ⭐️⭐️⭐️ THE READ FIX ⭐️⭐️⭐️ ---
+            // Check for "location" first, then fall back to "Residence"
+            profile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
+            // --- ⭐️⭐️⭐️ END FIX ⭐️⭐️⭐️ ---
+            
             profile.email = (data["email"] as? String) ?? ""
             profile.phoneNumber = (data["phone"] as? String) ?? ""
             profile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
@@ -176,6 +218,7 @@ final class DiscoveryViewModel: ObservableObject {
             profile.score = (p["score"] as? String) ?? "0"
 
             await MainActor.run {
+                // This update is thread-safe and updates the cache
                 self.authorProfiles[uid] = profile
             }
         } catch {
