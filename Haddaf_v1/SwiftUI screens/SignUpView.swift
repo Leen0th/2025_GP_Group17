@@ -1,17 +1,22 @@
+// SignUpView.swift
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 import Foundation
+
 // MARK: - User Role
 enum UserRole: String { case player = "Player", coach = "Coach" }
+
 // MARK: - Sign Up
 struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
-    // MODIFIED: Use new BrandColors
+
+    // Theme
     private let primary = BrandColors.darkTeal
     private let bg = BrandColors.backgroundGradientEnd
     
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
+
     // Fields
     @State private var role: UserRole = .player
     @State private var fullName = ""
@@ -25,32 +30,40 @@ struct SignUpView: View {
     @State private var dob: Date? = nil
     @State private var showDOBPicker = false
     @State private var tempDOB = Date()
+
     // Focus
     @FocusState private var emailFocused: Bool
+
     // Navigation
     @State private var goToPlayerSetup = false
+
     // Verify email UI/logic
     @State private var showVerifyPrompt = false
     @State private var verifyTask: Task<Void, Never>? = nil
     @State private var inlineVerifyError: String? = nil
+
     // Resend cooldown
     @State private var resendCooldown = 0
     @State private var resendTimerTask: Task<Void, Never>? = nil
     private let resendCooldownSeconds = 60
     private let lastSentKey = "last_verification_email_sent_at"
+
     // Loading / email-exists
     @State private var isSubmitting = false
     @State private var emailExists = false
     @State private var emailCheckError: String? = nil
     @State private var emailCheckTask: Task<Void, Never>? = nil
+
     // Password criteria
     private var pHasLen: Bool { password.count >= 8 }
     private var pHasUpper: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
     private var pHasLower: Bool { password.range(of: "[a-z]", options: .regularExpression) != nil }
     private var pHasDigit: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
     private var pHasSpec: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
+
     // Full name validation/error (last name optional)
     private var nameError: String? { fullNameValidationError(fullName) }
+
     // Validation
     private var isNameValid: Bool { nameError == nil && !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var isPasswordValid: Bool { pHasLen && pHasUpper && pHasLower && pHasDigit && pHasSpec }
@@ -59,6 +72,7 @@ struct SignUpView: View {
     private var isFormValid: Bool {
         isNameValid && isPasswordValid && isEmailValid && isPhoneValid && dob != nil && !emailExists
     }
+
     var body: some View {
         ZStack {
             bg.ignoresSafeArea()
@@ -69,9 +83,10 @@ struct SignUpView: View {
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
+
+                    // Role
                     VStack(alignment: .leading, spacing: 8) {
                         fieldLabel("Profile Category", required: true)
-                        
                         HStack(spacing: 0) {
                             roleSegmentPill(.player)
                             roleSegmentPill(.coach)
@@ -82,6 +97,7 @@ struct SignUpView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
+
                     // Full Name
                     fieldLabel("Full Name", required: true)
                     roundedField {
@@ -96,6 +112,7 @@ struct SignUpView: View {
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
                     }
+
                     // Email
                     fieldLabel("Email", required: true)
                     roundedField {
@@ -111,6 +128,7 @@ struct SignUpView: View {
                             .onSubmit { checkEmailImmediately() }
                     }
                     .onChange(of: emailFocused) { focused in if !focused { checkEmailImmediately() } }
+
                     Group {
                         if !email.isEmpty && !isEmailValid {
                             Text("Please enter a valid email address.")
@@ -126,6 +144,7 @@ struct SignUpView: View {
                                 .foregroundColor(.red)
                         }
                     }
+
                     // PHONE
                     fieldLabel("Phone number", required: true)
                     roundedField {
@@ -145,6 +164,7 @@ struct SignUpView: View {
                                         .fill(primary.opacity(0.08))
                                 )
                             }
+
                             TextField("", text: Binding(
                                 get: { phoneLocal },
                                 set: { val in
@@ -169,6 +189,7 @@ struct SignUpView: View {
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
                     }
+
                     // DOB
                     fieldLabel("Date of birth", required: true)
                     buttonLikeField(action: {
@@ -180,8 +201,7 @@ struct SignUpView: View {
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(primary)
                             Spacer()
-                            Image(systemName: "calendar")
-                                .foregroundColor(primary.opacity(0.85))
+                            Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
                         }
                         .frame(height: 22)
                     }
@@ -191,6 +211,7 @@ struct SignUpView: View {
                             .presentationBackground(BrandColors.background)
                             .presentationCornerRadius(28)
                     }
+
                     // Password
                     fieldLabel("Password", required: true)
                     roundedField {
@@ -224,6 +245,7 @@ struct SignUpView: View {
                         passwordRuleRow("At least one special symbol", satisfied: pHasSpec)
                     }
                     .padding(.top, -8)
+
                     // Submit
                     Button { Task { await handleSignUp() } } label: {
                         HStack(spacing: 10) {
@@ -241,12 +263,13 @@ struct SignUpView: View {
                     .padding(.top, 8)
                     .disabled(!isFormValid || isSubmitting)
                     .opacity((isFormValid && !isSubmitting) ? 1.0 : 0.5)
+
                     // Bottom link
                     HStack(spacing: 6) {
                         Text("Already have an account?")
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(primary.opacity(0.7))
-                        NavigationLink { EmptyView() } label: {
+                        NavigationLink { SignInView() } label: {
                             Text("Sign in")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(primary)
@@ -258,11 +281,13 @@ struct SignUpView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
-            // ✅ Overlay-only verify popup with transparent background (no sheet)
+
+            // ✅ Overlay-only verify popup with transparent background
             if showVerifyPrompt {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .transition(.opacity)
+
                 SimpleVerifySheet(
                     email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                     primary: primary,
@@ -292,6 +317,7 @@ struct SignUpView: View {
                 .presentationBackground(BrandColors.background)
         }
     }
+
     // MARK: - Full name validation (last name optional)
     private func fullNameValidationError(_ name: String) -> String? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -305,15 +331,14 @@ struct SignUpView: View {
                 return "Letters only for your first/last name."
             }
         }
-        // Allow 1 or 2 parts, but not 3+
         if parts.count >= 3 { return "Please enter only your first and last name." }
-        // Total length without spaces ≤ 60
         if trimmed.replacingOccurrences(of: " ", with: "").count > 60 {
             return "Full name must be ≤ 60 characters."
         }
         return nil
     }
-    // MARK: - Email check (using Firebase Auth dummy user attempt)
+
+    // MARK: - Email check (dummy create/delete)
     private func debouncedEmailCheck() {
         emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -333,6 +358,7 @@ struct SignUpView: View {
             }
         }
     }
+
     private func checkEmailImmediately() {
         emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -350,34 +376,43 @@ struct SignUpView: View {
             }
         }
     }
+
     // MARK: - Actions
     private func handleSignUp() async {
         if emailExists { return }
         guard isFormValid else { return }
         isSubmitting = true
         inlineVerifyError = nil
+
         let name = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
         let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let fullPhone = selectedDialCode.code + phoneLocal
+
         do {
             // 1) Create user
             let authResult = try await Auth.auth().createUser(withEmail: mail, password: password)
+
             // 2) Optional displayName
             let changeReq = authResult.user.createProfileChangeRequest()
             changeReq.displayName = name
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 changeReq.commitChanges { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
             }
-            // 3) Save local draft (includes phone)
+
+            // 3) Save local + REMOTE pendingSignups
             let draft = ProfileDraft(fullName: name, phone: fullPhone, role: role.rawValue.lowercased(), dob: dob, email: mail)
             DraftStore.save(draft)
+            try? await PendingDraftStoreRemote.save(uid: authResult.user.uid, draft: draft)
+
             // 4) Send verification email
             try await sendVerificationEmail(to: authResult.user)
             markVerificationSentNow()
             startResendCooldown(seconds: resendCooldownSeconds)
+
             // 5) Show popup + start watcher
             await MainActor.run { showVerifyPrompt = true }
             startVerificationWatcher()
+
         } catch {
             let ns = error as NSError
             if ns.code == AuthErrorCode.emailAlreadyInUse.rawValue {
@@ -389,8 +424,10 @@ struct SignUpView: View {
                 showVerifyPrompt = true
             }
         }
+
         isSubmitting = false
     }
+
     private func startVerificationWatcher() {
         verifyTask?.cancel()
         verifyTask = Task {
@@ -406,17 +443,34 @@ struct SignUpView: View {
             }
         }
     }
+
     @MainActor
     private func finalizeAndGo(for user: User) async {
-        if let draft = DraftStore.load() {
+        // Try remote pending first
+        if let remoteDraft = try? await PendingDraftStoreRemote.load(uid: user.uid), let _ = user.email {
+            let (first, last) = firstLast(from: remoteDraft.fullName)
+            var data: [String: Any] = [
+                "email": user.email ?? remoteDraft.email,
+                "firstName": first,
+                "lastName": last ?? NSNull(),
+                "role": remoteDraft.role,
+                "phone": remoteDraft.phone,
+                "emailVerified": true,
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+            if let d = remoteDraft.dob { data["dob"] = Timestamp(date: d) }
+            try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
+            await PendingDraftStoreRemote.clear(uid: user.uid)
+            DraftStore.clear()
+        } else if let draft = DraftStore.load() {
             let (first, last) = firstLast(from: draft.fullName)
             var data: [String: Any] = [
                 "email": user.email ?? draft.email,
                 "firstName": first,
                 "lastName": last ?? NSNull(),
                 "role": draft.role,
-                "emailVerified": true,
                 "phone": draft.phone,
+                "emailVerified": true,
                 "createdAt": FieldValue.serverTimestamp()
             ]
             if let d = draft.dob { data["dob"] = Timestamp(date: d) }
@@ -432,9 +486,10 @@ struct SignUpView: View {
         showVerifyPrompt = false
         goToPlayerSetup = true
     }
+
     private func resendVerification() async {
         guard let user = Auth.auth().currentUser else { return }
-        guard canSendVerificationNow(), resendCooldown == 0 else {
+        guard resendCooldown == 0 else {
             inlineVerifyError = "Please wait \(max(0, resendCooldown)) seconds before resending."
             return
         }
@@ -450,6 +505,7 @@ struct SignUpView: View {
                 : ns.localizedDescription
         }
     }
+
     private func sendVerificationEmail(to user: User) async throws {
         let acs = ActionCodeSettings()
         acs.handleCodeInApp = true
@@ -459,6 +515,7 @@ struct SignUpView: View {
             user.sendEmailVerification(with: acs) { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
         }
     }
+
     // MARK: - Resend cooldown
     private func startResendCooldown(seconds: Int) {
         resendTimerTask?.cancel()
@@ -470,15 +527,11 @@ struct SignUpView: View {
             }
         }
     }
-    private func canSendVerificationNow() -> Bool {
-        let last = UserDefaults.standard.integer(forKey: lastSentKey)
-        let now = Int(Date().timeIntervalSince1970)
-        return (now - last) >= resendCooldownSeconds
-    }
     private func markVerificationSentNow() {
         let now = Int(Date().timeIntervalSince1970)
         UserDefaults.standard.set(now, forKey: lastSentKey)
     }
+
     // MARK: - Validators
     private func isValidEmail(_ raw: String) -> Bool {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -494,6 +547,7 @@ struct SignUpView: View {
         if code == "+966" { ok = (len == 9) && local.first == "5" } // KSA rule
         return ok
     }
+
     // MARK: - Helpers
     private func roleSegmentPill(_ r: UserRole) -> some View {
         let isSelected = role == r
@@ -513,6 +567,7 @@ struct SignUpView: View {
                 .padding(2)
         }
     }
+
     private func fieldLabel(_ title: String, required: Bool) -> some View {
         HStack(spacing: 4) {
             Text(title)
@@ -576,6 +631,7 @@ struct SignUpView: View {
         return (first, last)
     }
 }
+
 // MARK: - Verify sheet
 struct SimpleVerifySheet: View {
     let email: String
@@ -584,6 +640,7 @@ struct SimpleVerifySheet: View {
     @Binding var errorText: String?
     var onResend: () -> Void
     var onClose: () -> Void
+
     var body: some View {
         VStack {
             Spacer()
@@ -597,14 +654,17 @@ struct SimpleVerifySheet: View {
                     Spacer()
                 }
                 .padding(.horizontal, 8).padding(.top, 6)
+
                 Text("Verify your email")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(.primary)
+
                 Text("We’ve sent a verification link to \(email).\nOpen the link to verify your email so you can continue sign-up and complete your profile.")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
+
                 Button(action: { if resendCooldown == 0 { onResend() } }) {
                     Text(resendCooldown > 0 ? "Resend (\(resendCooldown)s)" : "Resend")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -615,6 +675,7 @@ struct SimpleVerifySheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .disabled(resendCooldown > 0)
+
                 if let errorText, !errorText.isEmpty {
                     Text(errorText)
                         .font(.system(size: 13, design: .rounded))
@@ -634,7 +695,7 @@ struct SimpleVerifySheet: View {
             Spacer()
         }
         .padding()
-        .background(Color.clear) // keep fully transparent behind card
+        .background(Color.clear)
         .allowsHitTesting(true)
     }
 }

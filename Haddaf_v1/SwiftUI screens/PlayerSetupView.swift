@@ -1,3 +1,4 @@
+// PlayerSetupView.swift
 import SwiftUI
 import PhotosUI
 import FirebaseAuth
@@ -57,8 +58,8 @@ struct PlayerSetupView: View {
     private var allFieldsValidAndFilled: Bool {
         !position.isEmpty &&
         !location.isEmpty &&
-        isWeightValid && // Implicitly checks if not empty via Int conversion
-        isHeightValid // Implicitly checks if not empty via Int conversion
+        isWeightValid &&
+        isHeightValid
     }
 
     // --- MODIFIED: Updated logic for clarity ---
@@ -84,7 +85,6 @@ struct PlayerSetupView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Set up your profile")
-                        // MODIFIED: Use new font
                         .font(.system(size: 28, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -110,21 +110,19 @@ struct PlayerSetupView: View {
                                         .font(.system(size: 14, weight: .bold))
                                         .foregroundColor(.white)
                                 )
-                                // MODIFIED: Add shadow
                                 .shadow(color: primary.opacity(0.3), radius: 8, y: 4)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 6)
 
-                    // ========= Position (Mandatory) =========
+                    // ========= Position =========
                     fieldLabel("Position", required: true)
                     buttonLikeField(action: {
                         showPositionPicker = true
                     }) {
                         HStack {
                             Text(position.isEmpty ? "Select position" : position)
-                                // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(position.isEmpty ? .gray : primary)
                             Spacer()
@@ -139,17 +137,15 @@ struct PlayerSetupView: View {
                             showSheet: $showPositionPicker
                         )
                         .presentationDetents([.height(300)])
-                        // MODIFIED: Use new background
                         .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
 
-                    // ========= Weight (Mandatory & Validated) =========
+                    // ========= Weight =========
                     fieldLabel("Weight (kg)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("Enter weight", text: $weight)
                             .keyboardType(.numberPad)
-                            // MODIFIED: Use new font
                             .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .onChange(of: weight) { _, new in
@@ -159,7 +155,6 @@ struct PlayerSetupView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .frame(maxWidth: .infinity)
-                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
                                     .fill(BrandColors.background)
@@ -173,18 +168,16 @@ struct PlayerSetupView: View {
 
                         if !weight.isEmpty && !isWeightValid {
                             Text("Enter a realistic weight between 15–200 kg.")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
 
-                    // ========= Height (Mandatory & Validated) =========
+                    // ========= Height =========
                     fieldLabel("Height (cm)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("Enter height", text: $height)
                             .keyboardType(.numberPad)
-                            // MODIFIED: Use new font
                             .font(.system(size: 16, design: .rounded))
                             .foregroundColor(primary)
                             .onChange(of: height) { _, new in
@@ -194,7 +187,6 @@ struct PlayerSetupView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .frame(maxWidth: .infinity)
-                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
                                     .fill(BrandColors.background)
@@ -208,13 +200,12 @@ struct PlayerSetupView: View {
 
                         if !height.isEmpty && !isHeightValid {
                             Text("Enter a realistic height between 100–230 cm.")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
 
-                    // ========= City of Residence (Mandatory) =========
+                    // ========= City =========
                     fieldLabel("City of Residence", required: true)
                     buttonLikeField(action: {
                         locationSearch = ""
@@ -222,7 +213,6 @@ struct PlayerSetupView: View {
                     }) {
                         HStack {
                             Text(location.isEmpty ? "Select city" : location)
-                                // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(location.isEmpty ? .gray : primary)
                             Spacer()
@@ -240,12 +230,11 @@ struct PlayerSetupView: View {
                             accent: primary
                         )
                         .presentationDetents([.large])
-                        // MODIFIED: Use new background
                         .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
 
-                    // ========= Done Button (Activation logic handled by canSubmit) =========
+                    // ========= Done =========
                     Button {
                         Task {
                             do {
@@ -259,7 +248,6 @@ struct PlayerSetupView: View {
                     } label: {
                         HStack {
                             Text("Done")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 18, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
                         }
@@ -267,7 +255,6 @@ struct PlayerSetupView: View {
                         .padding(.vertical, 16)
                         .background(primary)
                         .clipShape(Capsule())
-                        // MODIFIED: Add shadow
                         .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(!canSubmit)
@@ -326,7 +313,7 @@ struct PlayerSetupView: View {
         }
         guard let data = selectedImageData else {
             // This case should ideally not happen if called correctly
-             print("Upload attempt with no image data.")
+            print("Upload attempt with no image data.")
             return
         }
 
@@ -354,17 +341,16 @@ struct PlayerSetupView: View {
             }
             
             // Save the URL to Firestore (optional here, could be done in savePlayerSetupData)
-             try await Firestore.firestore().collection("users").document(uid)
-                 .setData(["profilePic": url.absoluteString], merge: true)
+            try await Firestore.firestore().collection("users").document(uid)
+                .setData(["profilePic": url.absoluteString], merge: true)
             
         } catch {
-            // Handle errors during upload or URL retrieval
-             await MainActor.run {
-                 isUploading = false // Finish uploading state on error
-                 downloadURL = nil // Ensure URL is nil on error
-             }
+            await MainActor.run {
+                isUploading = false
+                downloadURL = nil
+            }
             print("Error uploading photo or getting URL: \(error)")
-            throw error // Re-throw the error to be caught by the caller
+            throw error
         }
     }
 
@@ -373,56 +359,45 @@ struct PlayerSetupView: View {
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
-        // No need to check canSubmit here, button state handles it
 
         let db = Firestore.firestore()
 
-        // --- Prepare Payload ---
         var payload: [String: Any] = [
             "position": position,
-            "weight": weightInt ?? NSNull(), // Use NSNull for optional Ints
-            "height": heightInt ?? NSNull(), // Use NSNull for optional Ints
+            "weight": weightInt ?? NSNull(),
+            "height": heightInt ?? NSNull(),
             "location": location,
-            "contactVisibility": false, // Default value
-            "isEmailVisible": false,   // Default value
+            "contactVisibility": false,
+            "isEmailVisible": false,
             "updatedAt": FieldValue.serverTimestamp()
         ]
         
-        // --- Save to Sub-collection ---
         let profileRef = db.collection("users")
             .document(uid)
             .collection("player")
             .document("profile")
             
-        try await profileRef.setData(payload, merge: true) // Use merge to avoid overwriting other fields if they exist
+        try await profileRef.setData(payload, merge: true)
         
-        // --- Update Main User Doc Timestamp (Optional but good practice) ---
-         try await db.collection("users").document(uid).setData([
-             "updatedAt": FieldValue.serverTimestamp()
-             // Ensure profilePic is already saved if upload happened
-         ], merge: true)
+        try await db.collection("users").document(uid).setData([
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
     }
 
     // MARK: - UI Helpers
-
-    // --- MODIFIED: Added required parameter ---
-    /// Creates a standard field label with an optional red asterisk for mandatory fields.
     private func fieldLabel(_ title: String, required: Bool = false) -> some View {
         HStack(spacing: 2) {
             Text(title)
-                // MODIFIED: Use new font
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.gray)
             if required {
                 Text("*")
-                    // MODIFIED: Use new font
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(.red)
             }
         }
     }
 
-    /// Creates a button styled like a text field.
     private func buttonLikeField<Content: View>(
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content
@@ -432,7 +407,6 @@ struct PlayerSetupView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // MODIFIED: Use new card style
                 .background(
                     RoundedRectangle(cornerRadius: 14)
                         .fill(BrandColors.background)

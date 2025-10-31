@@ -1,13 +1,7 @@
-//
-//  SharedAuthModels.swift
-//  Haddaf_v1
-//
-//  Created by Lujain Alhussan on 23/04/1447 AH.
-//
-
 // SharedAuthModels.swift
 import SwiftUI
 import Foundation
+import FirebaseFirestore
 
 // MARK: - Shared models used by SignUp/SignIn
 struct ProfileDraft: Codable {
@@ -37,7 +31,39 @@ enum DraftStore {
     }
 }
 
-// MARK: - Neutral Verify Email Modal (reused)
+// MARK: - Remote (Firestore) pending storage
+enum PendingDraftStoreRemote {
+    private static var col: CollectionReference { Firestore.firestore().collection("pendingSignups") }
+
+    static func save(uid: String, draft: ProfileDraft) async throws {
+        var data: [String: Any] = [
+            "fullName": draft.fullName,
+            "phone": draft.phone,
+            "role": draft.role,
+            "email": draft.email,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        if let d = draft.dob { data["dob"] = Timestamp(date: d) }
+        try await col.document(uid).setData(data, merge: true)
+    }
+
+    static func load(uid: String) async throws -> ProfileDraft? {
+        let snap = try await col.document(uid).getDocument()
+        guard let d = snap.data() else { return nil }
+        let fullName = d["fullName"] as? String ?? ""
+        let phone    = d["phone"] as? String ?? ""
+        let role     = d["role"] as? String ?? "player"
+        let email    = d["email"] as? String ?? ""
+        let dobTS    = d["dob"] as? Timestamp
+        return ProfileDraft(fullName: fullName, phone: phone, role: role, dob: dobTS?.dateValue(), email: email)
+    }
+
+    static func clear(uid: String) async {
+        do { try await col.document(uid).delete() } catch { /* ignore */ }
+    }
+}
+
+// MARK: - Neutral Verify Email Modal (optional shared component)
 public struct VerifyEmailModal: View {
     let title: String
     let message: String
@@ -76,7 +102,6 @@ public struct VerifyEmailModal: View {
             Spacer()
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 14) {
-                    // Close X (left)
                     HStack {
                         Button(action: onDismiss) {
                             Image(systemName: "xmark.circle.fill")
