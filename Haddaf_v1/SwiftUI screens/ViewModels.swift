@@ -177,7 +177,7 @@ final class PlayerProfileViewModel: ObservableObject {
             
             // Set score from profile, or default to 0
             // This will be overwritten by calculateAndUpdateScore()
-            userProfile.score = (p["score"] as? String) ?? "0"
+            userProfile.score = (p["cumulativeScore"] as? String) ?? "0"
             
         } catch {
             print("fetchProfile error: \(error)")
@@ -387,11 +387,11 @@ final class PlayerProfileViewModel: ObservableObject {
                     .collection("users").document(uid)
                     .collection("player").document("profile")
                 
-                try await profileRef.setData(["score": scoreString], merge: true)
-                print("Successfully saved new score: \(scoreString)")
+                try await profileRef.setData(["cumulativeScore": scoreString], merge: true)
+                print("Successfully saved new cumulativeScore: \(scoreString)")
                 
             } catch {
-                print("Error saving new score to Firestore: \(error.localizedDescription)")
+                print("Error saving new cumulativeScore to Firestore: \(error.localizedDescription)")
             }
         }
     }
