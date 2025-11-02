@@ -186,10 +186,8 @@ final class DiscoveryViewModel: ObservableObject {
             if let h = p["height"] as? Int { profile.height = "\(h)cm" } else { profile.height = "" }
             if let w = p["weight"] as? Int { profile.weight = "\(w)kg" } else { profile.weight = "" }
             
-            // --- ⭐️⭐️⭐️ THE READ FIX ⭐️⭐️⭐️ ---
             // Check for "location" first, then fall back to "Residence"
             profile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
-            // --- ⭐️⭐️⭐️ END FIX ⭐️⭐️⭐️ ---
             
             profile.email = (data["email"] as? String) ?? ""
             profile.phoneNumber = (data["phone"] as? String) ?? ""
