@@ -130,10 +130,8 @@ final class PlayerProfileViewModel: ObservableObject {
             if let h = p["height"] as? Int { userProfile.height = "\(h)cm" } else { userProfile.height = "" }
             if let w = p["weight"] as? Int { userProfile.weight = "\(w)kg" } else { userProfile.weight = "" }
             
-            // --- ⭐️⭐️⭐️ THE READ FIX ⭐️⭐️⭐️ ---
             // Check for "location" first, then fall back to "Residence"
             userProfile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
-            // --- ⭐️⭐️⭐️ END FIX ⭐️⭐️⭐️ ---
             
             userProfile.email = (data["email"] as? String) ?? ""
             
@@ -288,6 +286,7 @@ final class PlayerProfileViewModel: ObservableObject {
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
 
                         return Post(
+                            authorUid: uid, // Pass the author's ID
                             id: doc.documentID,
                             imageName: (d["thumbnailURL"] as? String) ?? "",
                             videoURL: (d["url"] as? String) ?? "",
@@ -389,6 +388,12 @@ final class PlayerProfileViewModel: ObservableObject {
                 
                 try await profileRef.setData(["cumulativeScore": scoreString], merge: true)
                 print("Successfully saved new cumulativeScore: \(scoreString)")
+
+                try await profileRef.setData([
+                    "score": scoreString,
+                    "cumulativeScore": scoreString // <-- ADDED THIS
+                ], merge: true)
+                print("Successfully saved new score: \(scoreString) to score & cumulativeScore")
                 
             } catch {
                 print("Error saving new cumulativeScore to Firestore: \(error.localizedDescription)")

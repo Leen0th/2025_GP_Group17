@@ -65,9 +65,6 @@ final class LeaderboardViewModel: ObservableObject {
 
                             // score أساسي ثم fallback على cumulativeScore
                             let score: Double = {
-                                if let d = p["score"] as? Double { return d }
-                                if let i = p["score"] as? Int { return Double(i) }
-                                if let s = p["score"] as? String, let d = Double(s) { return d }
                                 if let d = p["cumulativeScore"] as? Double { return d }
                                 if let i = p["cumulativeScore"] as? Int { return Double(i) }
                                 if let s = p["cumulativeScore"] as? String, let d = Double(s) { return d }
