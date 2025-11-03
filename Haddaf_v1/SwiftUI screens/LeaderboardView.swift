@@ -77,12 +77,16 @@ final class LeaderboardViewModel: ObservableObject {
                             var earliest: Date? = nil
                             do {
                                 let authorRef = db.collection("users").document(uid)
-                                let refSnap = try await db.collection("videoPosts")
+                                let firstPostSnap = try await db.collection("videoPosts")
                                     .whereField("authorId", isEqualTo: authorRef)
+                                    .whereField("visibility", isEqualTo: true) // اختياري: احذفيه إذا تبين كل البوستات
                                     .order(by: "uploadDateTime", descending: false)
                                     .limit(to: 1)
                                     .getDocuments()
-                                earliest = refSnap.documents.first.flatMap { ($0.data()["uploadDateTime"] as? Timestamp)?.dateValue() }
+
+                                earliest = firstPostSnap.documents.first.flatMap {
+                                    ($0.data()["uploadDateTime"] as? Timestamp)?.dateValue()
+                                }
                             } catch { }
 
                             if earliest == nil {

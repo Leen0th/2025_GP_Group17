@@ -71,11 +71,15 @@ final class PlayerProfileViewModel: ObservableObject {
         // This listens for the change from EditProfileView
         profileUpdatedObs = NotificationCenter.default.addObserver(
             forName: .profileUpdated, object: nil, queue: .main
-        ) { [weak self] _ in
-            print("Profile updated, recalculating score...")
-            Task {
-                await self?.calculateAndUpdateScore()
+        ) { [weak self] note in
+            // لو جاني إشعار وفيه قائمة الحقول المعدّلة:
+            if let fields = note.userInfo?["fields"] as? [String] {
+                // إذا كان التعديل محصور بالصورة فقط → لا تعيدي حساب السكور
+                let imgKeys: Set<String> = ["profilePic", "profileImage", "profilePicURL"]
+                if Set(fields).isSubset(of: imgKeys) { return }
             }
+            // غير كذا (أو ما وصل userInfo) نحسب السكور كالمعتاد
+            Task { await self?.calculateAndUpdateScore() }
         }
             
     }
@@ -386,19 +390,17 @@ final class PlayerProfileViewModel: ObservableObject {
                     .collection("users").document(uid)
                     .collection("player").document("profile")
                 
-                try await profileRef.setData(["cumulativeScore": scoreString], merge: true)
-                print("Successfully saved new cumulativeScore: \(scoreString)")
-
                 try await profileRef.setData([
-                    "score": scoreString,
-                    "cumulativeScore": scoreString // <-- ADDED THIS
+                    "cumulativeScore": scoreString
                 ], merge: true)
-                print("Successfully saved new score: \(scoreString) to score & cumulativeScore")
+                
+                print("✅ Successfully updated cumulativeScore: \(scoreString)")
                 
             } catch {
-                print("Error saving new cumulativeScore to Firestore: \(error.localizedDescription)")
+                print("❌ Error saving cumulativeScore to Firestore: \(error.localizedDescription)")
             }
         }
+
     }
     // --- END ADDED ---
 }

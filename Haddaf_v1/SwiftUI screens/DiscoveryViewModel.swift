@@ -213,7 +213,7 @@ final class DiscoveryViewModel: ObservableObject {
 
             profile.team = "Unassigned" // As per existing code
             profile.rank = "0"
-            profile.score = (p["score"] as? String) ?? "0"
+            profile.score = (p["cumulativeScore"] as? String) ?? "0"
 
             await MainActor.run {
                 // This update is thread-safe and updates the cache
