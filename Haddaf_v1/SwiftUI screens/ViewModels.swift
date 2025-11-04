@@ -30,6 +30,9 @@ final class PlayerProfileViewModel: ObservableObject {
     private var postDeletedObs: NSObjectProtocol?
     private var profileUpdatedObs: NSObjectProtocol?
     
+    // --- ✅ ADDED: Observer for like/comment sync ---
+    private var postDataUpdatedObs: NSObjectProtocol?
+    
     // --- MODIFIED: Added properties to track target user ---
     private var targetUserID: String?
     private var uidToFetch: String? {
@@ -81,6 +84,15 @@ final class PlayerProfileViewModel: ObservableObject {
             // غير كذا (أو ما وصل userInfo) نحسب السكور كالمعتاد
             Task { await self?.calculateAndUpdateScore() }
         }
+        
+        // --- ✅ ADDED: Observer for like/comment sync ---
+        postDataUpdatedObs = NotificationCenter.default.addObserver(
+            forName: .postDataUpdated, object: nil, queue: .main
+        ) { [weak self] notification in
+            // Call the handler function
+            self?.handlePostDataUpdate(notification: notification)
+        }
+        // --- END ADDED ---
             
     }
     // --- END MODIFICATION ---
@@ -90,6 +102,10 @@ final class PlayerProfileViewModel: ObservableObject {
         if let t = postCreatedObs { NotificationCenter.default.removeObserver(t) }
         if let t = postDeletedObs { NotificationCenter.default.removeObserver(t) }
         if let t = profileUpdatedObs { NotificationCenter.default.removeObserver(t) }
+        
+        // --- ✅ ADDED: Remove the new observer ---
+        if let t = postDataUpdatedObs { NotificationCenter.default.removeObserver(t) }
+        // --- END ADDED ---
     }
 
     // MODIFIED: Made sequential to prevent race condition
@@ -286,6 +302,10 @@ final class PlayerProfileViewModel: ObservableObject {
 
                         let likedBy = (d["likedBy"] as? [String]) ?? []
                         
+                        // --- MODIFIED: Use uidToFetch, which is non-optional here ---
+                        let currentUserID = self.uidToFetch ?? ""
+                        // --- END MODIFICATION ---
+                        
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
 
@@ -304,7 +324,7 @@ final class PlayerProfileViewModel: ObservableObject {
                             likeCount: (d["likeCount"] as? Int) ?? 0,
                             commentCount: (d["commentCount"] as? Int) ?? 0,
                             likedBy: likedBy,
-                            isLikedByUser: likedBy.contains(uid),
+                            isLikedByUser: likedBy.contains(currentUserID), // Use correct ID
                             stats: postStats, // <-- Pass the correctly parsed stats
                             matchDate: matchDate
                         )
@@ -323,6 +343,32 @@ final class PlayerProfileViewModel: ObservableObject {
                 }
             }
     }
+    
+    // Function to handle incoming notifications
+    @MainActor
+    private func handlePostDataUpdate(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let updatedPostId = userInfo["postId"] as? String else {
+            return
+        }
+
+        // Find the index of the post that needs updating
+        guard let index = self.posts.firstIndex(where: { $0.id == updatedPostId }) else {
+            return // This post isn't in our list
+        }
+
+        // Check for comment updates
+        if userInfo["commentAdded"] as? Bool == true {
+            self.posts[index].commentCount += 1
+        }
+        
+        // Check for like updates
+        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+            self.posts[index].isLikedByUser = isLiked
+            self.posts[index].likeCount = likeCount
+        }
+    }
+    // --- END ADDED ---
     
     // --- ADDED (2 of 2) ---
     // This is the new function that calculates and saves the score
@@ -349,12 +395,30 @@ final class PlayerProfileViewModel: ObservableObject {
         // 2. Select the correct weights
         let positionWeights = weights[position] ?? weights["Default"]!
 
-        // 3. Filter for posts that actually have AI data
-        let scoredPosts = self.posts.filter { !($0.stats?.isEmpty ?? true) }
+        // 3. Filter for posts that actually have AI data AND ARE PUBLIC
+        let scoredPosts = self.posts.filter { !($0.stats?.isEmpty ?? true) && !$0.isPrivate }
 
         if scoredPosts.isEmpty {
             // No posts with scores yet, set score to 0
             self.userProfile.score = "0"
+            // Also save '0' to Firebase if there are no public posts ---
+            Task(priority: .background) {
+                do {
+                    let profileRef = Firestore.firestore()
+                        .collection("users").document(uid)
+                        .collection("player").document("profile")
+                    
+                    try await profileRef.setData([
+                        "cumulativeScore": "0"
+                    ], merge: true)
+                    
+                    print("✅ Successfully updated cumulativeScore: 0 (No public posts)")
+                    
+                } catch {
+                    print("❌ Error saving cumulativeScore (0) to Firestore: \(error.localizedDescription)")
+                }
+            }
+            // --- END ADDED ---
             return
         }
 

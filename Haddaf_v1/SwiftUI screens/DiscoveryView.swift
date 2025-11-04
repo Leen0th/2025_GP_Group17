@@ -28,6 +28,9 @@ struct DiscoveryView: View {
     @State private var filterLocation: String? = nil
 
     @State private var showFiltersSheet = false
+    
+    // State to manage the comments sheet
+    @State private var postForComments: Post? = nil
 
     private var filteredPosts: [Post] {
         viewModel.posts.filter { post in
@@ -102,6 +105,18 @@ struct DiscoveryView: View {
                     location: $filterLocation
                 )
             }
+            // --- ✅ ADDED: Sheet for showing comments ---
+            .sheet(item: $postForComments) { post in
+                if let postId = post.id {
+                    CommentsView(postId: postId)
+                        .presentationBackground(BrandColors.background)
+                }
+            }
+            // --- ✅ ADDED: Listener for sync ---
+            .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
+                viewModel.handlePostDataUpdate(notification: notification)
+            }
+            // --- END ADDED ---
         }
     }
 
@@ -161,13 +176,22 @@ struct DiscoveryView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 16) {
+                        // --- ✅ MODIFIED: ForEach loop ---
                         ForEach(filteredPosts) { post in
                             NavigationLink(destination: PostDetailView(post: post)) {
                                 let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
-                                DiscoveryPostCardView(post: post, authorProfile: authorProfile)
+                                DiscoveryPostCardView(
+                                    viewModel: viewModel, // Pass the view model
+                                    post: post,
+                                    authorProfile: authorProfile,
+                                    onCommentTapped: { // Pass the closure
+                                        self.postForComments = post
+                                    }
+                                )
                             }
                             .buttonStyle(.plain)
                         }
+                        // --- END MODIFICATION ---
                     }
                     .padding()
                     .padding(.bottom, 80)
@@ -199,8 +223,12 @@ struct DiscoveryView: View {
 
 // MARK: - Post Card
 struct DiscoveryPostCardView: View {
+    // --- ✅ MODIFIED: Added viewModel and onCommentTapped ---
+    @ObservedObject var viewModel: DiscoveryViewModel
     let post: Post
     let authorProfile: UserProfile
+    let onCommentTapped: () -> Void
+    // --- END MODIFICATION ---
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -242,13 +270,34 @@ struct DiscoveryPostCardView: View {
                 .foregroundColor(BrandColors.darkGray)
                 .lineLimit(2)
 
-            // Interactions
+            // --- ✅ MODIFIED: Interactions are now buttons ---
             HStack(spacing: 16) {
-                HStack(spacing: 4) { Image(systemName: "heart"); Text("\(post.likeCount)") }
-                HStack(spacing: 4) { Image(systemName: "text.bubble"); Text("\(post.commentCount)") }
+                // --- LIKE BUTTON ---
+                Button {
+                    Task { await viewModel.toggleLike(post: post) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
+                        Text("\(post.likeCount)")
+                    }
+                    .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
+                }
+                .buttonStyle(.plain) // IMPORTANT: Prevents triggering the NavigationLink
+
+                // --- COMMENT BUTTON ---
+                Button {
+                    onCommentTapped()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "text.bubble")
+                        Text("\(post.commentCount)")
+                    }
+                    .foregroundColor(BrandColors.darkGray)
+                }
+                .buttonStyle(.plain) // IMPORTANT
             }
-            .foregroundColor(BrandColors.darkGray)
             .font(.system(size: 14, design: .rounded))
+            // --- END MODIFICATION ---
         }
         .padding()
         .background(Color.white) // لا مواد ولا تعتيم

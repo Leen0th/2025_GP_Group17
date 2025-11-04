@@ -45,7 +45,7 @@ final class DiscoveryViewModel: ObservableObject {
                 
                 // --- FIX for Error 1 & 2 ---
                 // We handle the error case first.
-                // We use Task { } to move the UI update off the listener's synchronous closure.
+                // We use Task { } to move the UI update off the listener's closure.
                 // We use `self?` because self is weak.
                 guard let docs = snap?.documents else {
                     if let err = err { print("listenToPublicPosts error: \(err)") }
@@ -233,4 +233,83 @@ final class DiscoveryViewModel: ObservableObject {
             return UIImage(systemName: "person.circle.fill")
         }
     }
+    
+    // Function to toggle like from the discovery card
+    func toggleLike(post: Post) async {
+        guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
+        
+        let isLiking = !post.isLikedByUser
+        let delta: Int64 = isLiking ? 1 : -1
+        let firestoreAction = isLiking ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])
+
+        // --- OPTIMISTIC UI UPDATE ---
+        // Find the post in our array and update it *immediately*
+        if let index = self.posts.firstIndex(where: { $0.id == postId }) {
+            self.posts[index].isLikedByUser = isLiking
+            self.posts[index].likeCount += Int(delta)
+            if isLiking {
+                self.posts[index].likedBy.append(uid)
+            } else {
+                self.posts[index].likedBy.removeAll { $0 == uid }
+            }
+        }
+        // --- END OPTIMISTIC UI UPDATE ---
+
+        do {
+            // Now, update Firestore in the background
+            try await db.collection("videoPosts").document(postId).updateData([
+                "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
+            ])
+            
+            // Post notification for other views (like PostDetailView)
+            var userInfo: [String: Any] = ["postId": postId]
+            // --- FIX: Pass the *new* count ---
+            let newLikeCount = post.likeCount + Int(delta)
+            userInfo["likeUpdate"] = (isLiking, newLikeCount)
+            // --- END FIX ---
+            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
+
+        } catch {
+            print("Error updating like count from DiscoveryVM: \(error.localizedDescription)")
+            
+            // --- ROLLBACK on failure ---
+            if let index = self.posts.firstIndex(where: { $0.id == postId }) {
+                self.posts[index].isLikedByUser = !isLiking
+                self.posts[index].likeCount -= Int(delta)
+                if isLiking {
+                    self.posts[index].likedBy.removeAll { $0 == uid }
+                } else {
+                    self.posts[index].likedBy.append(uid)
+                }
+            }
+            // --- END ROLLBACK ---
+        }
+    }
+    // --- END ADDED ---
+    
+    // Function to handle incoming notifications ---
+    @MainActor
+    func handlePostDataUpdate(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let updatedPostId = userInfo["postId"] as? String else {
+            return
+        }
+
+        // Find the index of the post that needs updating
+        guard let index = self.posts.firstIndex(where: { $0.id == updatedPostId }) else {
+            return // This post isn't in our list
+        }
+
+        // Check for comment updates
+        if userInfo["commentAdded"] as? Bool == true {
+            self.posts[index].commentCount += 1
+        }
+        
+        // Check for like updates
+        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+            self.posts[index].isLikedByUser = isLiked
+            self.posts[index].likeCount = likeCount
+        }
+    }
+    // --- END ADDED ---
 }
