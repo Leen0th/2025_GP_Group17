@@ -159,7 +159,8 @@ struct DiscoveryView: View {
                 .clipShape(Capsule())
 
                 Button { showFiltersSheet = true } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    // Icon changes based on isFiltering
+                    Image(systemName: isFiltering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                         .font(.system(size: 24, weight: .medium))
                         .foregroundColor(BrandColors.darkTeal)
                 }
@@ -337,6 +338,64 @@ struct FiltersSheetView: View {
     let locations = SAUDI_CITIES
 
     @Environment(\.dismiss) private var dismiss
+    
+    @State private var showScoreInfo = false
+    @State private var showLocationInfo = false
+
+    // --- VALIDATION PROPERTIES ---
+    private var ageMinInvalid: Bool {
+        if let min = ageMin, min < 10 {
+            return true // Min age must be 10 or greater
+        }
+        return false
+    }
+    
+    private var ageMaxInvalid: Bool {
+        if let max = ageMax, max > 100 {
+            return true // Max age must be <= 100
+        }
+        return false
+    }
+
+    private var ageRangeInvalid: Bool {
+        if let min = ageMin, let max = ageMax {
+            return min > max // Min must be <= Max
+        }
+        return false
+    }
+    
+    private var isAgeSectionValid: Bool {
+        !ageMinInvalid && !ageMaxInvalid && !ageRangeInvalid
+    }
+    
+    private var scoreMinInvalid: Bool {
+        if let min = scoreMin, min < 0 {
+            return true // Min score must be >= 0
+        }
+        return false
+    }
+    
+    private var scoreMaxInvalid: Bool {
+        if let max = scoreMax, max > 100 {
+            return true // Max score must be <= 100
+        }
+        return false
+    }
+    
+    private var scoreRangeInvalid: Bool {
+        if let min = scoreMin, let max = scoreMax {
+            return min > max // Min must be <= Max
+        }
+        return false
+    }
+
+    private var isScoreSectionValid: Bool {
+        !scoreMinInvalid && !scoreMaxInvalid && !scoreRangeInvalid
+    }
+    
+    private var isFormValid: Bool {
+        isAgeSectionValid && isScoreSectionValid
+    }
 
     var body: some View {
         NavigationStack {
@@ -350,17 +409,71 @@ struct FiltersSheetView: View {
                     }
                 }
                 Section("Age Range") {
-                    HStack {
-                        TextField("Min", value: $ageMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
-                        Text("-")
-                        TextField("Max", value: $ageMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            TextField("Min", value: $ageMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            Text("-")
+                            TextField("Max", value: $ageMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                        }
+                        
+                        if !isAgeSectionValid {
+                            if ageMinInvalid {
+                                Text("Min age must be 10 or greater.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            if ageMaxInvalid {
+                                Text("Max age must be 100 or less.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            if ageRangeInvalid {
+                                Text("Min age must be less than or equal to Max age.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
                     }
+                    .padding(.vertical, 4) // Add a little vertical padding
+                    // --- ✅ END: VSTACK WRAPPER ---
                 }
-                Section("Score Range") {
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            TextField("Min", value: $scoreMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            Text("-")
+                            TextField("Max", value: $scoreMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                        }
+                        
+                        if !isScoreSectionValid {
+                            if scoreMinInvalid {
+                                Text("Min score must be 0 or greater.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            if scoreMaxInvalid {
+                                Text("Max score must be 100 or less.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            if scoreRangeInvalid {
+                                Text("Min score must be less than or equal to Max score.")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4) // Add a little vertical padding
+                } header: {
                     HStack {
-                        TextField("Min", value: $scoreMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
-                        Text("-")
-                        TextField("Max", value: $scoreMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                        Text("Score Range")
+                        Button {
+                            showScoreInfo = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(BrandColors.darkTeal)
+                        }
                     }
                 }
                 Section("Current Team") {
@@ -369,10 +482,21 @@ struct FiltersSheetView: View {
                         ForEach(teams, id: \.self) { t in Text(t).tag(String?.some(t)) }
                     }
                 }
-                Section("Location") {
+                Section {
                     Picker("Location", selection: $location) {
                         Text("Any").tag(String?.none)
                         ForEach(locations, id: \.self) { loc in Text(loc).tag(String?.some(loc)) }
+                    }
+                } header: {
+                    HStack {
+                        Text("Location")
+                        Button {
+                            showLocationInfo = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(BrandColors.darkTeal)
+                        }
                     }
                 }
                 Section {
@@ -380,6 +504,9 @@ struct FiltersSheetView: View {
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundColor(BrandColors.darkTeal)
                         .frame(maxWidth: .infinity)
+                        .disabled(!isFormValid)
+                        .opacity(isFormValid ? 1.0 : 0.5)
+                    
                     Button("Reset All", role: .destructive) {
                         position = nil; ageMin = nil; ageMax = nil
                         scoreMin = nil; scoreMax = nil
@@ -392,6 +519,32 @@ struct FiltersSheetView: View {
             }
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("How is this calculated?", isPresented: $showScoreInfo) {
+                Button("Got it!") { }
+            } message: {
+                Text("""
+                1. Weights assigned by position:
+                
+                   Pos.   Pass   Drib   Shoot
+                   -------------------------
+                   ATK     3      8      10
+                   MID     8      7       6
+                   DEF     9      3       1
+                
+                2. Score calculated for each post.
+                
+                3. Scores averaged & rounded.
+                """)
+                .font(.system(size: 13, design: .monospaced)) // Monospaced for table
+                .multilineTextAlignment(.leading)   // Aligned left
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12) // Give text a bit more room
+            }
+            .alert("Location", isPresented: $showLocationInfo) {
+                Button("Got it!") { }
+            } message: {
+                Text("The player's place of residence.")
+            }
         }
     }
 }
