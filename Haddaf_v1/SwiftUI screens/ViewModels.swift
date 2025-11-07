@@ -362,6 +362,12 @@ final class PlayerProfileViewModel: ObservableObject {
             self.posts[index].commentCount += 1
         }
         
+        // --- ADDED: Handle comment deletion ---
+        if userInfo["commentDeleted"] as? Bool == true {
+            self.posts[index].commentCount = max(0, self.posts[index].commentCount - 1)
+        }
+        // --- END ADDED ---
+        
         // Check for like updates
         if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
             self.posts[index].isLikedByUser = isLiked
@@ -466,5 +472,4 @@ final class PlayerProfileViewModel: ObservableObject {
         }
 
     }
-    // --- END ADDED ---
 }

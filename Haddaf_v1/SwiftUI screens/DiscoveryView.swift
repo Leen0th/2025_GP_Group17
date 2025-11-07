@@ -31,6 +31,11 @@ struct DiscoveryView: View {
     
     // State to manage the comments sheet
     @State private var postForComments: Post? = nil
+    
+    // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
+    @State private var navigateToProfileID: String?
+    @State private var navigationTrigger = false
+    // --- END ADDED ---
 
     private var filteredPosts: [Post] {
         viewModel.posts.filter { post in
@@ -63,6 +68,13 @@ struct DiscoveryView: View {
             ZStack {
                 // خلفية ثابتة بدون أي مواد ضبابية
                 BrandColors.gradientBackground.ignoresSafeArea()
+                
+                // --- 2. ADDED HIDDEN NAVIGATIONLINK ---
+                NavigationLink(
+                    destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
+                    isActive: $navigationTrigger
+                ) { EmptyView() }
+                // --- END ADDED ---
 
                 if viewModel.isLoadingPosts {
                     ProgressView().tint(BrandColors.darkTeal)
@@ -105,11 +117,24 @@ struct DiscoveryView: View {
                     location: $filterLocation
                 )
             }
-            // --- ✅ ADDED: Sheet for showing comments ---
+            // --- ✅ MODIFIED: Sheet for showing comments ---
             .sheet(item: $postForComments) { post in
                 if let postId = post.id {
-                    CommentsView(postId: postId)
-                        .presentationBackground(BrandColors.background)
+                    CommentsView(
+                        postId: postId,
+                        // --- 3. THIS IS THE FIX ---
+                        onProfileTapped: { userID in
+                            // 1. Set the ID for our NavigationLink
+                            navigateToProfileID = userID
+                            // 2. Dismiss the sheet
+                            postForComments = nil // Use this to dismiss an item-based sheet
+                            // 3. Trigger the navigation after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                navigationTrigger = true
+                            }
+                        }
+                    )
+                    .presentationBackground(BrandColors.background)
                 }
             }
             // --- ✅ ADDED: Listener for sync ---

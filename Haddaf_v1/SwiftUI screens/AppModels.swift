@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import PhotosUI
 import Foundation
+import FirebaseFirestore
 
 // MARK: - NEW: Brand Color Palette
 struct BrandColors {
@@ -93,20 +94,41 @@ struct CoachEndorsement: Identifiable {
     let rating: Int
 }
 
-// MODIFIED: This now aligns with the 'performanceFeedback' subcollection
 struct PostStat: Identifiable, Equatable {
     let id = UUID()
     let label: String
     let value: Double
-    let maxValue: Double 
+    let maxValue: Double
 }
 
-struct Comment: Identifiable {
-    let id = UUID()
+struct Comment: Identifiable, Codable {
+    @DocumentID var id: String?
+    var userId: String
     let username: String
     let userImage: String
-    let text: String
-    let timestamp: String
+    var text: String
+    
+    // FIX #2: This handles the timestamp from Firebase cleanly
+    // and fixes your @DocumentID warning.
+    @ServerTimestamp var createdAt: Timestamp? // <-- Reads the 'createdAt' field
+    
+    // Computed property for display
+    var timestamp: String {
+        let df = DateFormatter()
+        df.dateFormat = "dd/MM/yyyy HH:mm"
+        return df.string(from: createdAt?.dateValue() ?? Date())
+    }
+    
+    // This tells Codable to ignore 'timestamp' (it's computed)
+    // and use 'createdAt' for the Firebase field.
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId
+        case username
+        case userImage
+        case text
+        case createdAt
+    }
 }
 
 // MODIFIED: Post struct updated for Firebase data and made Equatable

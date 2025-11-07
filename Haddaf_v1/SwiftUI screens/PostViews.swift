@@ -28,17 +28,18 @@ struct PostDetailView: View {
     @State private var editedCaption = ""
     @State private var isSavingCaption = false
     
-    // Back to 15
+    // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
+    @State private var navigateToProfileID: String?
+    @State private var navigationTrigger = false
+    // --- END ADDED ---
+    
     private let captionLimit = 15
     
-    // Get the current user's ID
     private var currentUserID: String? {
         Auth.auth().currentUser?.uid
     }
     
-    // Check if the current user is the author
     private var isOwner: Bool {
-        // This works because we added 'authorUid' to the Post model
         post.authorUid == currentUserID
     }
 
@@ -46,9 +47,16 @@ struct PostDetailView: View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
+            // --- 2. ADDED HIDDEN NAVIGATIONLINK ---
+            // This is triggered by the callback from the comments sheet
+            NavigationLink(
+                destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
+                isActive: $navigationTrigger
+            ) { EmptyView() }
+            // --- END ADDED ---
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // --- FIX: This header now correctly hides the trash icon ---
                     header
                     
                     if let videoStr = post.videoURL, let url = URL(string: videoStr) {
@@ -60,7 +68,6 @@ struct PostDetailView: View {
                         VideoPlayerPlaceholderView(post: post)
                     }
                     
-                    // --- FIX: This section now correctly hides edit/privacy buttons ---
                     captionAndMetadata
                     
                     authorInfoAndInteractions
@@ -73,10 +80,6 @@ struct PostDetailView: View {
             .navigationBarBackButtonHidden(true)
             .disabled(isDeleting || isSavingCaption)
             
-            // --- FIX: REMOVED THE DUPLICATE .toolbar MODIFIER ---
-            // (The .toolbar I gave you before was here, it is now GONE)
-            
-            // --- Popups remain on top ---
             if showPrivacyAlert {
                 PrivacyWarningPopupView(
                     isPresented: $showPrivacyAlert,
@@ -104,12 +107,28 @@ struct PostDetailView: View {
                     .cornerRadius(12)
             }
         }
+        // --- 3. MODIFIED .sheet MODIFIER ---
         .sheet(isPresented: $showCommentsSheet) {
             if let postId = post.id {
-                CommentsView(postId: postId)
-                    .presentationBackground(BrandColors.background)
+                CommentsView(
+                    postId: postId,
+                    // Pass the callback function
+                    onProfileTapped: { userID in
+                        // 1. Set the ID for our NavigationLink
+                        navigateToProfileID = userID
+                        // 2. Dismiss the sheet
+                        showCommentsSheet = false
+                        // 3. Trigger the navigation after a short delay
+                        // (This lets the sheet dismiss animation finish)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            navigationTrigger = true
+                        }
+                    }
+                )
+                .presentationBackground(BrandColors.background)
             }
         }
+        // --- END MODIFICATION ---
         .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
             guard let userInfo = notification.userInfo,
                   let updatedPostId = userInfo["postId"] as? String,
@@ -118,6 +137,9 @@ struct PostDetailView: View {
             }
             if userInfo["commentAdded"] as? Bool == true {
                 post.commentCount += 1
+            }
+            if userInfo["commentDeleted"] as? Bool == true {
+                post.commentCount = max(0, post.commentCount - 1)
             }
             if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
                 post.isLikedByUser = isLiked
@@ -145,7 +167,6 @@ struct PostDetailView: View {
                 }
                 Spacer()
                 
-                // --- FIX: This button is now conditional ---
                 if isOwner {
                     Button { showDeleteConfirmation = true } label: {
                         Image(systemName: "trash")
@@ -155,7 +176,6 @@ struct PostDetailView: View {
                             .background(Circle().fill(Color.red.opacity(0.1)))
                     }
                 }
-                // --- END FIX ---
             }
         }
         .padding(.bottom, 8)
@@ -257,7 +277,6 @@ struct PostDetailView: View {
                         .foregroundColor(BrandColors.darkGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     
-                    // --- FIX: This button is now conditional ---
                     if isOwner {
                         Button {
                             editedCaption = post.caption
@@ -272,11 +291,9 @@ struct PostDetailView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    // --- END FIX ---
                 }
             }
-
-            // --- METADATA SECTION ---
+            
             if let matchDate = post.matchDate {
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
@@ -290,12 +307,11 @@ struct PostDetailView: View {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "pencil.and.outline")
-                    Text("Post Date: \(post.timestamp)")
+                    Text("Post Date: \(formatTimestampString(post.timestamp))")
                 }
                 
                 Spacer()
                 
-                // --- FIX: This button is now conditional ---
                 if isOwner {
                     Button(action: { showPrivacyAlert = true }) {
                         HStack(spacing: 4) {
@@ -305,7 +321,6 @@ struct PostDetailView: View {
                         .foregroundColor(post.isPrivate ? .red : accentColor)
                     }
                 }
-                // --- END FIX ---
             }
             .font(.system(size: 12, design: .rounded))
             .foregroundColor(.secondary)
@@ -322,13 +337,11 @@ struct PostDetailView: View {
         }
     }
 
-    // --- MODIFIED: authorInfoAndInteractions now includes NavigationLink ---
     private var authorInfoAndInteractions: some View {
         HStack {
-            // --- MODIFICATION: Wrap author info in a NavigationLink ---
             if let uid = post.authorUid, !uid.isEmpty {
                 NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
-                    HStack(spacing: 8) { // Use an HStack for the image and name
+                    HStack(spacing: 8) {
                         AsyncImage(url: URL(string: post.authorImageName)) { image in
                             image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
                         } placeholder: {
@@ -339,9 +352,8 @@ struct PostDetailView: View {
                             .foregroundColor(BrandColors.darkGray)
                     }
                 }
-                .buttonStyle(.plain) // Prevent text from turning blue
+                .buttonStyle(.plain)
             } else {
-                // Fallback if there's no UID
                 HStack(spacing: 8) {
                     AsyncImage(url: URL(string: post.authorImageName)) { image in
                         image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
@@ -353,7 +365,6 @@ struct PostDetailView: View {
                         .foregroundColor(BrandColors.darkGray)
                 }
             }
-            // --- END MODIFICATION ---
             
             Spacer()
             
@@ -377,7 +388,6 @@ struct PostDetailView: View {
         }
         .foregroundColor(.primary)
     }
-    // --- END MODIFICATION ---
 
     private func commitCaptionEdit() async {
         guard let postId = post.id else { return }
@@ -437,7 +447,18 @@ struct PostDetailView: View {
         }
     }
     
-    // Fixed format
+    private func formatTimestampString(_ timestampString: String) -> String {
+        let inputFormatter = DateFormatter()
+        inputFormatter.dateFormat = "dd/MM/yyyy HH:mm"
+        inputFormatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        if let date = inputFormatter.date(from: timestampString) {
+            return formatMatchDate(date)
+        } else {
+            return timestampString
+        }
+    }
+    
     private func formatMatchDate(_ date: Date) -> String {
         let df_dateOnly = DateFormatter()
         df_dateOnly.dateFormat = "MMM d, yyyy"
@@ -476,14 +497,26 @@ struct PostDetailView: View {
 }
 
 // MARK: - Comments Sheet View (Lifecycle Fix)
+
+// --- MODIFICATION: Removed NavigationStack, Added callback ---
 struct CommentsView: View {
     let postId: String
+    var onProfileTapped: (String) -> Void // <-- 1. ADDED THIS
+    
     @StateObject private var viewModel = CommentsViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var newCommentText = ""
     private let accentColor = BrandColors.darkTeal
 
+    @State private var showEditSheet = false
+    @State private var commentToEdit: Comment?
+    @State private var editedCommentText = ""
+    
+    @State private var showDeleteAlert = false
+    @State private var commentToDelete: Comment?
+
     var body: some View {
+        // --- 2. REMOVED NavigationStack ---
         VStack(spacing: 0) {
             // --- Header ---
             HStack {
@@ -513,7 +546,20 @@ struct CommentsView: View {
                             .frame(maxWidth: .infinity)
                     } else {
                         ForEach(viewModel.comments) { comment in
-                            CommentRowView(comment: comment)
+                            CommentRowView(
+                                comment: comment,
+                                onProfileTapped: onProfileTapped, // <-- 3. PASS CALLBACK
+                                onDelete: {
+                                    commentToDelete = comment
+                                    showDeleteAlert = true
+                                },
+                                onEdit: {
+                                    viewModel.stopListening()
+                                    commentToEdit = comment
+                                    editedCommentText = comment.text
+                                    showEditSheet = true
+                                }
+                            )
                         }
                     }
                 }
@@ -521,12 +567,40 @@ struct CommentsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(BrandColors.backgroundGradientEnd)
-            // --- FIX: Use .onAppear for fetching ---
             .onAppear {
                 viewModel.fetchComments(for: postId)
             }
             .onDisappear {
                 viewModel.stopListening()
+            }
+            .sheet(isPresented: $showEditSheet) {
+                viewModel.fetchComments(for: postId)
+            } content: {
+                if let comment = commentToEdit {
+                    EditCommentView(
+                        commentText: $editedCommentText,
+                        onSave: {
+                            Task {
+                                await viewModel.editComment(comment, newText: editedCommentText, from: postId)
+                                showEditSheet = false
+                            }
+                        },
+                        onCancel: {
+                            showEditSheet = false
+                        }
+                    )
+                    .presentationBackground(BrandColors.background)
+                }
+            }
+            .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await viewModel.deleteComment(comment, from: postId)
+                    }
+                }
+            } message: { _ in
+                Text("Are you sure you want to delete this comment? This action cannot be undone.")
             }
 
             // --- Comment Input Area ---
@@ -546,6 +620,7 @@ struct CommentsView: View {
             .padding()
             .background(BrandColors.background)
         }
+        // --- 4. REMOVED .navigationBarHidden(true) ---
     }
 
     private func addComment() {
@@ -558,15 +633,17 @@ struct CommentsView: View {
         }
     }
 }
+// --- END MODIFICATION ---
 
+// ===================================================================
+// MARK: - Comments View Model (NO CHANGE)
+// ===================================================================
 final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
     @Published var isLoading = true
     
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
-    
-    // --- FIX: Add a lock to protect the listener ---
     private let lock = NSLock()
 
     deinit {
@@ -574,54 +651,35 @@ final class CommentsViewModel: ObservableObject {
     }
 
     func fetchComments(for postId: String) {
-        lock.lock() // --- FIX: Lock
-        guard listener == nil else {
-            lock.unlock() // --- FIX: Unlock if we return early
-            return
-        }
-        lock.unlock() // --- FIX: Unlock
-        
-        // This @Published property update will automatically dispatch to the main queue
+        stopListening()
         isLoading = true
         
         let ref = db.collection("videoPosts").document(postId).collection("comments").order(by: "createdAt", descending: false)
         
-        // Firestore's listener defaults to calling back on the main thread,
-        // so we don't need to manually dispatch 'comments' or 'isLoading' updates.
         let newListener = ref.addSnapshotListener { [weak self] snap, error in
-            guard let self, let docs = snap?.documents else {
+            guard let self, let snap = snap else {
                 print("Error fetching comments: \(error?.localizedDescription ?? "Unknown error")")
                 self?.isLoading = false
                 return
             }
             
-            let df = DateFormatter(); df.dateFormat = "dd/MM/yyyy HH:mm"
-            self.comments = docs.compactMap { doc in
-                let d = doc.data()
-                guard let timestamp = d["createdAt"] as? Timestamp else {
-                    return nil
-                }
-                return Comment(
-                    username: (d["username"] as? String) ?? "Unknown",
-                    userImage: (d["userImage"] as? String) ?? "",
-                    text: (d["text"] as? String) ?? "",
-                    timestamp: df.string(from: timestamp.dateValue())
-                )
+            self.comments = snap.documents.compactMap { doc in
+                try? doc.data(as: Comment.self)
             }
+            
             self.isLoading = false
         }
         
-        lock.lock() // --- FIX: Lock
-        self.listener = newListener // Save the listener
-        lock.unlock() // --- FIX: Unlock
+        lock.lock()
+        self.listener = newListener
+        lock.unlock()
     }
     
-    // --- FIX: This function is now non-isolated and thread-safe ---
     func stopListening() {
-        lock.lock() // --- FIX: Lock
+        lock.lock()
         listener?.remove()
         listener = nil
-        lock.unlock() // --- FIX: Unlock
+        lock.unlock()
         print("Comments listener stopped.")
     }
 
@@ -629,14 +687,12 @@ final class CommentsViewModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
         do {
-            // 1. Get User Data
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let u = userDoc.data() ?? [:]
             let first = (u["firstName"] as? String) ?? ""; let last  = (u["lastName"]  as? String) ?? ""
             let username = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
             let userImage = (u["profilePic"] as? String) ?? ""
 
-            // 2. Prepare Firestore Data (using Server Timestamp)
             let commentData: [String: Any] = [
                 "text": trimmed,
                 "username": username.isEmpty ? "Unknown" : username,
@@ -645,7 +701,6 @@ final class CommentsViewModel: ObservableObject {
                 "createdAt": FieldValue.serverTimestamp()
             ]
 
-            // 3. Write to Firestore & Increment Count in a batch
             let postRef = db.collection("videoPosts").document(postId)
             let commentRef = postRef.collection("comments").document()
             
@@ -654,35 +709,112 @@ final class CommentsViewModel: ObservableObject {
             batch.updateData(["commentCount": FieldValue.increment(Int64(1))], forDocument: postRef)
             try await batch.commit()
 
-            // 4. Post Notification
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
                 "postId": postId,
                 "commentAdded": true
             ])
             
-            // Note: No optimistic UI update needed, listener will catch it
-
         } catch {
             print("Failed to add comment: \(error)")
+        }
+    }
+    
+    @MainActor
+    func editComment(_ comment: Comment, newText: String, from postId: String) async {
+        let trimmedText = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let commentId = comment.id, !trimmedText.isEmpty else {
+            print("Error: Comment ID is missing or text is empty.")
+            return
+        }
+        
+        if let index = self.comments.firstIndex(where: { $0.id == commentId }) {
+            self.comments[index].text = trimmedText
+        }
+        
+        do {
+            let commentRef = db.collection("videoPosts").document(postId).collection("comments").document(commentId)
+            try await commentRef.updateData(["text": trimmedText])
+        } catch {
+            print("Error editing comment: \(error.localizedDescription)")
+        }
+    }
+    
+    @MainActor
+    func deleteComment(_ comment: Comment, from postId: String) async {
+        guard let commentId = comment.id else {
+            print("Error: Comment ID is missing.")
+            return
+        }
+        
+        self.comments.removeAll(where: { $0.id == commentId })
+        
+        do {
+            let postRef = db.collection("videoPosts").document(postId)
+            let commentRef = postRef.collection("comments").document(commentId)
+            
+            let batch = db.batch()
+            batch.deleteDocument(commentRef)
+            batch.updateData(["commentCount": FieldValue.increment(Int64(-1))], forDocument: postRef)
+            
+            try await batch.commit()
+            
+            NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
+                "postId": postId,
+                "commentDeleted": true
+            ])
+            
+        } catch {
+            print("Error deleting comment: \(error.localizedDescription)")
+            fetchComments(for: postId) // Re-fetch to correct UI
         }
     }
 }
 
 
 // MARK: - Helper Views (Styling Update)
+
+// --- MODIFICATION: Replaced NavigationLink with Buttons ---
 fileprivate struct CommentRowView: View {
     let comment: Comment
+    
+    // Closures and ownership check
+    var onProfileTapped: (String) -> Void // <-- 1. ADDED THIS
+    var onDelete: () -> Void
+    var onEdit: () -> Void
+    
+    private var currentUserID: String? { Auth.auth().currentUser?.uid }
+    private var isOwner: Bool { comment.userId == currentUserID }
+    
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            AsyncImage(url: URL(string: comment.userImage)) { image in
-                image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
-            } placeholder: {
-                Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
+            
+            // --- 2. This is now a Button ---
+            Button(action: {
+                onProfileTapped(comment.userId)
+            }) {
+                AsyncImage(url: URL(string: comment.userImage)) { image in
+                    image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
+                } placeholder: {
+                    Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
+                }
             }
+            .buttonStyle(.plain)
+            // --- END MODIFICATION ---
+            
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(comment.username)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    
+                    // --- 3. This is also a Button ---
+                    Button(action: {
+                        onProfileTapped(comment.userId)
+                    }) {
+                        Text(comment.username)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray) // Set color explicitly
+                    }
+                    .buttonStyle(.plain)
+                    // --- END MODIFICATION ---
+                    
                     Text(comment.timestamp)
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(.secondary)
@@ -691,9 +823,30 @@ fileprivate struct CommentRowView: View {
                     .font(.system(size: 15, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
             }
+            
+            Spacer() // Pushes the menu to the far right
+            
+            if isOwner {
+                Menu {
+                    Button(action: onEdit) {
+                        Label("Edit Comment", systemImage: "pencil")
+                    }
+                    Button(role: .destructive, action: onDelete) {
+                        Label("Delete Comment", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .tint(.secondary)
+            }
         }
     }
 }
+// --- END MODIFICATION ---
 
 struct VideoPlayerPlaceholderView: View {
     let post: Post
@@ -843,3 +996,59 @@ struct DeleteConfirmationOverlay: View {
         }
     }
 }
+
+// --- ADDED: New view for editing a comment ---
+fileprivate struct EditCommentView: View {
+    @Binding var commentText: String
+    var onSave: () -> Void
+    var onCancel: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    private let accentColor = BrandColors.darkTeal
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                    dismiss()
+                }
+                .font(.system(size: 16, design: .rounded))
+                .foregroundColor(accentColor)
+                
+                Spacer()
+                Text("Edit Comment")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                Spacer()
+                
+                Button("Save") {
+                    onSave()
+                    // dismiss() is handled by the caller
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(accentColor)
+                .disabled(commentText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding()
+            .background(BrandColors.background)
+            .overlay(Divider(), alignment: .bottom)
+            
+            // Text Editor
+            VStack {
+                TextField("Edit your comment...", text: $commentText, axis: .vertical)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding()
+                    .background(BrandColors.lightGray.opacity(0.7))
+                    .cornerRadius(12)
+                    .tint(accentColor)
+                    .lineLimit(5...10)
+                
+                Spacer()
+            }
+            .padding()
+            .background(BrandColors.backgroundGradientEnd.ignoresSafeArea())
+        }
+    }
+}
+// --- END ADDED ---
