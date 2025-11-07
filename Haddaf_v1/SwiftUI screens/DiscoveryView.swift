@@ -15,6 +15,9 @@ struct DiscoveryView: View {
 
     @StateObject private var viewModel = DiscoveryViewModel()
     @StateObject private var lbViewModel = LeaderboardViewModel()
+    
+    // --- Use the shared reporting service and observe its changes ---
+    @StateObject private var reportService = ReportStateService.shared
 
     @State private var searchText = ""
 
@@ -35,6 +38,10 @@ struct DiscoveryView: View {
     // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
     @State private var navigateToProfileID: String?
     @State private var navigationTrigger = false
+    // --- END ADDED ---
+    
+    // --- ADDED: State for reporting ---
+    @State private var itemToReport: ReportableItem?
     // --- END ADDED ---
 
     private var filteredPosts: [Post] {
@@ -137,7 +144,14 @@ struct DiscoveryView: View {
                     .presentationBackground(BrandColors.background)
                 }
             }
-            // --- ✅ ADDED: Listener for sync ---
+            // --- Sheet for reporting ---
+            .sheet(item: $itemToReport) { item in
+                ReportView(item: item) { reportedID in
+                    // On complete, tell the shared service to report the post
+                    reportService.reportPost(id: reportedID)
+                }
+            }
+            // --- Listener for sync ---
             .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
                 viewModel.handlePostDataUpdate(notification: notification)
             }
@@ -202,22 +216,37 @@ struct DiscoveryView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 16) {
-                        // --- ✅ MODIFIED: ForEach loop ---
-                        ForEach(filteredPosts) { post in
-                            NavigationLink(destination: PostDetailView(post: post)) {
-                                let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
-                                DiscoveryPostCardView(
-                                    viewModel: viewModel, // Pass the view model
-                                    post: post,
-                                    authorProfile: authorProfile,
-                                    onCommentTapped: { // Pass the closure
-                                        self.postForComments = post
-                                    }
-                                )
+                        ForEach(filteredPosts, id: \.id) { post in
+                        
+                            // --- Check the shared service to see if post is reported ---
+                            if let postId = post.id, reportService.reportedPostIDs.contains(postId) {
+                                ReportedContentView(type: .post) {
+                                    // Tell the shared service to unhide the post
+                                    reportService.unhidePost(id: postId)
+                                }
+                            } else {
+                                NavigationLink(destination: PostDetailView(post: post)) {
+                                    let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
+                                    DiscoveryPostCardView(
+                                        viewModel: viewModel, // Pass the view model
+                                        post: post,
+                                        authorProfile: authorProfile,
+                                        onCommentTapped: { // Pass the closure
+                                            self.postForComments = post
+                                        },
+                                        onReport: {
+                                            // --- ADDED: Trigger report flow ---
+                                            itemToReport = ReportableItem(
+                                                id: post.id ?? "",
+                                                type: .post,
+                                                contentPreview: post.caption
+                                            )
+                                        }
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
-                        // --- END MODIFICATION ---
                     }
                     .padding()
                     .padding(.bottom, 80)
@@ -254,7 +283,13 @@ struct DiscoveryPostCardView: View {
     let post: Post
     let authorProfile: UserProfile
     let onCommentTapped: () -> Void
-    // --- END MODIFICATION ---
+    // --- ADDED: Callback for reporting ---
+    let onReport: () -> Void
+    // --- END ADDED ---
+    
+    // Check if the current user is the owner of the post
+    private var currentUserID: String? { Auth.auth().currentUser?.uid }
+    private var isOwner: Bool { post.authorUid == currentUserID }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -275,8 +310,22 @@ struct DiscoveryPostCardView: View {
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(.secondary)
                 }
+                
+                Spacer()
+                
+                // Only show the report button if the user is NOT the owner
+                if !isOwner {
+                    Button(action: onReport) {
+                        Image(systemName: "flag")
+                            .font(.caption)
+                            .foregroundColor(.red) // <-- FIXED: Set color directly
+                            .padding(8)
+                            .contentShape(Rectangle()) // Make tap area larger
+                    }
+                    .buttonStyle(.plain) // Prevent NavigationLink trigger
+                }
             }
-
+            
             // Media
             if let videoStr = post.videoURL, let url = URL(string: videoStr) {
                 VideoPlayer(player: AVPlayer(url: url))

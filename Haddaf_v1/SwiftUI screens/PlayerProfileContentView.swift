@@ -62,6 +62,11 @@ struct PlayerProfileContentView: View {
     
     @State private var searchText = ""
 
+    // --- ADDED: State for reporting ---
+    @State private var itemToReport: ReportableItem?
+    @State private var showReportAlert = false
+    // --- END ADDED ---
+
     // --- MODIFIED: Added two initializers ---
     init() {
         // This init is for the Tab Bar (current user)
@@ -138,7 +143,14 @@ struct PlayerProfileContentView: View {
                             userProfile: viewModel.userProfile,
                             goToSettings: $goToSettings,
                             showNotifications: $showNotificationsList,
-                            isCurrentUser: isCurrentUser
+                            isCurrentUser: isCurrentUser,
+                            onReport: {
+                                itemToReport = ReportableItem(
+                                    id: viewModel.userProfile.email, // Use email as a unique ID
+                                    type: .profile,
+                                    contentPreview: viewModel.userProfile.name
+                                )
+                            }
                         )
                         // --- END MODIFICATION ---
                          
@@ -265,6 +277,13 @@ struct PlayerProfileContentView: View {
             }
             .fullScreenCover(item: $selectedPost) { post in // <-- MODIFIER MOVED HERE
                 NavigationStack { PostDetailView(post: post) }
+            }
+            // --- ADDED: Sheet for reporting ---
+            .sheet(item: $itemToReport) { item in
+                ReportView(item: item) { reportedID in
+                    // When a profile report is complete, just show an alert.
+                    showReportAlert = true
+                }
             }
 
             // VIEW 3: The new popup
@@ -962,6 +981,10 @@ struct TopNavigationBar: View {
     // --- MODIFIED: Added isCurrentUser flag ---
     var isCurrentUser: Bool
     // --- END MODIFICATION ---
+    
+    // --- ADDED: Callback for reporting ---
+    var onReport: () -> Void
+    // --- END ADDED ---
 
     var body: some View {
         HStack(spacing: 16) {
@@ -988,6 +1011,17 @@ struct TopNavigationBar: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
+            } else {
+                // --- MODIFICATION: Replaced Menu with Button ---
+                Button(action: onReport) {
+                    Image(systemName: "flag")
+                        .font(.title2)
+                        .foregroundColor(.red) // <-- FIXED: Set color directly
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                // --- END MODIFICATION ---
             }
             // --- END MODIFICATION ---
         }

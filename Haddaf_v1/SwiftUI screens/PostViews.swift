@@ -33,6 +33,12 @@ struct PostDetailView: View {
     
     private let captionLimit = 15
     
+    // Use the shared reporting service and observe its changes
+    @StateObject private var reportService = ReportStateService.shared
+    
+    // --- ADDED: State for reporting ---
+    @State private var itemToReport: ReportableItem?
+    
     private var currentUserID: String? {
         Auth.auth().currentUser?.uid
     }
@@ -50,30 +56,44 @@ struct PostDetailView: View {
                 isActive: $navigationTrigger
             ) { EmptyView() }
             
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    
-                    if let videoStr = post.videoURL, let url = URL(string: videoStr) {
-                        VideoPlayer(player: AVPlayer(url: url))
-                            .frame(height: 250)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
-                    } else {
-                        VideoPlayerPlaceholderView(post: post)
+            // Check the shared service to see if post is reported
+            if let postId = post.id, reportService.reportedPostIDs.contains(postId) {
+                VStack {
+                    header // Show header so user can go back
+                    Spacer()
+                    ReportedContentView(type: .post) {
+                        // Tell the shared service to unhide the post
+                        reportService.unhidePost(id: postId)
                     }
-                    
-                    captionAndMetadata
-                    
-                    authorInfoAndInteractions
-                    
-                    Divider()
-                    statsSection
+                    .padding()
+                    Spacer()
                 }
-                .padding(.horizontal)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        header
+                        
+                        if let videoStr = post.videoURL, let url = URL(string: videoStr) {
+                            VideoPlayer(player: AVPlayer(url: url))
+                                .frame(height: 250)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+                        } else {
+                            VideoPlayerPlaceholderView(post: post)
+                        }
+                        
+                        captionAndMetadata
+                        
+                        authorInfoAndInteractions
+                        
+                        Divider()
+                        statsSection
+                    }
+                    .padding(.horizontal)
+                }
+                .disabled(isDeleting || isSavingCaption)
             }
-            .navigationBarBackButtonHidden(true)
-            .disabled(isDeleting || isSavingCaption)
+            // --- END MODIFICATION ---
             
             if showPrivacyAlert {
                 PrivacyWarningPopupView(
@@ -102,6 +122,15 @@ struct PostDetailView: View {
                     .cornerRadius(12)
             }
         }
+        .navigationBarBackButtonHidden(true)
+        // --- ADDED: Sheet for reporting ---
+        .sheet(item: $itemToReport) { item in
+            ReportView(item: item) { reportedID in
+                // On complete, tell the shared service to report the post
+                reportService.reportPost(id: reportedID)
+            }
+        }
+        // --- END ADDED ---
         .sheet(isPresented: $showCommentsSheet) {
             if let postId = post.id {
                 CommentsView(
@@ -140,29 +169,46 @@ struct PostDetailView: View {
     }
 
     private var header: some View {
-        ZStack {
-            Text("Post")
-                .font(.system(size: 28, weight: .medium, design: .rounded))
-                .foregroundColor(accentColor)
+            ZStack {
+                Text("Post")
+                    .font(.system(size: 28, weight: .medium, design: .rounded))
+                    .foregroundColor(accentColor)
 
-            HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(accentColor)
-                        .padding(10)
-                        .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
-                }
-                Spacer()
-                
-                if isOwner {
-                    Button { showDeleteConfirmation = true } label: {
-                        Image(systemName: "trash")
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.red)
+                            .foregroundColor(accentColor)
                             .padding(10)
-                            .background(Circle().fill(Color.red.opacity(0.1)))
+                            .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                     }
+                    Spacer()
+                    
+                    if isOwner {
+                        Button { showDeleteConfirmation = true } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.red)
+                                .padding(10)
+                                .background(Circle().fill(Color.red.opacity(0.1)))
+                        }
+                    } else {
+                        // --- MODIFICATION: Replaced Menu with Button ---
+                        Button {
+                            // --- Use the full initializer `ReportableItem(...)` ---
+                            itemToReport = ReportableItem(
+                                id: post.id ?? "",
+                                type: .post,
+                                contentPreview: post.caption
+                            )
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.red) // <-- FIXED: Set color directly
+                                .padding(10)
+                                .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
+                        }
+                        // --- END MODIFICATION ---
                 }
             }
         }
@@ -178,7 +224,9 @@ struct PostDetailView: View {
         }
 
         do {
+            // --- Get the root reference ---
             let storageRef = Storage.storage().reference()
+            
             let videoRef = storageRef.child("posts/\(uid)/\(postId).mov")
             let thumbRef = storageRef.child("posts/\(uid)/\(postId)_thumb.jpg")
 
@@ -496,6 +544,9 @@ struct CommentsView: View {
     @State private var newCommentText = ""
     private let accentColor = BrandColors.darkTeal
     
+    // Use the shared reporting service and observe its changes
+    @StateObject private var reportService = ReportStateService.shared
+    
     // --- 1. REMOVED Sheet state ---
     // @State private var showEditSheet = false
     // @State private var commentToEdit: Comment?
@@ -508,6 +559,9 @@ struct CommentsView: View {
     
     @State private var showDeleteAlert = false
     @State private var commentToDelete: Comment?
+    
+    // --- ADDED: State for reporting ---
+    @State private var itemToReport: ReportableItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -540,33 +594,51 @@ struct CommentsView: View {
                     } else {
                         // --- 3. MODIFIED ForEach ---
                         ForEach(viewModel.comments) { comment in
-                            CommentRowView(
-                                comment: comment,
-                                isEditing: editingCommentID == comment.id,
-                                editingText: $editingCommentText,
-                                commentLimit: commentLimit,
-                                onProfileTapped: onProfileTapped,
-                                onEdit: {
-                                    viewModel.stopListening()
-                                    editingCommentID = comment.id
-                                    editingCommentText = comment.text
-                                },
-                                onDelete: {
-                                    commentToDelete = comment
-                                    showDeleteAlert = true
-                                },
-                                onSave: {
-                                    Task {
-                                        await viewModel.editComment(comment, newText: editingCommentText, from: postId)
-                                    }
-                                    editingCommentID = nil
-                                    viewModel.fetchComments(for: postId) // Restart listener
-                                },
-                                onCancel: {
-                                    editingCommentID = nil
-                                    viewModel.fetchComments(for: postId) // Restart listener
+                            // Check the shared service to see if comment is reported
+                            if let commentId = comment.id, reportService.reportedCommentIDs.contains(commentId) {
+                                ReportedContentView(type: .comment) {
+                                    // Tell the shared service to unhide the comment
+                                    reportService.unhideComment(id: commentId)
                                 }
-                            )
+                                .padding(.horizontal)
+                            } else {
+                                CommentRowView(
+                                    comment: comment,
+                                    isEditing: editingCommentID == comment.id,
+                                    editingText: $editingCommentText,
+                                    commentLimit: commentLimit,
+                                    onProfileTapped: onProfileTapped,
+                                    onEdit: {
+                                        viewModel.stopListening()
+                                        editingCommentID = comment.id
+                                        editingCommentText = comment.text
+                                    },
+                                    onDelete: {
+                                        commentToDelete = comment
+                                        showDeleteAlert = true
+                                    },
+                                    onSave: {
+                                        Task {
+                                            await viewModel.editComment(comment, newText: editingCommentText, from: postId)
+                                        }
+                                        editingCommentID = nil
+                                        viewModel.fetchComments(for: postId) // Restart listener
+                                    },
+                                    onCancel: {
+                                        editingCommentID = nil
+                                        viewModel.fetchComments(for: postId) // Restart listener
+                                    },
+                                    onReport: {
+                                        // --- Use the full initializer `ReportableItem(...)` ---
+                                        itemToReport = ReportableItem(
+                                            id: comment.id ?? "",
+                                            type: .comment,
+                                            contentPreview: comment.text
+                                        )
+                                    }
+                                )
+                            }
+                            // --- END MODIFICATION ---
                         }
                         // --- END MODIFICATION ---
                     }
@@ -581,6 +653,14 @@ struct CommentsView: View {
             .onDisappear {
                 viewModel.stopListening()
             }
+            // --- ADDED: Sheet for reporting ---
+            .sheet(item: $itemToReport) { item in
+                ReportView(item: item) { reportedID in
+                    // On complete, tell the shared service to report the comment
+                    reportService.reportComment(id: reportedID)
+                }
+            }
+            // --- END ADDED ---
             // --- 4. REMOVED .sheet modifier ---
             .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
                 Button("Cancel", role: .cancel) { }
@@ -781,6 +861,10 @@ fileprivate struct CommentRowView: View {
     var onSave: () -> Void
     var onCancel: () -> Void
     
+    // --- ADDED: Callback for reporting ---
+    var onReport: () -> Void
+    // --- END ADDED ---
+    
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
     private var isOwner: Bool { comment.userId == currentUserID }
     private let accentColor = BrandColors.darkTeal
@@ -890,6 +974,18 @@ fileprivate struct CommentRowView: View {
                 }
                 .tint(.secondary)
             }
+            // --- MODIFICATION: Replaced Menu with Button ---
+            else if !isOwner {
+                Button(action: onReport) {
+                    Image(systemName: "flag")
+                        .font(.caption)
+                        .foregroundColor(.red) // <-- FIXED: Set color directly
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            // --- END MODIFICATION ---
         }
         .animation(.easeInOut, value: isEditing) // Animate the transition
     }
