@@ -590,7 +590,7 @@ struct CommentsView: View {
                     }
                 }
             } message: { _ in
-                Text("Are you sure you want to delete this comment? This action cannot be undone.")
+                Text("Are you sure you want to delete this comment?")
             }
 
             // --- Comment Input Area ---
