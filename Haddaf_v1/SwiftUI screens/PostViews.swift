@@ -28,10 +28,8 @@ struct PostDetailView: View {
     @State private var editedCaption = ""
     @State private var isSavingCaption = false
     
-    // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
     @State private var navigateToProfileID: String?
     @State private var navigationTrigger = false
-    // --- END ADDED ---
     
     private let captionLimit = 15
     
@@ -47,13 +45,10 @@ struct PostDetailView: View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
-            // --- 2. ADDED HIDDEN NAVIGATIONLINK ---
-            // This is triggered by the callback from the comments sheet
             NavigationLink(
                 destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
                 isActive: $navigationTrigger
             ) { EmptyView() }
-            // --- END ADDED ---
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -107,19 +102,13 @@ struct PostDetailView: View {
                     .cornerRadius(12)
             }
         }
-        // --- 3. MODIFIED .sheet MODIFIER ---
         .sheet(isPresented: $showCommentsSheet) {
             if let postId = post.id {
                 CommentsView(
                     postId: postId,
-                    // Pass the callback function
                     onProfileTapped: { userID in
-                        // 1. Set the ID for our NavigationLink
                         navigateToProfileID = userID
-                        // 2. Dismiss the sheet
                         showCommentsSheet = false
-                        // 3. Trigger the navigation after a short delay
-                        // (This lets the sheet dismiss animation finish)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             navigationTrigger = true
                         }
@@ -128,7 +117,6 @@ struct PostDetailView: View {
                 .presentationBackground(BrandColors.background)
             }
         }
-        // --- END MODIFICATION ---
         .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
             guard let userInfo = notification.userInfo,
                   let updatedPostId = userInfo["postId"] as? String,
@@ -498,25 +486,30 @@ struct PostDetailView: View {
 
 // MARK: - Comments Sheet View (Lifecycle Fix)
 
-// --- MODIFICATION: Removed NavigationStack, Added callback ---
+// --- MODIFICATION: In-place editing state ---
 struct CommentsView: View {
     let postId: String
-    var onProfileTapped: (String) -> Void // <-- 1. ADDED THIS
+    var onProfileTapped: (String) -> Void
     
     @StateObject private var viewModel = CommentsViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var newCommentText = ""
     private let accentColor = BrandColors.darkTeal
-
-    @State private var showEditSheet = false
-    @State private var commentToEdit: Comment?
-    @State private var editedCommentText = ""
+    
+    // --- 1. REMOVED Sheet state ---
+    // @State private var showEditSheet = false
+    // @State private var commentToEdit: Comment?
+    // @State private var editedCommentText = ""
+    
+    // --- 2. ADDED In-Place Editing State ---
+    @State private var editingCommentID: String? = nil
+    @State private var editingCommentText: String = ""
+    private let commentLimit = 280 // Set a reasonable limit
     
     @State private var showDeleteAlert = false
     @State private var commentToDelete: Comment?
 
     var body: some View {
-        // --- 2. REMOVED NavigationStack ---
         VStack(spacing: 0) {
             // --- Header ---
             HStack {
@@ -545,22 +538,37 @@ struct CommentsView: View {
                             .padding(.top, 40)
                             .frame(maxWidth: .infinity)
                     } else {
+                        // --- 3. MODIFIED ForEach ---
                         ForEach(viewModel.comments) { comment in
                             CommentRowView(
                                 comment: comment,
-                                onProfileTapped: onProfileTapped, // <-- 3. PASS CALLBACK
+                                isEditing: editingCommentID == comment.id,
+                                editingText: $editingCommentText,
+                                commentLimit: commentLimit,
+                                onProfileTapped: onProfileTapped,
+                                onEdit: {
+                                    viewModel.stopListening()
+                                    editingCommentID = comment.id
+                                    editingCommentText = comment.text
+                                },
                                 onDelete: {
                                     commentToDelete = comment
                                     showDeleteAlert = true
                                 },
-                                onEdit: {
-                                    viewModel.stopListening()
-                                    commentToEdit = comment
-                                    editedCommentText = comment.text
-                                    showEditSheet = true
+                                onSave: {
+                                    Task {
+                                        await viewModel.editComment(comment, newText: editingCommentText, from: postId)
+                                    }
+                                    editingCommentID = nil
+                                    viewModel.fetchComments(for: postId) // Restart listener
+                                },
+                                onCancel: {
+                                    editingCommentID = nil
+                                    viewModel.fetchComments(for: postId) // Restart listener
                                 }
                             )
                         }
+                        // --- END MODIFICATION ---
                     }
                 }
                 .padding()
@@ -573,25 +581,7 @@ struct CommentsView: View {
             .onDisappear {
                 viewModel.stopListening()
             }
-            .sheet(isPresented: $showEditSheet) {
-                viewModel.fetchComments(for: postId)
-            } content: {
-                if let comment = commentToEdit {
-                    EditCommentView(
-                        commentText: $editedCommentText,
-                        onSave: {
-                            Task {
-                                await viewModel.editComment(comment, newText: editedCommentText, from: postId)
-                                showEditSheet = false
-                            }
-                        },
-                        onCancel: {
-                            showEditSheet = false
-                        }
-                    )
-                    .presentationBackground(BrandColors.background)
-                }
-            }
+            // --- 4. REMOVED .sheet modifier ---
             .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
@@ -620,7 +610,12 @@ struct CommentsView: View {
             .padding()
             .background(BrandColors.background)
         }
-        // --- 4. REMOVED .navigationBarHidden(true) ---
+        // Add listener for character limit on in-place editor
+        .onChange(of: editingCommentText) { _, newVal in
+            if newVal.count > commentLimit {
+                editingCommentText = String(newVal.prefix(commentLimit))
+            }
+        }
     }
 
     private func addComment() {
@@ -773,22 +768,26 @@ final class CommentsViewModel: ObservableObject {
 
 // MARK: - Helper Views (Styling Update)
 
-// --- MODIFICATION: Replaced NavigationLink with Buttons ---
+// --- MODIFICATION: Replaced simple text with in-place editor ---
 fileprivate struct CommentRowView: View {
     let comment: Comment
+    let isEditing: Bool
+    @Binding var editingText: String
+    let commentLimit: Int
     
-    // Closures and ownership check
-    var onProfileTapped: (String) -> Void // <-- 1. ADDED THIS
-    var onDelete: () -> Void
+    var onProfileTapped: (String) -> Void
     var onEdit: () -> Void
+    var onDelete: () -> Void
+    var onSave: () -> Void
+    var onCancel: () -> Void
     
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
     private var isOwner: Bool { comment.userId == currentUserID }
+    private let accentColor = BrandColors.darkTeal
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             
-            // --- 2. This is now a Button ---
             Button(action: {
                 onProfileTapped(comment.userId)
             }) {
@@ -799,36 +798,84 @@ fileprivate struct CommentRowView: View {
                 }
             }
             .buttonStyle(.plain)
-            // --- END MODIFICATION ---
             
             VStack(alignment: .leading, spacing: 4) {
+                // --- 1. USERNAME/TIMESTAMP (always visible) ---
                 HStack(spacing: 8) {
-                    
-                    // --- 3. This is also a Button ---
                     Button(action: {
                         onProfileTapped(comment.userId)
                     }) {
                         Text(comment.username)
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundColor(BrandColors.darkGray) // Set color explicitly
+                            .foregroundColor(BrandColors.darkGray)
                     }
                     .buttonStyle(.plain)
-                    // --- END MODIFICATION ---
                     
                     Text(comment.timestamp)
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(.secondary)
                 }
-                Text(comment.text)
-                    .font(.system(size: 15, design: .rounded))
-                    .foregroundColor(BrandColors.darkGray)
+                
+                // --- 2. IN-PLACE EDITOR ---
+                if isEditing {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // --- TextEditor ---
+                        TextEditor(text: $editingText)
+                            .font(.system(size: 15, design: .rounded))
+                            .textInputAutocapitalization(.sentences)
+                            .disableAutocorrection(true)
+                            .padding(8) // Internal padding
+                            .frame(minHeight: 80) // Give it some space
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(BrandColors.lightGray.opacity(0.7))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
+                            .tint(accentColor)
+                        
+                        // --- Controls ---
+                        HStack(spacing: 12) {
+                            Spacer()
+                            Text("\(editingText.count)/\(commentLimit)")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(editingText.count > commentLimit ? .red : .secondary)
+                            
+                            Button("Cancel") {
+                                withAnimation { onCancel() }
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                            
+                            Button("Save") {
+                                withAnimation { onSave() }
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(accentColor)
+                            .cornerRadius(20)
+                            .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .opacity(editingText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.7 : 1.0)
+                        }
+                    }
+                } else {
+                    // --- 3. STANDARD TEXT (Read-only) ---
+                    Text(comment.text)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                }
             }
             
-            Spacer() // Pushes the menu to the far right
+            Spacer()
             
-            if isOwner {
+            // --- 4. "THREE DOTS" MENU ---
+            // Hide menu if we are editing this row
+            if isOwner && !isEditing {
                 Menu {
-                    Button(action: onEdit) {
+                    Button(action: {
+                        withAnimation { onEdit() }
+                    }) {
                         Label("Edit Comment", systemImage: "pencil")
                     }
                     Button(role: .destructive, action: onDelete) {
@@ -844,6 +891,7 @@ fileprivate struct CommentRowView: View {
                 .tint(.secondary)
             }
         }
+        .animation(.easeInOut, value: isEditing) // Animate the transition
     }
 }
 // --- END MODIFICATION ---
@@ -996,59 +1044,3 @@ struct DeleteConfirmationOverlay: View {
         }
     }
 }
-
-// --- ADDED: New view for editing a comment ---
-fileprivate struct EditCommentView: View {
-    @Binding var commentText: String
-    var onSave: () -> Void
-    var onCancel: () -> Void
-    
-    @Environment(\.dismiss) private var dismiss
-    private let accentColor = BrandColors.darkTeal
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-                .font(.system(size: 16, design: .rounded))
-                .foregroundColor(accentColor)
-                
-                Spacer()
-                Text("Edit Comment")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                Spacer()
-                
-                Button("Save") {
-                    onSave()
-                    // dismiss() is handled by the caller
-                }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundColor(accentColor)
-                .disabled(commentText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding()
-            .background(BrandColors.background)
-            .overlay(Divider(), alignment: .bottom)
-            
-            // Text Editor
-            VStack {
-                TextField("Edit your comment...", text: $commentText, axis: .vertical)
-                    .font(.system(size: 16, design: .rounded))
-                    .padding()
-                    .background(BrandColors.lightGray.opacity(0.7))
-                    .cornerRadius(12)
-                    .tint(accentColor)
-                    .lineLimit(5...10)
-                
-                Spacer()
-            }
-            .padding()
-            .background(BrandColors.backgroundGradientEnd.ignoresSafeArea())
-        }
-    }
-}
-// --- END ADDED ---
