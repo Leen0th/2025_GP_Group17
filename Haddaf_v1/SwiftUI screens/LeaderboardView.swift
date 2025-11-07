@@ -2,16 +2,12 @@
 //  LeaderboardView.swift
 //  Haddaf_v1
 //
-//  ترتيب بالـ cumulativeScore نزولاً، وكسر التعادل بأقدم uploadDateTime.
-//  Podium 1..3 (٢–١–٣) بقواعد خضراء فقط، بدون خلفية عامة.
-//  فلتر بالأيقونة جهة اليمين يفتح قائمة: All / Attacker / Midfielder / Defender
-//
 
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-private let MedalGold = Color(red: 0.98, green: 0.80, blue: 0.20) // للتاج فقط
+private let MedalGold   = Color(red: 0.98, green: 0.80, blue: 0.20)
 private let PodiumGreen = Color(red: 0.87, green: 0.96, blue: 0.90)
 
 struct LBPlayer: Identifiable, Hashable {
@@ -174,7 +170,7 @@ final class LeaderboardViewModel: ObservableObject {
     }
 }
 
-// MARK: - Avatar (بدون حافة)
+// MARK: - Avatar
 struct AvatarAsyncImage: View {
     let url: String?
     let size: CGFloat
@@ -183,17 +179,11 @@ struct AvatarAsyncImage: View {
         if let url = url, let u = URL(string: url) {
             AsyncImage(url: u) { phase in
                 switch phase {
-                case .empty:
-                    placeholder
+                case .empty: placeholder
                 case .success(let image):
-                    image.resizable()
-                        .scaledToFill()
-                        .frame(width: size, height: size)
-                        .clipShape(Circle())
-                case .failure(_):
-                    placeholder
-                @unknown default:
-                    placeholder
+                    image.resizable().scaledToFill().frame(width: size, height: size).clipShape(Circle())
+                case .failure(_): placeholder
+                @unknown default: placeholder
                 }
             }
         } else {
@@ -205,13 +195,37 @@ struct AvatarAsyncImage: View {
         ZStack {
             Circle().fill(Color.black)
             Image(systemName: "person.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: size * 0.5, height: size * 0.5)
+                .resizable().scaledToFit()
+                .frame(width: size * 0.5)
                 .foregroundColor(.white)
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
+    }
+}
+
+// MARK: - Filter icon (ring + 3 lines with decreasing lengths)
+struct FilterIcon: View {
+    var size: CGFloat = 30 // الافتراضي (لكن سنستدعيه 24 تحت)
+    var body: some View {
+        let lineH: CGFloat = max(2.0, size * 0.085)
+        ZStack {
+            Circle()
+                .stroke(BrandColors.darkTeal, lineWidth: max(2.0, size * 0.085))
+                .frame(width: size, height: size)
+
+            VStack(spacing: size * 0.10) {
+                RoundedRectangle(cornerRadius: lineH/2)
+                    .frame(width: size * 0.62, height: lineH) // أطول
+                RoundedRectangle(cornerRadius: lineH/2)
+                    .frame(width: size * 0.50, height: lineH) // أقصر
+                RoundedRectangle(cornerRadius: lineH/2)
+                    .frame(width: size * 0.36, height: lineH) // الأقصر
+            }
+            .foregroundColor(BrandColors.darkTeal)
+        }
+        .frame(width: size, height: size)
+        .contentShape(Circle())
+        .accessibilityLabel("Filter")
     }
 }
 
@@ -221,48 +235,50 @@ struct LeaderboardView: View {
     @State private var showFilterMenu = false
 
     var body: some View {
-        VStack(spacing: 12) {
-
-            // أيقونة الفلتر يمين (بدون نص)
-            HStack {
-                Spacer()
-                Button {
-                    showFilterMenu = true
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(BrandColors.darkTeal)
-                }
-                .confirmationDialog("Filter by position",
-                                    isPresented: $showFilterMenu,
-                                    titleVisibility: .visible) {
-                    ForEach(PositionFilter.allCases) { f in
-                        Button(f.rawValue) { viewModel.selectedFilter = f }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
-
+        Group {
             if viewModel.isLoading {
-                ProgressView().tint(BrandColors.darkTeal).padding(.top, 8)
+                VStack { Spacer(minLength: 60); ProgressView().tint(BrandColors.darkTeal) }
             } else if viewModel.topTen.isEmpty {
                 VStack(spacing: 8) {
+                    Spacer(minLength: 60)
                     Image(systemName: "person.3")
                         .font(.system(size: 44))
-                        .foregroundColor(BrandColors.darkGray.opacity(0.6))
+                        .foregroundColor(.secondary)
                     Text("No players yet").foregroundColor(.secondary)
+                    Spacer()
                 }
-                .padding(.top, 16)
             } else {
                 ScrollView {
-                    VStack(spacing: 20) {
+                    VStack(spacing: 16) {
 
-                        // مساحة علوية صغيرة لضمان ظهور التاج فوق الأفاتار
+                        // الفلتر داخل المحتوى (يختفي عند النزول)
+                        HStack {
+                            Spacer()
+                            Button {
+                                showFilterMenu = true
+                            } label: {
+                                // ⬇️ صغّرته إلى 24pt وخفّفت البادينغ
+                                FilterIcon(size: 24)
+                                    .padding(.trailing, 4)
+                                    .padding(.top, 2)
+                            }
+                            .buttonStyle(.plain)
+                            .confirmationDialog("Filter by position",
+                                                isPresented: $showFilterMenu,
+                                                titleVisibility: .visible) {
+                                ForEach(PositionFilter.allCases) { f in
+                                    Button(f.rawValue) { viewModel.selectedFilter = f }
+                                }
+                                Button("Cancel", role: .cancel) {}
+                            }
+                        }
+                        .padding(.horizontal, 16)
+
+                        // بوديوم 1–2–3
                         TopThreePodium(top: Array(viewModel.topTen.prefix(3)))
-                            .padding(.top, 8)
+                            .padding(.top, 2)
 
+                        // بقية المراكز 4..10
                         VStack(spacing: 12) {
                             ForEach(Array(viewModel.topTen.dropFirst(3))) { p in
                                 LeaderboardRow(rank: p.rank,
@@ -271,23 +287,29 @@ struct LeaderboardView: View {
                             }
                         }
                         .padding(.horizontal, 16)
+
                         Spacer(minLength: 8)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 8)
+                    .onAppear {
+                        viewModel.loadLeaderboardIfNeeded()
+                    }
                 }
                 .scrollIndicators(.hidden)
+                // لا يغطيه الفوتر/الزر العائم
+                .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 140) }
             }
         }
         .onAppear { viewModel.loadLeaderboardIfNeeded() }
     }
 }
 
-// MARK: - Podium (2–1–3) بقواعد خضراء، وتاج ثابت فوق المركز الأول
+// MARK: - Podium
 struct TopThreePodium: View {
     let top: [LBPlayer]
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 24) {
+        HStack(alignment: .bottom, spacing: 20) {
             PodiumColumn(player: top.count > 1 ? top[1] : nil,
                          showCrown: false,
                          rankNumberOnBlock: 2,
@@ -297,7 +319,7 @@ struct TopThreePodium: View {
             PodiumColumn(player: top.first,
                          showCrown: true,
                          rankNumberOnBlock: 1,
-                         blockHeight: 120,
+                         blockHeight: 118,
                          avatarSize: 104)
 
             PodiumColumn(player: top.count > 2 ? top[2] : nil,
@@ -307,8 +329,7 @@ struct TopThreePodium: View {
                          avatarSize: 86)
         }
         .padding(.horizontal, 16)
-        // مساحة إضافية للأعلى لضمان عدم قصّ التاج
-        .padding(.top, 6)
+        .padding(.top, 4)
     }
 }
 
@@ -318,59 +339,56 @@ struct PodiumColumn: View {
     let rankNumberOnBlock: Int
     let blockHeight: CGFloat
     let avatarSize: CGFloat
+    private let columnWidth: CGFloat = 120
 
     var body: some View {
         VStack(spacing: 8) {
-            // صورة اللاعب + تاج مثبت بأوفـرلاي أعلى الصورة
-            AvatarAsyncImage(url: player?.photoURL, size: avatarSize)
-                .overlay(alignment: .top) {
-                    if showCrown {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(MedalGold)
-                            .offset(y: -10) // يظهر دائماً فوق الأفاتار
-                            .allowsHitTesting(false)
-                    }
+            if let pl = player {
+                NavigationLink(destination: PlayerProfileContentView(userID: pl.id)) {
+                    AvatarAsyncImage(url: pl.photoURL, size: avatarSize)
+                        .overlay(alignment: .top) {
+                            if showCrown {
+                                Image(systemName: "crown.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(MedalGold)
+                                    .offset(y: -10)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .padding(.top, showCrown ? 14 : 0)
                 }
-                .padding(.top, showCrown ? 16 : 0) // مجال علوي للتاج
-
-            // النصوص
-            VStack(spacing: 2) {
-                Text(player?.name ?? "—")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .lineLimit(1)
-                    .frame(width: 110)
-
-                Text((player?.position ?? "—"))
-                    .font(.system(size: 14, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .frame(width: 110)
-
-                if let score = player?.score {
-                    Text("\(formattedInt(score)) points")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("0 points")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
+                .buttonStyle(.plain)
+            } else {
+                AvatarAsyncImage(url: nil, size: avatarSize)
             }
 
-            // القاعدة الخضراء
+            VStack(spacing: 2) {
+                Text(player?.name ?? "—")
+                    .font(.system(size: 16, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: columnWidth)
+
+                Text(player?.position ?? "—")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+
+                Text("\(formattedInt(player?.score ?? 0)) points")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(PodiumGreen)
-                    .frame(width: 110, height: blockHeight)
-                    .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
-
+                    .frame(width: columnWidth, height: blockHeight)
                 Text("\(rankNumberOnBlock)")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(BrandColors.darkTeal.opacity(0.9))
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(BrandColors.darkTeal)
             }
         }
-        .frame(width: 110)
+        .frame(width: columnWidth)
     }
 }
 
@@ -382,9 +400,9 @@ struct LeaderboardRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text("\(rank)")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundColor(BrandColors.darkTeal)
-                .frame(width: 28, alignment: .center)
+                .frame(width: 28)
 
             NavigationLink(destination: PlayerProfileContentView(userID: player.id)) {
                 AvatarAsyncImage(url: player.photoURL, size: 42)
@@ -393,29 +411,28 @@ struct LeaderboardRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(showAsYou ? "You" : player.name)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(player.position.isEmpty ? "—" : player.position)
-                    .font(.system(size: 13, design: .rounded))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
 
             Text("\(formattedInt(player.score)) points")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.secondary)
         }
         .padding()
-        .background(showAsYou ? BrandColors.background.opacity(0.9) : BrandColors.background)
-        .overlay(
-            showAsYou ? RoundedRectangle(cornerRadius: 16).stroke(BrandColors.darkTeal.opacity(0.3), lineWidth: 1) : nil
-        )
+        .background(BrandColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+        .shadow(color: .black.opacity(0.05), radius: 3, y: 2)
     }
 }
 
-// MARK: - Helpers
 private func formattedInt(_ score: Double) -> String {
     String(format: "%.0f", score)
 }
