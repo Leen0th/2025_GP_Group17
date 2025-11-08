@@ -104,8 +104,6 @@ struct PostStat: Identifiable, Equatable {
 struct Comment: Identifiable, Codable {
     @DocumentID var id: String?
     var userId: String
-    let username: String
-    let userImage: String
     var text: String
     
     // FIX #2: This handles the timestamp from Firebase cleanly
@@ -124,8 +122,6 @@ struct Comment: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id
         case userId
-        case username
-        case userImage
         case text
         case createdAt
     }

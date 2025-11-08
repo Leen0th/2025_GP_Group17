@@ -39,6 +39,9 @@ struct PostDetailView: View {
     // --- ADDED: State for reporting ---
     @State private var itemToReport: ReportableItem?
     
+    // --- State to hold the fresh author profile ---
+    @State private var authorProfile = UserProfile()
+    
     private var currentUserID: String? {
         Auth.auth().currentUser?.uid
     }
@@ -166,6 +169,10 @@ struct PostDetailView: View {
         .animation(.easeInOut, value: showPrivacyAlert)
         .animation(.easeInOut, value: showDeleteConfirmation)
         .animation(.easeInOut, value: isEditingCaption)
+        // --- Task to fetch the fresh profile on appear ---
+        .task {
+            await fetchAuthorProfile()
+        }
     }
 
     private var header: some View {
@@ -377,29 +384,11 @@ struct PostDetailView: View {
         HStack {
             if let uid = post.authorUid, !uid.isEmpty {
                 NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
-                    HStack(spacing: 8) {
-                        AsyncImage(url: URL(string: post.authorImageName)) { image in
-                            image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
-                        } placeholder: {
-                            Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
-                        }
-                        Text(post.authorName)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(BrandColors.darkGray)
-                    }
+                    authorHeaderContent
                 }
                 .buttonStyle(.plain)
             } else {
-                HStack(spacing: 8) {
-                    AsyncImage(url: URL(string: post.authorImageName)) { image in
-                        image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
-                    } placeholder: {
-                        Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
-                    }
-                    Text(post.authorName)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(BrandColors.darkGray)
-                }
+                authorHeaderContent
             }
             
             Spacer()
@@ -423,6 +412,76 @@ struct PostDetailView: View {
             }
         }
         .foregroundColor(.primary)
+    }
+    
+    // --- Helper view to display the fresh profile info ---
+    @ViewBuilder
+    private var authorHeaderContent: some View {
+        HStack(spacing: 8) {
+            if let image = authorProfile.profileImage {
+                Image(uiImage: image)
+                    .resizable().aspectRatio(contentMode: .fill)
+                    .frame(width: 40, height: 40).clipShape(Circle())
+            } else {
+                // Placeholder
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                    .foregroundColor(BrandColors.lightGray)
+            }
+            // This will show "Loading..." then update to the fresh name
+            Text(authorProfile.name)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(BrandColors.darkGray)
+        }
+    }
+    
+    // --- Function to fetch the author's profile ---
+    private func fetchAuthorProfile() async {
+        guard let uid = post.authorUid else { return }
+        
+        // We only fetch the parts we need for the header (name, image)
+        do {
+            let db = Firestore.firestore()
+            let userDoc = try await db.collection("users").document(uid).getDocument()
+            let data = userDoc.data() ?? [:]
+
+            let first = (data["firstName"] as? String) ?? ""
+            let last  = (data["lastName"]  as? String) ?? ""
+            let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+
+            let loadedProfile = UserProfile()
+            loadedProfile.name = full.isEmpty ? "Player" : full
+
+            // Asynchronous image fetching
+            if let urlStr = data["profilePic"] as? String, !urlStr.isEmpty {
+                loadedProfile.profileImage = await fetchImage(from: urlStr)
+            } else {
+                loadedProfile.profileImage = UIImage(systemName: "person.circle.fill")
+            }
+            
+            // Update the state on the main thread
+            await MainActor.run {
+                self.authorProfile = loadedProfile
+            }
+
+        } catch {
+            print("PostDetailView: fetchAuthorProfile error: \(error)")
+        }
+    }
+    
+    // --- Image fetching helper ---
+    private func fetchImage(from urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString) else { return UIImage(systemName: "person.circle.fill") }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return UIImage(data: data) ?? UIImage(systemName: "person.circle.fill")
+        } catch {
+            print("PostDetailView: fetchImage error: \(error)")
+            return UIImage(systemName: "person.circle.fill")
+        }
     }
 
     private func commitCaptionEdit() async {
@@ -547,11 +606,6 @@ struct CommentsView: View {
     // Use the shared reporting service and observe its changes
     @StateObject private var reportService = ReportStateService.shared
     
-    // --- 1. REMOVED Sheet state ---
-    // @State private var showEditSheet = false
-    // @State private var commentToEdit: Comment?
-    // @State private var editedCommentText = ""
-    
     // --- 2. ADDED In-Place Editing State ---
     @State private var editingCommentID: String? = nil
     @State private var editingCommentText: String = ""
@@ -602,8 +656,11 @@ struct CommentsView: View {
                                 }
                                 .padding(.horizontal)
                             } else {
+                                let authorProfile = viewModel.authorProfiles[comment.userId] ?? UserProfile()
+                                
                                 CommentRowView(
                                     comment: comment,
+                                    authorProfile: authorProfile,
                                     isEditing: editingCommentID == comment.id,
                                     editingText: $editingCommentText,
                                     commentLimit: commentLimit,
@@ -711,12 +768,14 @@ struct CommentsView: View {
 // --- END MODIFICATION ---
 
 // ===================================================================
-// MARK: - Comments View Model (NO CHANGE)
+// MARK: - Comments View Model
 // ===================================================================
 final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
     @Published var isLoading = true
     
+    @Published var authorProfiles: [String: UserProfile] = [:]
+
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     private let lock = NSLock()
@@ -742,6 +801,9 @@ final class CommentsViewModel: ObservableObject {
                 try? doc.data(as: Comment.self)
             }
             
+            let allUIDs = Set(self.comments.compactMap { $0.userId })
+            self.fetchAuthorProfiles(for: Array(allUIDs))
+            
             self.isLoading = false
         }
         
@@ -762,16 +824,9 @@ final class CommentsViewModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
         do {
-            let userDoc = try await db.collection("users").document(uid).getDocument()
-            let u = userDoc.data() ?? [:]
-            let first = (u["firstName"] as? String) ?? ""; let last  = (u["lastName"]  as? String) ?? ""
-            let username = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
-            let userImage = (u["profilePic"] as? String) ?? ""
 
             let commentData: [String: Any] = [
                 "text": trimmed,
-                "username": username.isEmpty ? "Unknown" : username,
-                "userImage": userImage,
                 "userId": uid,
                 "createdAt": FieldValue.serverTimestamp()
             ]
@@ -843,14 +898,64 @@ final class CommentsViewModel: ObservableObject {
             fetchComments(for: postId) // Re-fetch to correct UI
         }
     }
+    
+    // --- profile fetching logic ---
+    private func fetchAuthorProfiles(for uids: [String]) {
+        let uidsToFetch = uids.filter { !$0.isEmpty && self.authorProfiles[$0] == nil }
+        guard !uidsToFetch.isEmpty else { return }
+        
+        for uid in uidsToFetch {
+            Task {
+                await self.fetchAuthorProfile(uid: uid)
+            }
+        }
+    }
+
+    private func fetchAuthorProfile(uid: String) async {
+        guard !uid.isEmpty, self.authorProfiles[uid] == nil else { return }
+        
+        do {
+            let userDoc = try await db.collection("users").document(uid).getDocument()
+            let data = userDoc.data() ?? [:]
+            let first = (data["firstName"] as? String) ?? ""
+            let last = (data["lastName"] as? String) ?? ""
+            let full = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            let profilePicUrl = (data["profilePic"] as? String) ?? ""
+
+            let profile = UserProfile()
+            profile.name = full.isEmpty ? "Player" : full
+
+            if !profilePicUrl.isEmpty {
+                profile.profileImage = await fetchImage(from: profilePicUrl)
+            } else {
+                profile.profileImage = UIImage(systemName: "person.circle.fill")
+            }
+
+            await MainActor.run {
+                self.authorProfiles[uid] = profile
+            }
+        } catch {
+            print("fetchAuthorProfile error for UID \(uid): \(error)")
+        }
+    }
+
+    private func fetchImage(from urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString) else { return UIImage(systemName: "person.circle.fill") }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return UIImage(data: data) ?? UIImage(systemName: "person.circle.fill")
+        } catch {
+            return UIImage(systemName: "person.circle.fill")
+        }
+    }
 }
 
 
 // MARK: - Helper Views (Styling Update)
 
-// --- MODIFICATION: Replaced simple text with in-place editor ---
 fileprivate struct CommentRowView: View {
     let comment: Comment
+    let authorProfile: UserProfile
     let isEditing: Bool
     @Binding var editingText: String
     let commentLimit: Int
@@ -875,9 +980,11 @@ fileprivate struct CommentRowView: View {
             Button(action: {
                 onProfileTapped(comment.userId)
             }) {
-                AsyncImage(url: URL(string: comment.userImage)) { image in
-                    image.resizable().aspectRatio(contentMode: .fill).frame(width: 40, height: 40).clipShape(Circle())
-                } placeholder: {
+                if let image = authorProfile.profileImage {
+                    Image(uiImage: image)
+                        .resizable().aspectRatio(contentMode: .fill)
+                        .frame(width: 40, height: 40).clipShape(Circle())
+                } else {
                     Circle().fill(BrandColors.lightGray).frame(width: 40, height: 40)
                 }
             }
@@ -889,7 +996,7 @@ fileprivate struct CommentRowView: View {
                     Button(action: {
                         onProfileTapped(comment.userId)
                     }) {
-                        Text(comment.username)
+                        Text(authorProfile.name)
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(BrandColors.darkGray)
                     }

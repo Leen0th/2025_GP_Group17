@@ -304,7 +304,7 @@ struct DiscoveryPostCardView: View {
                     profileImage
                 }
                 VStack(alignment: .leading) {
-                    Text(post.authorName)
+                    Text(authorProfile.name)
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                     Text(post.timestamp)
                         .font(.system(size: 12, design: .rounded))
