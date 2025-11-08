@@ -364,7 +364,7 @@ struct DiscoveryPostCardView: View {
                     onCommentTapped()
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "text.bubble")
+                        Image(systemName: "message")
                         Text("\(post.commentCount)")
                     }
                     .foregroundColor(BrandColors.darkGray)
