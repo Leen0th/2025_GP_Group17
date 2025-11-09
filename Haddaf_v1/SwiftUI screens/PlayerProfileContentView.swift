@@ -172,7 +172,6 @@ struct PlayerProfileContentView: View {
                         switch selectedContent {
                         case .posts:
                             // --- MODIFIED: Conditionally show search and filter controls ---
-                            if isCurrentUser {
                                 // MODIFIED: New search bar style
                                 HStack(spacing: 8) {
                                     Image(systemName: "magnifyingglass")
@@ -201,9 +200,9 @@ struct PlayerProfileContentView: View {
                                 .padding(.horizontal) // Add padding to the search bar
                                 // --- END: Search Bar ---
 
-                                postControls
+                                postControls(isCurrentUser: isCurrentUser)
                                     .padding(.horizontal) // Add padding to controls
-                            }
+                            
                             // --- END MODIFICATION ---
 
                             postsGrid
@@ -295,28 +294,32 @@ struct PlayerProfileContentView: View {
         .animation(.easeInOut, value: showScoreInfoAlert)
     }
     
-    private var postControls: some View {
+    @ViewBuilder
+    private func postControls(isCurrentUser: Bool) -> some View {
         HStack {
-            Menu {
-                Picker("Filter", selection: $postFilter) {
-                    ForEach(PostFilter.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
+            if isCurrentUser {
+                Menu {
+                    Picker("Filter", selection: $postFilter) {
+                        ForEach(PostFilter.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                        Text("Filter: \(postFilter.rawValue)")
+                    }
+                    // MODIFIED: New style
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(BrandColors.darkTeal)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(BrandColors.lightGray)
+                    .clipShape(Capsule())
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text("Filter: \(postFilter.rawValue)")
-                }
-                // MODIFIED: New style
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundColor(BrandColors.darkTeal)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(BrandColors.lightGray)
-                .clipShape(Capsule())
             }
-            
+
+            // The Sort Menu is left outside the 'if' block, so it always shows
             Menu {
                 Picker("Sort", selection: $postSort) {
                     ForEach(PostSort.allCases, id: \.self) { option in
