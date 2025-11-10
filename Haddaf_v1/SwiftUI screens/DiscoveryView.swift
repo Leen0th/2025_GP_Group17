@@ -415,22 +415,31 @@ struct FiltersSheetView: View {
     
     @State private var showScoreInfo = false
     @State private var showLocationInfo = false
-
-    // --- VALIDATION PROPERTIES ---
-    private var ageMinInvalid: Bool {
-        if let min = ageMin, min < 10 {
-            return true // Min age must be 10 or greater
-        }
-        return false
-    }
     
-    private var ageMaxInvalid: Bool {
-        if let max = ageMax, max > 100 {
-            return true // Max age must be <= 100
+    // --- NEW: State for string text field values ---
+    @State private var ageMinString: String = ""
+    @State private var ageMaxString: String = ""
+    @State private var scoreMinString: String = ""
+    @State private var scoreMaxString: String = ""
+    
+    // --- NEW: State for number validation ---
+    @State private var ageMinNotNumber: Bool = false
+    @State private var ageMaxNotNumber: Bool = false
+    @State private var scoreMinNotNumber: Bool = false
+    @State private var scoreMaxNotNumber: Bool = false
+
+    // Check if Age min/max are within the 0-100 range
+    private var ageValuesInvalid: Bool {
+        if let min = ageMin, (min < 0 || min > 100) {
+            return true // Min age must be 0-100
+        }
+        if let max = ageMax, (max < 0 || max > 100) {
+            return true // Max age must be 0-100
         }
         return false
     }
 
+    // Check if Age min is greater than max
     private var ageRangeInvalid: Bool {
         if let min = ageMin, let max = ageMax {
             return min > max // Min must be <= Max
@@ -438,24 +447,23 @@ struct FiltersSheetView: View {
         return false
     }
     
+    // --- MODIFIED: Added NotNumber checks ---
     private var isAgeSectionValid: Bool {
-        !ageMinInvalid && !ageMaxInvalid && !ageRangeInvalid
+        !ageValuesInvalid && !ageRangeInvalid && !ageMinNotNumber && !ageMaxNotNumber
     }
     
-    private var scoreMinInvalid: Bool {
-        if let min = scoreMin, min < 0 {
-            return true // Min score must be >= 0
+    // Check if Score min/max are within the 0-100 range
+    private var scoreValuesInvalid: Bool {
+        if let min = scoreMin, (min < 0 || min > 100) {
+            return true // Min score must be 0-100
+        }
+        if let max = scoreMax, (max < 0 || max > 100) {
+            return true // Max score must be 0-100
         }
         return false
     }
     
-    private var scoreMaxInvalid: Bool {
-        if let max = scoreMax, max > 100 {
-            return true // Max score must be <= 100
-        }
-        return false
-    }
-    
+    // Check if Score min is greater than max
     private var scoreRangeInvalid: Bool {
         if let min = scoreMin, let max = scoreMax {
             return min > max // Min must be <= Max
@@ -463,8 +471,9 @@ struct FiltersSheetView: View {
         return false
     }
 
+    // --- MODIFIED: Added NotNumber checks ---
     private var isScoreSectionValid: Bool {
-        !scoreMinInvalid && !scoreMaxInvalid && !scoreRangeInvalid
+        !scoreValuesInvalid && !scoreRangeInvalid && !scoreMinNotNumber && !scoreMaxNotNumber
     }
     
     private var isFormValid: Bool {
@@ -485,19 +494,54 @@ struct FiltersSheetView: View {
                 Section("Age Range") {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            TextField("Min", value: $ageMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            TextField("Min", text: $ageMinString)
+                                .keyboardType(.numberPad)
+                                .tint(BrandColors.darkTeal)
+                                .onChange(of: ageMinString) { newValue in
+                                    if newValue.isEmpty {
+                                        ageMinNotNumber = false
+                                        ageMin = nil
+                                    } else if let number = Int(newValue) {
+                                        ageMinNotNumber = false
+                                        ageMin = number
+                                    } else {
+                                        ageMinNotNumber = true
+                                        ageMin = nil // Set to nil to trigger other validations
+                                    }
+                                }
                             Text("-")
-                            TextField("Max", value: $ageMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            TextField("Max", text: $ageMaxString)
+                                .keyboardType(.numberPad)
+                                .tint(BrandColors.darkTeal)
+                                .onChange(of: ageMaxString) { newValue in
+                                    if newValue.isEmpty {
+                                        ageMaxNotNumber = false
+                                        ageMax = nil
+                                    } else if let number = Int(newValue) {
+                                        ageMaxNotNumber = false
+                                        ageMax = number
+                                    } else {
+                                        ageMaxNotNumber = true
+                                        ageMax = nil
+                                    }
+                                }
                         }
                         
-                        if !isAgeSectionValid {
-                            if ageMinInvalid {
-                                Text("Min age must be 10 or greater.")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                            }
-                            if ageMaxInvalid {
-                                Text("Max age must be 100 or less.")
+                        if ageMinNotNumber {
+                            Text("Min age must be numbers only.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        if ageMaxNotNumber {
+                            Text("Max age must be numbers only.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        
+                        // Show other errors only if number format is valid
+                        if !ageMinNotNumber && !ageMaxNotNumber && !isAgeSectionValid {
+                            if ageValuesInvalid {
+                                Text("Age values must be between 0 and 100.")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }
@@ -508,25 +552,61 @@ struct FiltersSheetView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4) // Add a little vertical padding
-                    // --- ✅ END: VSTACK WRAPPER ---
+                    .padding(.vertical, 4)
                 }
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            TextField("Min", value: $scoreMin, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            // --- MODIFIED: Use text binding and .onChange ---
+                            TextField("Min", text: $scoreMinString)
+                                .keyboardType(.numberPad)
+                                .tint(BrandColors.darkTeal)
+                                .onChange(of: scoreMinString) { newValue in
+                                    if newValue.isEmpty {
+                                        scoreMinNotNumber = false
+                                        scoreMin = nil
+                                    } else if let number = Int(newValue) {
+                                        scoreMinNotNumber = false
+                                        scoreMin = number
+                                    } else {
+                                        scoreMinNotNumber = true
+                                        scoreMin = nil
+                                    }
+                                }
                             Text("-")
-                            TextField("Max", value: $scoreMax, format: .number).keyboardType(.numberPad).tint(BrandColors.darkTeal)
+                            // --- MODIFIED: Use text binding and .onChange ---
+                            TextField("Max", text: $scoreMaxString)
+                                .keyboardType(.numberPad)
+                                .tint(BrandColors.darkTeal)
+                                .onChange(of: scoreMaxString) { newValue in
+                                    if newValue.isEmpty {
+                                        scoreMaxNotNumber = false
+                                        scoreMax = nil
+                                    } else if let number = Int(newValue) {
+                                        scoreMaxNotNumber = false
+                                        scoreMax = number
+                                    } else {
+                                        scoreMaxNotNumber = true
+                                        scoreMax = nil
+                                    }
+                                }
                         }
                         
-                        if !isScoreSectionValid {
-                            if scoreMinInvalid {
-                                Text("Min score must be 0 or greater.")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                            }
-                            if scoreMaxInvalid {
-                                Text("Max score must be 100 or less.")
+                        if scoreMinNotNumber {
+                            Text("Min score must be numbers only.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        if scoreMaxNotNumber {
+                            Text("Max score must be numbers only.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+
+                        // Show other errors only if number format is valid
+                        if !scoreMinNotNumber && !scoreMaxNotNumber && !isScoreSectionValid {
+                            if scoreValuesInvalid {
+                                Text("Score values must be between 0 and 100.")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }
@@ -537,7 +617,7 @@ struct FiltersSheetView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4) // Add a little vertical padding
+                    .padding(.vertical, 4)
                 } header: {
                     HStack {
                         Text("Score Range")
@@ -585,6 +665,9 @@ struct FiltersSheetView: View {
                         position = nil; ageMin = nil; ageMax = nil
                         scoreMin = nil; scoreMax = nil
                         team = nil; location = nil
+                        // --- NEW: Also reset string fields ---
+                        ageMinString = ""; ageMaxString = ""
+                        scoreMinString = ""; scoreMaxString = ""
                         dismiss()
                     }
                     .font(.system(size: 17, design: .rounded))
@@ -618,6 +701,12 @@ struct FiltersSheetView: View {
                 Button("Got it!") { }
             } message: {
                 Text("The player's place of residence.")
+            }
+            .onAppear {
+                ageMinString = ageMin.map { String($0) } ?? ""
+                ageMaxString = ageMax.map { String($0) } ?? ""
+                scoreMinString = scoreMin.map { String($0) } ?? ""
+                scoreMaxString = scoreMax.map { String($0) } ?? ""
             }
         }
     }
