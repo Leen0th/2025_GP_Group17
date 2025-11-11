@@ -21,8 +21,7 @@ struct SignUpView: View {
     @State private var role: UserRole = .player
     @State private var fullName = ""
     @State private var email = ""
-    @State private var selectedDialCode: CountryDialCode = countryCodes.first { $0.code == "+966" } ?? countryCodes[0]
-    @State private var showDialPicker = false
+    private let selectedDialCode = "+966"
     @State private var phoneLocal = "" // digits only
     @State private var phoneNonDigitError = false
     @State private var password = ""
@@ -68,7 +67,7 @@ struct SignUpView: View {
     private var isNameValid: Bool { nameError == nil && !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var isPasswordValid: Bool { pHasLen && pHasUpper && pHasLower && pHasDigit && pHasSpec }
     private var isEmailValid: Bool { isValidEmail(email) }
-    private var isPhoneValid: Bool { isValidPhone(code: selectedDialCode.code, local: phoneLocal) }
+    private var isPhoneValid: Bool { isValidPhone(code: selectedDialCode, local: phoneLocal) }
     private var isFormValid: Bool {
         isNameValid && isPasswordValid && isEmailValid && isPhoneValid && dob != nil && !emailExists
     }
@@ -124,7 +123,6 @@ struct SignUpView: View {
                             .foregroundColor(primary)
                             .tint(primary)
                             .focused($emailFocused)
-                            .onChange(of: email) { _ in debouncedEmailCheck() }
                             .onSubmit { checkEmailImmediately() }
                     }
                     .onChange(of: emailFocused) { focused in if !focused { checkEmailImmediately() } }
@@ -149,13 +147,9 @@ struct SignUpView: View {
                     fieldLabel("Phone number", required: true)
                     roundedField {
                         HStack(spacing: 10) {
-                            Button { showDialPicker = true } label: {
-                                HStack(spacing: 6) {
-                                    Text(selectedDialCode.code)
-                                        .font(.system(size: 16, design: .rounded))
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 12, weight: .semibold))
-                                }
+                            // ثابت للسعودية
+                            Text(selectedDialCode) // "+966"
+                                .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(primary)
                                 .padding(.vertical, 4)
                                 .padding(.horizontal, 8)
@@ -163,7 +157,6 @@ struct SignUpView: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(primary.opacity(0.08))
                                 )
-                            }
 
                             TextField("", text: Binding(
                                 get: { phoneLocal },
@@ -184,11 +177,13 @@ struct SignUpView: View {
                         Text("Numbers only (0–9).")
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
-                    } else if !phoneLocal.isEmpty && !isPhoneValid {
-                        Text("Enter a valid phone number.")
+                    } else if !phoneLocal.isEmpty && !isValidPhone(code: selectedDialCode, local: phoneLocal) {
+                        Text("Enter a valid Saudi number (starts with 5, 9 digits).")
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
                     }
+
+
 
                     // DOB
                     fieldLabel("Date of birth", required: true)
@@ -312,10 +307,6 @@ struct SignUpView: View {
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
         .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
-        .sheet(isPresented: $showDialPicker) {
-            CountryCodePickerSheet(selected: $selectedDialCode, primary: primary)
-                .presentationBackground(BrandColors.background)
-        }
     }
 
     // MARK: - Full name validation (last name optional)
@@ -339,25 +330,6 @@ struct SignUpView: View {
     }
 
     // MARK: - Email check (dummy create/delete)
-    private func debouncedEmailCheck() {
-        emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
-        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidEmail(email) else { return }
-        let mail = trimmed.lowercased()
-        emailCheckTask = Task {
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            let testPassword = UUID().uuidString + "Aa1!"
-            do {
-                let result = try await Auth.auth().createUser(withEmail: mail, password: testPassword)
-                try? await result.user.delete()
-                await MainActor.run { if !Task.isCancelled { emailExists = false } }
-            } catch {
-                let ns = error as NSError
-                await MainActor.run { if !Task.isCancelled { emailExists = (ns.code == AuthErrorCode.emailAlreadyInUse.rawValue) } }
-            }
-        }
-    }
 
     private func checkEmailImmediately() {
         emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
@@ -386,7 +358,7 @@ struct SignUpView: View {
 
         let name = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
         let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let fullPhone = selectedDialCode.code + phoneLocal
+        let fullPhone = selectedDialCode + phoneLocal
 
         do {
             // 1) Create user
