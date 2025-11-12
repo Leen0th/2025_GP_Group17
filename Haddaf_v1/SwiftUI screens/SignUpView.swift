@@ -10,11 +10,11 @@ enum UserRole: String { case player = "Player", coach = "Coach" }
 // MARK: - Sign Up
 struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var session: AppSession
 
     // Theme
     private let primary = BrandColors.darkTeal
     private let bg = BrandColors.backgroundGradientEnd
-    
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     // Fields
@@ -147,8 +147,7 @@ struct SignUpView: View {
                     fieldLabel("Phone number", required: true)
                     roundedField {
                         HStack(spacing: 10) {
-                            // ثابت للسعودية
-                            Text(selectedDialCode) // "+966"
+                            Text(selectedDialCode)
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(primary)
                                 .padding(.vertical, 4)
@@ -157,7 +156,6 @@ struct SignUpView: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(primary.opacity(0.08))
                                 )
-
                             TextField("", text: Binding(
                                 get: { phoneLocal },
                                 set: { val in
@@ -182,8 +180,6 @@ struct SignUpView: View {
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.red)
                     }
-
-
 
                     // DOB
                     fieldLabel("Date of birth", required: true)
@@ -314,7 +310,6 @@ struct SignUpView: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Please enter your name." }
         let parts = trimmed.split(separator: " ").map { String($0) }.filter { !$0.isEmpty }
-        // Only letters (allow . ' -)
         let unitRegex = try! NSRegularExpression(pattern: #"^[\p{L}.'-]+$"#, options: [])
         for p in parts {
             let range = NSRange(location: 0, length: (p as NSString).length)
@@ -330,7 +325,6 @@ struct SignUpView: View {
     }
 
     // MARK: - Email check (dummy create/delete)
-
     private func checkEmailImmediately() {
         emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -361,27 +355,26 @@ struct SignUpView: View {
         let fullPhone = selectedDialCode + phoneLocal
 
         do {
-            // 1) Create user
+            // 1) إنشاء الحساب فقط (بدون لمس session)
             let authResult = try await Auth.auth().createUser(withEmail: mail, password: password)
 
-            // 2) Optional displayName
+            // 2) الاسم (اختياري)
             let changeReq = authResult.user.createProfileChangeRequest()
             changeReq.displayName = name
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 changeReq.commitChanges { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
             }
 
-            // 3) Save local + REMOTE pendingSignups
+            // 3) خزّني مسودة التسجيل محليًا فقط
             let draft = ProfileDraft(fullName: name, phone: fullPhone, role: role.rawValue.lowercased(), dob: dob, email: mail)
             DraftStore.save(draft)
-            try? await PendingDraftStoreRemote.save(uid: authResult.user.uid, draft: draft)
 
-            // 4) Send verification email
+            // 4) أرسلي رسالة التفعيل
             try await sendVerificationEmail(to: authResult.user)
             markVerificationSentNow()
             startResendCooldown(seconds: resendCooldownSeconds)
 
-            // 5) Show popup + start watcher
+            // 5) اعرضي ورقة التفعيل و ابدئي الـ watcher
             await MainActor.run { showVerifyPrompt = true }
             startVerificationWatcher()
 
@@ -418,23 +411,14 @@ struct SignUpView: View {
 
     @MainActor
     private func finalizeAndGo(for user: User) async {
-        // Try remote pending first
-        if let remoteDraft = try? await PendingDraftStoreRemote.load(uid: user.uid), let _ = user.email {
-            let (first, last) = firstLast(from: remoteDraft.fullName)
-            var data: [String: Any] = [
-                "email": user.email ?? remoteDraft.email,
-                "firstName": first,
-                "lastName": last ?? NSNull(),
-                "role": remoteDraft.role,
-                "phone": remoteDraft.phone,
-                "emailVerified": true,
-                "createdAt": FieldValue.serverTimestamp()
-            ]
-            if let d = remoteDraft.dob { data["dob"] = Timestamp(date: d) }
-            try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
-            await PendingDraftStoreRemote.clear(uid: user.uid)
-            DraftStore.clear()
-        } else if let draft = DraftStore.load() {
+        // تحديث التوكن بعد التفعيل
+        do {
+            try await user.reload()
+            _ = try await user.getIDTokenResult(forcingRefresh: true)
+        } catch { /* ignore */ }
+
+        // نروّج المسودة المحلية إلى users/{uid}
+        if let draft = DraftStore.load() {
             let (first, last) = firstLast(from: draft.fullName)
             var data: [String: Any] = [
                 "email": user.email ?? draft.email,
@@ -455,6 +439,11 @@ struct SignUpView: View {
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
         }
+
+        // الآن نفكّ وضع الضيف
+        session.user = user
+        session.isGuest = false
+
         showVerifyPrompt = false
         goToPlayerSetup = true
     }

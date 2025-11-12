@@ -297,6 +297,13 @@ struct PlayerSetupView: View {
                 }
             }
         }
+        .task {
+                   // 🔄 نحدّث الـ token بعد التفعيل أول ما تفتح الشاشة
+                   if let u = Auth.auth().currentUser {
+                       try? await u.reload()
+                       _ = try? await u.getIDTokenResult(forcingRefresh: true)
+                   }
+               }
         .fullScreenCover(isPresented: $goToProfile) {
              PlayerProfileView()
         }
@@ -308,6 +315,11 @@ struct PlayerSetupView: View {
 
     // MARK: - Upload profile photo
     private func uploadProfilePhoto() async throws {
+        // 🔄 حدّث التوكن قبل الرفع/الكتابة
+            if let u = Auth.auth().currentUser {
+                try? await u.reload()
+                _ = try? await u.getIDTokenResult(forcingRefresh: true)
+            }
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
@@ -356,6 +368,11 @@ struct PlayerSetupView: View {
 
     // MARK: - Save Player Setup Data
     private func savePlayerSetupData() async throws {
+        // 🔄 حدّث التوكن قبل أي كتابة
+          if let u = Auth.auth().currentUser {
+              try? await u.reload()
+              _ = try? await u.getIDTokenResult(forcingRefresh: true)
+          }
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }

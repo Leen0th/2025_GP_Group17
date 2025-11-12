@@ -1,6 +1,9 @@
 import SwiftUI
+import FirebaseAuth
 
 struct ContentView: View {
+    @StateObject private var session = AppSession()
+
     @State private var showWelcomeScreen = false
 
     var body: some View {
@@ -13,22 +16,18 @@ struct ContentView: View {
                         .transition(.opacity)
                 } else {
                     SplashVideo {
-                        // Skip on tap
-                        withAnimation(.easeInOut) {
-                            showWelcomeScreen = true
-                        }
+                        withAnimation(.easeInOut) { showWelcomeScreen = true }
                     }
                     .onAppear {
-                        // Auto-advance after 5 seconds
                         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                             guard !showWelcomeScreen else { return }
-                            withAnimation(.easeInOut) {
-                                showWelcomeScreen = true
-                            }
+                            withAnimation(.easeInOut) { showWelcomeScreen = true }
                         }
                     }
                 }
             }
         }
+        .environmentObject(session) // ⬅️ نشر الجلسة لكل الشاشات
     }
 }
+

@@ -5,6 +5,7 @@ import FirebaseFirestore
 
 struct SignInView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var session: AppSession
 
     @State private var email = ""
     @State private var password = ""
@@ -30,7 +31,6 @@ struct SignInView: View {
     // Theme
     private let primary = BrandColors.darkTeal
     private let bg = BrandColors.backgroundGradientEnd
-    
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
     private var isFormValid: Bool {
@@ -184,13 +184,16 @@ struct SignInView: View {
         do {
             let result = try await Auth.auth().signIn(withEmail: email.lowercased(), password: password)
             let user = result.user
+
             try await user.reload()
-
             if user.isEmailVerified {
-                // ✅ قبل أي توجيه: أرَقِّي الداتا من pendingSignups/usersDefaults لو لسا ما ترقّت
+                // ✅ مفعّل: حدّث التوكن، روّج المسودة، فعّل الجلسة ثم وجّه
+                _ = try? await user.getIDTokenResult(forcingRefresh: true)
                 await promoteSignupDraftIfNeeded(for: user)
-
-                // بعد الترقية، قرر الوجهة
+                await MainActor.run {
+                    session.user = user
+                    session.isGuest = false
+                }
                 do {
                     let complete = try await isPlayerProfileComplete(uid: user.uid)
                     await MainActor.run {
@@ -200,7 +203,7 @@ struct SignInView: View {
                     await MainActor.run { goToPlayerSetup = true }
                 }
             } else {
-                // Not verified → show verify prompt + start watcher
+                // ❌ غير مفعّل: لا نلمس الجلسة. نعرض ورقة التفعيل + watcher
                 try await sendVerificationEmail(to: user)
                 markVerificationSentNow()
                 startResendCooldown(seconds: max(resendCooldownSeconds, resendBackoff))
@@ -226,30 +229,12 @@ struct SignInView: View {
         }
     }
 
-    // ✅ Promotion logic
+    // ✅ Promotion logic (DraftStore فقط)
     private func promoteSignupDraftIfNeeded(for user: User) async {
         let usersRef = Firestore.firestore().collection("users").document(user.uid)
         if let snap = try? await usersRef.getDocument(),
            let data = snap.data(),
            (data["firstName"] as? String).map({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }) == true {
-            return
-        }
-
-        if let remoteDraft = try? await PendingDraftStoreRemote.load(uid: user.uid) {
-            let (first, last) = splitName(remoteDraft.fullName)
-            var base: [String: Any] = [
-                "email": user.email ?? remoteDraft.email,
-                "firstName": first,
-                "lastName": last ?? NSNull(),
-                "role": remoteDraft.role,
-                "phone": remoteDraft.phone,
-                "emailVerified": true,
-                "createdAt": FieldValue.serverTimestamp()
-            ]
-            if let d = remoteDraft.dob { base["dob"] = Timestamp(date: d) }
-            try? await usersRef.setData(base, merge: true)
-            await PendingDraftStoreRemote.clear(uid: user.uid)
-            DraftStore.clear()
             return
         }
 
@@ -308,10 +293,14 @@ struct SignInView: View {
                 do {
                     try await user.reload()
                     if user.isEmailVerified {
+                        // بعد التفعيل: حدّث التوكن، روّج المسودة، فعّل الجلسة ووجّه
+                        _ = try? await user.getIDTokenResult(forcingRefresh: true)
                         await promoteSignupDraftIfNeeded(for: user)
                         await MainActor.run {
+                            session.user = user
+                            session.isGuest = false
                             showVerifyPrompt = false
-                            goToPlayerSetup = true // بعد الترقية نكمّل السيت أب
+                            goToPlayerSetup = true
                         }
                         break
                     }
@@ -405,7 +394,7 @@ struct SignInView: View {
     }
 }
 
-// MARK: - Unified Verify Sheet
+// MARK: - Unified Verify Sheet (Sign-In)
 struct UnifiedVerifySheetSI: View {
     let email: String
     let primary: Color

@@ -1,33 +1,42 @@
+
 import SwiftUI
 
 struct PlayerProfileView: View {
-    @State private var selectedTab: Tab = .profile
+    @EnvironmentObject var session: AppSession
+    @State private var selectedTab: Tab = .discovery
     @State private var showVideoUpload = false
-
+    
     var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack {
-                switch selectedTab {
-                case .discovery: DiscoveryView()
-                case .teams: TeamsView()
-                case .challenge: ChallengeView()
-                case .profile: PlayerProfileContentView()
-                default: DiscoveryView()
+            // ✅ المستخدم مسجل فعلاً → عرض التبويبات الطبيعية
+            ZStack(alignment: .bottom) {
+                VStack {
+                    switch selectedTab {
+                    case .discovery: DiscoveryView()
+                    case .teams: TeamsView()
+                    case .challenge: ChallengeView()
+                    case .profile: if session.isGuest {
+                        GuestProfileGateView()     // تظهر البوابة فقط لما يضغط تبويب البروفايل
+                    } else {
+                        PlayerProfileContentView() // البروفايل الحقيقي للمستخدم المسجل
+                    }
+                    default: DiscoveryView()
+                    }
                 }
+                CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
             }
-            CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
-        }
-        .ignoresSafeArea(.all, edges: .bottom)
-        .fullScreenCover(isPresented: $showVideoUpload) {
-            VideoUploadView()
-        }
-        // ✅ بعد نجاح إنشاء البوست: ارجعي لتبويب البروفايل وأغلقي شاشة الرفع
-        .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
-            selectedTab = .profile
-            showVideoUpload = false
+            .ignoresSafeArea(.all, edges: .bottom)
+            .fullScreenCover(isPresented: $showVideoUpload) {
+                VideoUploadView()
+            }
+            // ✅ بعد نجاح إنشاء البوست: ارجعي لتبويب البروفايل وأغلقي شاشة الرفع
+            .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
+                selectedTab = .profile
+                showVideoUpload = false
+            }
         }
     }
-}
+
+
 
 // MARK: - Tab Bar
 // MARK: - Tab Bar
