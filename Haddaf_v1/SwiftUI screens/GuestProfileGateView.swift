@@ -11,11 +11,13 @@ struct GuestProfileGateView: View {
         VStack(spacing: 20) {
             Spacer(minLength: 24)
 
-            Text("Create your profile to start using Haddaf app")
+            Text("Create your profile to start using Haddaf!")
                 .multilineTextAlignment(.center)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(size: 24, weight: .medium, design: .rounded))
+                .foregroundColor(primary)
                 .foregroundColor(.primary)
                 .padding(.horizontal, 24)
+                .padding(.bottom, 30)
 
             // Sign In
             Button {
