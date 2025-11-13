@@ -432,8 +432,8 @@ struct FiltersSheetView: View {
 
     // Check if Age min/max are within the 0-100 range
     private var ageValuesInvalid: Bool {
-        if let min = ageMin, (min < 0 || min > 100) {
-            return true // Min age must be 0-100
+        if let min = ageMin, (min < 4 || min > 100) {
+            return true // Min age must be between 4 and 100
         }
         if let max = ageMax, (max < 0 || max > 100) {
             return true // Max age must be 0-100

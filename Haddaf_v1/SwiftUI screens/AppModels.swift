@@ -395,7 +395,28 @@ struct DateWheelPickerSheet: View {
     @Binding var selection: Date?
     @Binding var tempSelection: Date
     @Binding var showSheet: Bool
+    
+    var allowedDateRange: ClosedRange<Date>
+    
     private let primary = Color(hex: "#36796C")
+
+    init(selection: Binding<Date?>, tempSelection: Binding<Date>, showSheet: Binding<Bool>, in dateRange: ClosedRange<Date>) {
+        self._selection = selection
+        self._tempSelection = tempSelection
+        self._showSheet = showSheet
+        self.allowedDateRange = dateRange
+    }
+    
+    // This defaults to "100 years ago up to today"
+    init(selection: Binding<Date?>, tempSelection: Binding<Date>, showSheet: Binding<Bool>) {
+        self._selection = selection
+        self._tempSelection = tempSelection
+        self._showSheet = showSheet
+        
+        let maxDate = Date()
+        let minDate = Calendar.current.date(byAdding: .year, value: -100, to: maxDate)!
+        self.allowedDateRange = minDate...maxDate
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -405,7 +426,7 @@ struct DateWheelPickerSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 16)
             
-            DatePicker("", selection: $tempSelection, in: ...Date(), displayedComponents: .date)
+            DatePicker("", selection: $tempSelection, in: allowedDateRange, displayedComponents: .date)
                 .datePickerStyle(.wheel)
                 .labelsHidden()
                 .tint(primary)

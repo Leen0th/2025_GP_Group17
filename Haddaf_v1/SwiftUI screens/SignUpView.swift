@@ -29,6 +29,7 @@ struct SignUpView: View {
     @State private var dob: Date? = nil
     @State private var showDOBPicker = false
     @State private var tempDOB = Date()
+    @State private var ageWarning: String? = nil
 
     // Focus
     @FocusState private var emailFocused: Bool
@@ -70,6 +71,16 @@ struct SignUpView: View {
     private var isPhoneValid: Bool { isValidPhone(code: selectedDialCode, local: phoneLocal) }
     private var isFormValid: Bool {
         isNameValid && isPasswordValid && isEmailValid && isPhoneValid && dob != nil && !emailExists
+    }
+    
+    // --- Date range properties ---
+    /// The latest date a user can select (4 years ago from today).
+    private var minAgeDate: Date {
+        Calendar.current.date(byAdding: .year, value: -4, to: Date())!
+    }
+    /// The earliest date a user can select (100 years ago from today).
+    private var maxAgeDate: Date {
+        Calendar.current.date(byAdding: .year, value: -100, to: Date())!
     }
 
     var body: some View {
@@ -184,7 +195,8 @@ struct SignUpView: View {
                     // DOB
                     fieldLabel("Date of birth", required: true)
                     buttonLikeField(action: {
-                        tempDOB = dob ?? Date()
+                        // --- Default to 4 years ago, not today ---
+                        tempDOB = dob ?? minAgeDate
                         showDOBPicker = true
                     }) {
                         HStack {
@@ -197,10 +209,30 @@ struct SignUpView: View {
                         .frame(height: 22)
                     }
                     .sheet(isPresented: $showDOBPicker) {
-                        DateWheelPickerSheet(selection: $dob, tempSelection: $tempDOB, showSheet: $showDOBPicker)
+                        // --- Pass the valid date range ---
+                        DateWheelPickerSheet(
+                            selection: $dob,
+                            tempSelection: $tempDOB,
+                            showSheet: $showDOBPicker,
+                            in: maxAgeDate...minAgeDate
+                        )
                             .presentationDetents([.height(300)])
                             .presentationBackground(BrandColors.background)
                             .presentationCornerRadius(28)
+                    }
+                    
+                    // --- Show age warning ---
+                    if let ageWarning = ageWarning {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(Color.orange)
+                                .font(.system(size: 14))
+                                .padding(.top, 2)
+                            Text(ageWarning)
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(Color.orange.opacity(0.9))
+                        }
+                        .padding(.top, -10) // Pull it closer
                     }
 
                     // Password
@@ -303,6 +335,24 @@ struct SignUpView: View {
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
         .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
+        // --- NEW: Add .onChange listener for DOB ---
+        .onChange(of: dob) { _, newDOB in
+            guard let newDOB = newDOB else {
+                ageWarning = nil // Clear warning if DOB is cleared
+                return
+            }
+            let age = calculateAge(from: newDOB)
+            if (4...12).contains(age) {
+                ageWarning = "You are recommended to use this app with parental supervision."
+            } else {
+                ageWarning = nil // Clear warning if age is 13+
+            }
+        }
+    }
+    
+    // --- NEW: Helper function to calculate age ---
+    private func calculateAge(from dob: Date) -> Int {
+        return Calendar.current.dateComponents([.year], from: dob, to: Date()).year ?? 0
     }
 
     // MARK: - Full name validation (last name optional)
