@@ -66,6 +66,9 @@ struct PlayerProfileContentView: View {
     @State private var itemToReport: ReportableItem?
     @State private var showReportAlert = false
     // --- END ADDED ---
+    
+    // --- NEW: Add the shared report service ---
+    @StateObject private var reportService = ReportStateService.shared
 
     // --- MODIFIED: Added two initializers ---
     init() {
@@ -150,9 +153,11 @@ struct PlayerProfileContentView: View {
                                     type: .profile,
                                     contentPreview: viewModel.userProfile.name
                                 )
-                            }
+                            },
+                            // --- NEW: Pass service and ID ---
+                            reportService: reportService,
+                            reportedID: viewModel.userProfile.email
                         )
-                        // --- END MODIFICATION ---
                          
                         // MODIFIED: Header now "hugs" the content below
                         // We use a negative spacing to pull the StatsGridView "under" the header
@@ -277,9 +282,13 @@ struct PlayerProfileContentView: View {
             .fullScreenCover(item: $selectedPost) { post in // <-- MODIFIER MOVED HERE
                 NavigationStack { PostDetailView(post: post) }
             }
-            // --- ADDED: Sheet for reporting ---
+            // --- MODIFIED: Sheet for reporting ---
             .sheet(item: $itemToReport) { item in
                 ReportView(item: item) { reportedID in
+                    // --- Update the correct service ---
+                    if item.type == .profile {
+                        reportService.reportProfile(id: reportedID)
+                    }
                     // When a profile report is complete, just show an alert.
                     showReportAlert = true
                 }
@@ -988,6 +997,9 @@ struct TopNavigationBar: View {
     // --- ADDED: Callback for reporting ---
     var onReport: () -> Void
     // --- END ADDED ---
+    
+    @ObservedObject var reportService: ReportStateService
+    var reportedID: String
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1015,18 +1027,18 @@ struct TopNavigationBar: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
             } else {
-                // --- MODIFICATION: Replaced Menu with Button ---
+                let isReported = reportService.reportedProfileIDs.contains(reportedID)
+                
                 Button(action: onReport) {
-                    Image(systemName: "flag")
+                    Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
                         .font(.title2)
-                        .foregroundColor(.red) // <-- FIXED: Set color directly
+                        .foregroundColor(.red) // Always red
                         .padding(8)
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
-                // --- END MODIFICATION ---
+                .disabled(isReported) // Don't let them report twice
             }
-            // --- END MODIFICATION ---
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)

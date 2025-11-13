@@ -218,10 +218,10 @@ struct DiscoveryView: View {
                     LazyVStack(spacing: 16) {
                         ForEach(filteredPosts, id: \.id) { post in
                         
-                            // --- Check the shared service to see if post is reported ---
-                            if let postId = post.id, reportService.reportedPostIDs.contains(postId) {
+                            // Check the *hidden* list to show the placeholder
+                            if let postId = post.id, reportService.hiddenPostIDs.contains(postId) {
                                 ReportedContentView(type: .post) {
-                                    // Tell the shared service to unhide the post
+                                    // This call is now correct: it only un-hides
                                     reportService.unhidePost(id: postId)
                                 }
                             } else {
@@ -241,7 +241,8 @@ struct DiscoveryView: View {
                                                 type: .post,
                                                 contentPreview: post.caption
                                             )
-                                        }
+                                        },
+                                        reportService: reportService
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -278,14 +279,13 @@ struct DiscoveryView: View {
 
 // MARK: - Post Card
 struct DiscoveryPostCardView: View {
-    // --- ✅ MODIFIED: Added viewModel and onCommentTapped ---
     @ObservedObject var viewModel: DiscoveryViewModel
     let post: Post
     let authorProfile: UserProfile
     let onCommentTapped: () -> Void
-    // --- ADDED: Callback for reporting ---
     let onReport: () -> Void
-    // --- END ADDED ---
+    
+    @ObservedObject var reportService: ReportStateService
     
     // Check if the current user is the owner of the post
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
@@ -315,14 +315,18 @@ struct DiscoveryPostCardView: View {
                 
                 // Only show the report button if the user is NOT the owner
                 if !isOwner {
+                    // It checks the *permanent* reported list.
+                    let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
+                    
                     Button(action: onReport) {
-                        Image(systemName: "flag")
+                        Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
                             .font(.caption)
-                            .foregroundColor(.red) // <-- FIXED: Set color directly
+                            .foregroundColor(.red) // Always red
                             .padding(8)
                             .contentShape(Rectangle()) // Make tap area larger
                     }
                     .buttonStyle(.plain) // Prevent NavigationLink trigger
+                    .disabled(isReported)
                 }
             }
             

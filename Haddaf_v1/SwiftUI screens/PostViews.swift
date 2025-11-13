@@ -59,13 +59,13 @@ struct PostDetailView: View {
                 isActive: $navigationTrigger
             ) { EmptyView() }
             
-            // Check the shared service to see if post is reported
-            if let postId = post.id, reportService.reportedPostIDs.contains(postId) {
+            // Check the *hidden* list to show the placeholder
+            if let postId = post.id, reportService.hiddenPostIDs.contains(postId) {
                 VStack {
                     header // Show header so user can go back
                     Spacer()
                     ReportedContentView(type: .post) {
-                        // Tell the shared service to unhide the post
+                        // This call is now correct: it only un-hides
                         reportService.unhidePost(id: postId)
                     }
                     .padding()
@@ -200,22 +200,23 @@ struct PostDetailView: View {
                                 .background(Circle().fill(Color.red.opacity(0.1)))
                         }
                     } else {
-                        // --- MODIFICATION: Replaced Menu with Button ---
+                        // It checks the *permanent* reported list.
+                        let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
+                        
                         Button {
-                            // --- Use the full initializer `ReportableItem(...)` ---
                             itemToReport = ReportableItem(
                                 id: post.id ?? "",
                                 type: .post,
                                 contentPreview: post.caption
                             )
                         } label: {
-                            Image(systemName: "flag")
+                            Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.red) // <-- FIXED: Set color directly
+                                .foregroundColor(.red) // Always red
                                 .padding(10)
                                 .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                         }
-                        // --- END MODIFICATION ---
+                        .disabled(isReported)
                 }
             }
         }
@@ -648,10 +649,10 @@ struct CommentsView: View {
                     } else {
                         // --- 3. MODIFIED ForEach ---
                         ForEach(viewModel.comments) { comment in
-                            // Check the shared service to see if comment is reported
-                            if let commentId = comment.id, reportService.reportedCommentIDs.contains(commentId) {
+                            // Check the *hidden* list to show the placeholder
+                            if let commentId = comment.id, reportService.hiddenCommentIDs.contains(commentId) {
                                 ReportedContentView(type: .comment) {
-                                    // Tell the shared service to unhide the comment
+                                    // This call is now correct: it only un-hides
                                     reportService.unhideComment(id: commentId)
                                 }
                                 .padding(.horizontal)
@@ -692,12 +693,11 @@ struct CommentsView: View {
                                             type: .comment,
                                             contentPreview: comment.text
                                         )
-                                    }
+                                    },
+                                    reportService: reportService
                                 )
                             }
-                            // --- END MODIFICATION ---
                         }
-                        // --- END MODIFICATION ---
                     }
                 }
                 .padding()
@@ -965,10 +965,9 @@ fileprivate struct CommentRowView: View {
     var onDelete: () -> Void
     var onSave: () -> Void
     var onCancel: () -> Void
-    
-    // --- ADDED: Callback for reporting ---
     var onReport: () -> Void
-    // --- END ADDED ---
+    
+    @ObservedObject var reportService: ReportStateService
     
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
     private var isOwner: Bool { comment.userId == currentUserID }
@@ -1081,23 +1080,24 @@ fileprivate struct CommentRowView: View {
                 }
                 .tint(.secondary)
             }
-            // --- MODIFICATION: Replaced Menu with Button ---
             else if !isOwner {
+                // It checks the *permanent* reported list.
+                let isReported = (comment.id != nil && reportService.reportedCommentIDs.contains(comment.id!))
+                
                 Button(action: onReport) {
-                    Image(systemName: "flag")
+                    Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
                         .font(.caption)
-                        .foregroundColor(.red) // <-- FIXED: Set color directly
+                        .foregroundColor(.red) // Always red
                         .padding(8)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isReported)
             }
-            // --- END MODIFICATION ---
         }
         .animation(.easeInOut, value: isEditing) // Animate the transition
     }
 }
-// --- END MODIFICATION ---
 
 struct VideoPlayerPlaceholderView: View {
     let post: Post

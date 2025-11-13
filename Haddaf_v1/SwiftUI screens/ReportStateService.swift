@@ -16,11 +16,19 @@ final class ReportStateService: ObservableObject {
     /// The shared singleton instance of the service.
     static let shared = ReportStateService()
     
+    // --- STATE 1: Which items are REPORTED (for filled icons) ---
     /// A set of all Post IDs that the user has reported.
     @Published private(set) var reportedPostIDs: Set<String> = []
     
     /// A set of all Comment IDs that the user has reported.
     @Published private(set) var reportedCommentIDs: Set<String> = []
+    
+    /// A set of all Profile IDs (using email or UID) that the user has reported.
+    @Published private(set) var reportedProfileIDs: Set<String> = []
+
+    // --- STATE 2: Which items are currently HIDDEN (for placeholder) ---
+    @Published private(set) var hiddenPostIDs: Set<String> = []
+    @Published private(set) var hiddenCommentIDs: Set<String> = []
     
     // Private init to ensure it's only used as a singleton.
     private init() {}
@@ -30,20 +38,36 @@ final class ReportStateService: ObservableObject {
     /// Marks a post as reported, causing it to be hidden.
     func reportPost(id: String) {
         reportedPostIDs.insert(id)
+        hiddenPostIDs.insert(id)
     }
     
     /// Marks a comment as reported, causing it to be hidden.
     func reportComment(id: String) {
         reportedCommentIDs.insert(id)
+        hiddenCommentIDs.insert(id)
+    }
+    
+    /// Marks a profile as reported.
+    func reportProfile(id: String) {
+        reportedProfileIDs.insert(id)
     }
     
     /// Unhides a post that was previously reported.
     func unhidePost(id: String) {
-        reportedPostIDs.remove(id)
+        // Only remove from the *hidden* list.
+        // Keep it in the *reported* list.
+        hiddenPostIDs.remove(id)
     }
     
     /// Unhides a comment that was previously reported.
     func unhideComment(id: String) {
-        reportedCommentIDs.remove(id)
+        // Only remove from the *hidden* list.
+        // Keep it in the *reported* list.
+        hiddenCommentIDs.remove(id)
+    }
+    
+    /// Unhides a profile that was previously reported.
+    func unhideProfile(id: String) {
+        reportedProfileIDs.remove(id)
     }
 }
