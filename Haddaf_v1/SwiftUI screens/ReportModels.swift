@@ -55,7 +55,7 @@ final class ReportViewModel: ObservableObject {
             self.options = [
                 .init(title: "Video isn't about football", description: "This post contains video unrelated to football."),
                 .init(title: "Video doesn't belong to user", description: "This user may have stolen this video."),
-                .init(title: "Other", description: "Hate speech, or spam.")
+                .init(title: "Other", description: "video title contain hate speech, or spam.")
             ]
         case .comment:
             self.options = [
