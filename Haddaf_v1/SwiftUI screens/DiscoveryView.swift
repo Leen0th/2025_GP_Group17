@@ -38,11 +38,9 @@ struct DiscoveryView: View {
     // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
     @State private var navigateToProfileID: String?
     @State private var navigationTrigger = false
-    // --- END ADDED ---
     
     // --- ADDED: State for reporting ---
     @State private var itemToReport: ReportableItem?
-    // --- END ADDED ---
 
     private var filteredPosts: [Post] {
         viewModel.posts.filter { post in
@@ -456,13 +454,10 @@ struct FiltersSheetView: View {
         !ageValuesInvalid && !ageRangeInvalid && !ageMinNotNumber && !ageMaxNotNumber
     }
     
-    // Check if Score min/max are within the 0-100 range
+    // --- MODIFIED: Check only min score for < 0 ---
     private var scoreValuesInvalid: Bool {
-        if let min = scoreMin, (min < 0 || min > 100) {
-            return true // Min score must be 0-100
-        }
-        if let max = scoreMax, (max < 0 || max > 100) {
-            return true // Max score must be 0-100
+        if let min = scoreMin, min < 0 {
+            return true // Min score must be 0 or greater
         }
         return false
     }
@@ -475,7 +470,6 @@ struct FiltersSheetView: View {
         return false
     }
 
-    // --- MODIFIED: Added NotNumber checks ---
     private var isScoreSectionValid: Bool {
         !scoreValuesInvalid && !scoreRangeInvalid && !scoreMinNotNumber && !scoreMaxNotNumber
     }
@@ -561,7 +555,6 @@ struct FiltersSheetView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            // --- MODIFIED: Use text binding and .onChange ---
                             TextField("Min", text: $scoreMinString)
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
@@ -578,7 +571,6 @@ struct FiltersSheetView: View {
                                     }
                                 }
                             Text("-")
-                            // --- MODIFIED: Use text binding and .onChange ---
                             TextField("Max", text: $scoreMaxString)
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
@@ -610,7 +602,7 @@ struct FiltersSheetView: View {
                         // Show other errors only if number format is valid
                         if !scoreMinNotNumber && !scoreMaxNotNumber && !isScoreSectionValid {
                             if scoreValuesInvalid {
-                                Text("Score values must be between 0 and 100.")
+                                Text("Min score must be 0 or greater.")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }
@@ -669,7 +661,6 @@ struct FiltersSheetView: View {
                         position = nil; ageMin = nil; ageMax = nil
                         scoreMin = nil; scoreMax = nil
                         team = nil; location = nil
-                        // --- NEW: Also reset string fields ---
                         ageMinString = ""; ageMaxString = ""
                         scoreMinString = ""; scoreMaxString = ""
                         dismiss()
