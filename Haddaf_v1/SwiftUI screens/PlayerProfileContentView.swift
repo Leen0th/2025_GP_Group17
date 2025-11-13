@@ -158,7 +158,6 @@ struct PlayerProfileContentView: View {
                             reportService: reportService,
                             reportedID: viewModel.userProfile.email
                         )
-                         
                         // MODIFIED: Header now "hugs" the content below
                         // We use a negative spacing to pull the StatsGridView "under" the header
                         ProfileHeaderView(userProfile: viewModel.userProfile)
@@ -285,7 +284,6 @@ struct PlayerProfileContentView: View {
             // --- MODIFIED: Sheet for reporting ---
             .sheet(item: $itemToReport) { item in
                 ReportView(item: item) { reportedID in
-                    // --- Update the correct service ---
                     if item.type == .profile {
                         reportService.reportProfile(id: reportedID)
                     }
@@ -301,6 +299,7 @@ struct PlayerProfileContentView: View {
             
         } // <-- End of ZStack
         .animation(.easeInOut, value: showScoreInfoAlert)
+        .navigationBarBackButtonHidden(true)
     }
     
     @ViewBuilder
@@ -986,24 +985,32 @@ struct EditProfileView: View {
 
 // MARK: - Profile Helper Views (Styling Update)
 struct TopNavigationBar: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var userProfile: UserProfile
     @Binding var goToSettings: Bool
     @Binding var showNotifications: Bool
     
-    // --- MODIFIED: Added isCurrentUser flag ---
     var isCurrentUser: Bool
-    // --- END MODIFICATION ---
-    
-    // --- ADDED: Callback for reporting ---
     var onReport: () -> Void
-    // --- END ADDED ---
-    
+
     @ObservedObject var reportService: ReportStateService
     var reportedID: String
 
     var body: some View {
         HStack(spacing: 16) {
-            Spacer()
+            // --- NEW: Back button ---
+            // Only show the back button if we are NOT viewing the current user's profile
+            if !isCurrentUser {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(BrandColors.darkTeal)
+                        .padding(10)
+                        .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
+                }
+            }
+            
+            Spacer() // This spacer is now correct, separating left and right items
             
             // --- MODIFIED: Conditionally show buttons ---
             if isCurrentUser {
@@ -1027,17 +1034,18 @@ struct TopNavigationBar: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
             } else {
+                // --- This is the Report button ---
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)
                 
                 Button(action: onReport) {
                     Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
-                        .font(.title2)
+                        .font(.title2) // Match other icons
                         .foregroundColor(.red) // Always red
-                        .padding(8)
+                        .padding(8) // Match other icons
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
-                .disabled(isReported) // Don't let them report twice
+                .disabled(isReported)
             }
         }
         .padding(.horizontal, 12)
