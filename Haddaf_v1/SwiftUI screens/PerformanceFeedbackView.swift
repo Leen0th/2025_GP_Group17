@@ -1,7 +1,8 @@
 import SwiftUI
 import AVKit
 
-// MARK: - Models (Unchanged)
+// MARK: - Models
+// A model representing a single performance statistic for a post.
 struct PFPostStat: Identifiable {
     let id = UUID()
     let label: String
@@ -9,16 +10,18 @@ struct PFPostStat: Identifiable {
     let maxValue: Int
 }
 
-// MARK: - Stat Bar (Unchanged)
+// MARK: - Stat Bar
+// A view that displays a single performance statistic as a labeled, animated progress bar.
 struct PFStatBarView: View {
+    // The statistic to display.
     let stat: PFPostStat
-    
+    // The color gradient for the bar, customized based on the stat type.
     let gradient: LinearGradient
     
+    // Initializes the view and sets the appropriate gradient based on the stat's label.
     init(stat: PFPostStat) {
         self.stat = stat
-        
-        // Assign gradient based on label
+        // Assign a specific gradient based on the skill name
         switch stat.label.lowercased() {
         case "dribble":
             self.gradient = LinearGradient(colors: [BrandColors.turquoise.opacity(0.7), BrandColors.turquoise], startPoint: .leading, endPoint: .trailing)
@@ -33,6 +36,7 @@ struct PFStatBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Header row with label and value
             HStack {
                 Text(stat.label)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -42,13 +46,13 @@ struct PFStatBarView: View {
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
             }
-            
+            // Progress bar
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(BrandColors.lightGray)
                         .frame(height: 8)
-                    
+                    // Filled portion of the bar
                     Capsule()
                         .fill(gradient)
                         .frame(width: (geometry.size.width * CGFloat(stat.value) / CGFloat(stat.maxValue)), height: 8)
@@ -60,11 +64,14 @@ struct PFStatBarView: View {
     }
 }
 
-// MARK: - AVPlayerViewController wrapper (Unchanged)
+// This view allows a UIKit video player to be used inside a SwiftUI view hierarchy.
 struct AVKitPlayerView: UIViewControllerRepresentable {
+    // The `AVPlayer` instance that holds the video to be played.
     let player: AVPlayer?
-
+    
+    // The coordinator handles observation of the player item.
     class Coordinator {
+        // An observer that watches the `status` of an `AVPlayerItem`.
         var itemObservation: NSKeyValueObservation?
     }
 
@@ -72,19 +79,22 @@ struct AVKitPlayerView: UIViewControllerRepresentable {
         Coordinator()
     }
 
+    // Creates and configures the `AVPlayerViewController`.
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
         vc.showsPlaybackControls = true
         vc.videoGravity = .resizeAspect
         return vc
     }
-
+    
+    // Updates the `AVPlayerViewController` when the `player` property changes.
     func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
-        
+        // Only update if the player instance is different
         guard vc.player !== player else { return }
         
         vc.player = player
         
+        // Clean up any old observer before setting a new one
         context.coordinator.itemObservation?.invalidate()
         context.coordinator.itemObservation = nil
         
@@ -92,9 +102,12 @@ struct AVKitPlayerView: UIViewControllerRepresentable {
             return
         }
 
+        // Observe the item's status to know when it's ready to play.
+        // This is used to pause the video and seek to the beginning immediately upon loading, preventing it from auto-playing.
         context.coordinator.itemObservation = item.observe(\.status, options: [.new, .initial]) { [weak vc] (playerItem, change) in
             
             if playerItem.status == .readyToPlay {
+                // Video is loaded, so pause it and rewind to the start.
                 vc?.player?.pause()
                 vc?.player?.seek(to: .zero)
             }
@@ -102,29 +115,48 @@ struct AVKitPlayerView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Main View (Unchanged)
+// MARK: - Main View
+
+// The main view for the Performance Feedback screen.
 struct PerformanceFeedbackView: View {
+    // Used to dismiss the view.
     @Environment(\.dismiss) private var dismiss
+    // The view model containing the video, stats, and upload logic.
     @ObservedObject var viewModel: VideoProcessingViewModel
 
+    // MARK: - State Properties
+    
+    // The title for the post, entered by the user.
     @State private var title: String = ""
     private let titleLimit = 15
 
+    // Toggles the post visibility between public and private.
     @State private var isPrivate: Bool = false
+    // Holds an error message if posting fails.
     @State private var postingError: String? = nil
 
+    // The optional match date selected by the user.
     @State private var matchDate: Date? = nil
+    // Controls the presentation of the date picker sheet.
     @State private var showDateSheet = false
+    // A temporary date holder for the sheet to avoid non-atomic updates.
     @State private var tempSheetDate: Date = Date()
 
+    // The `AVPlayer` instance used by `AVKitPlayerView`.
     @State private var player: AVPlayer? = nil
+    // An observer to detect when the video finishes playing (to loop it).
     @State private var endObserver: NSObjectProtocol? = nil
     
+    // Controls the alert for discarding the post.
     @State private var showExitWarning = false
+    // Controls the animation state of the custom spinner.
     @State private var isAnimating = false
 
     private let primary = BrandColors.darkTeal
 
+    // MARK: - Computed Views
+    
+    // A custom rotating loading spinner.
     private var customSpinner: some View {
         ZStack {
             Circle().stroke(lineWidth: 8).fill(BrandColors.lightGray)
@@ -139,25 +171,27 @@ struct PerformanceFeedbackView: View {
         .frame(width: 80, height: 80)
     }
     
+    // Determines if the "Post" button should be disabled.
     private var isPostButtonDisabled: Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty || trimmed.count > titleLimit || viewModel.isUploading
     }
+    
+    // MARK: - Body
 
     var body: some View {
-        // --- MODIFIED: Removed progress bar from here ---
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
+                // Main scrollable content
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
                         header
                         
-                        // --- MODIFIED: Timeline moved here ---
                         MultiStepProgressBar(currentStep: .feedback)
                         
                         videoSection
                         statsSection
-                        titleVisibilitySection // This section is now fixed
+                        titleVisibilitySection
                         dateRowSection
                         Spacer().frame(height: 100)
                     }
@@ -175,7 +209,7 @@ struct PerformanceFeedbackView: View {
 
                 postButton
             }
-            .disabled(viewModel.isUploading)
+            .disabled(viewModel.isUploading) // Disable interaction while uploading
             .overlay(
                 ZStack {
                     if viewModel.isUploading {
@@ -210,6 +244,8 @@ struct PerformanceFeedbackView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isUploading)
             )
         }
+        
+        // Alert for discarding the video
         .alert("Discard Video", isPresented: $showExitWarning) {
             Button("Discard", role: .destructive) {
                 cancelAndDismiss()
@@ -218,12 +254,18 @@ struct PerformanceFeedbackView: View {
         } message: {
             Text("Are you sure you want to discard your video and performance analysis?")
         }
+        
+        // Alert for posting errors
         .alert("Error", isPresented: .constant(postingError != nil)) {
             Button("OK") { postingError = nil }
         } message: { Text(postingError ?? "Unknown error occurred") }
+        
+        // Enforce title character limit
         .onChange(of: title) { _, newVal in
             if newVal.count > titleLimit { title = String(newVal.prefix(titleLimit)) }
         }
+        
+        // Date picker sheet
         .sheet(isPresented: $showDateSheet) {
             VStack(spacing: 16) {
                 Text("Select match date")
@@ -270,7 +312,8 @@ struct PerformanceFeedbackView: View {
         }
     }
 
-    // MARK: - Header (Unchanged)
+    // MARK: - Header
+    // The header view with the title and an "X" button to cancel.
     private var header: some View {
         ZStack {
             Text("Performance Feedback")
@@ -281,7 +324,7 @@ struct PerformanceFeedbackView: View {
             HStack {
                 Spacer()
                 Button {
-                    showExitWarning = true
+                    showExitWarning = true // Show confirmation alert
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .bold))
@@ -295,7 +338,8 @@ struct PerformanceFeedbackView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Video (Unchanged)
+    // MARK: - Video
+    // The section displaying the video player.
     private var videoSection: some View {
         Group {
             if viewModel.videoURL != nil {
@@ -303,6 +347,7 @@ struct PerformanceFeedbackView: View {
                     .frame(height: 250)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
+                // Placeholder if video URL is missing
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.black)
                     .frame(height: 250)
@@ -312,7 +357,8 @@ struct PerformanceFeedbackView: View {
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Stats (Unchanged)
+    // MARK: - Stats
+    // The section displaying the AI performance stats.
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("AI Performance Analysis")
@@ -320,6 +366,7 @@ struct PerformanceFeedbackView: View {
                 .foregroundColor(BrandColors.darkGray)
                 .padding(.bottom, 4)
             
+            // Loop over stats and create a bar for each
             ForEach(viewModel.performanceStats) { s in
                 PFStatBarView(stat: s)
             }
@@ -330,11 +377,11 @@ struct PerformanceFeedbackView: View {
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Title + Visibility (FIXED)
+    // MARK: - Title + Visibility
+    // The section for setting the post title and visibility.
     private var titleVisibilitySection: some View {
-        // This VStack is now correctly styled as a card
         VStack(alignment: .leading, spacing: 18) {
-            // Title (mandatory)
+            // Title
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Text("Add a title")
@@ -342,6 +389,7 @@ struct PerformanceFeedbackView: View {
                         .foregroundColor(.secondary)
                     Text("*").font(.subheadline).fontWeight(.bold).foregroundColor(.red)
                     Spacer()
+                    // Character count
                     Text("\(title.count)/\(titleLimit)")
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(title.count > titleLimit ? .red : .secondary)
@@ -354,18 +402,16 @@ struct PerformanceFeedbackView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(
-                        // FIX: Changed fill to contrast with the parent card
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(BrandColors.lightGray.opacity(0.7)) // <-- CHANGED
-                            // .shadow(...) // <-- REMOVED shadow from inner element
+                            .fill(BrandColors.lightGray.opacity(0.7))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                     )
-                    .cornerRadius(12) // Note: This .cornerRadius is redundant, but harmless
+                    .cornerRadius(12)
                     .accessibilityLabel("Post title (required)")
             }
             .padding(.top, 4)
 
-            // Visibility
+            // Visibility toggle
             VStack(alignment: .leading, spacing: 10) {
                 Text("Post Visibility")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -382,32 +428,30 @@ struct PerformanceFeedbackView: View {
                     }
                     .padding()
                     .background(
-                        // FIX: Changed fill to contrast with the parent card
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(BrandColors.lightGray.opacity(0.7)) // <-- CHANGED
-                            // .shadow(...) // <-- REMOVED shadow from inner element
+                            .fill(BrandColors.lightGray.opacity(0.7))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
                     )
                 }
             }
             .padding(.top, 6)
         }
-        // FIX: Added card modifiers to the whole section
         .padding(20)
         .background(BrandColors.background)
         .cornerRadius(20)
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
-    // MARK: - Match Date Row (Unchanged)
+    // MARK: - Match Date Row
+    // The section for selecting the optional match date.
     private var dateRowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Match Date (optional)")
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary)
-
+            // Button to open the date picker sheet
             Button {
-                tempSheetDate = matchDate ?? Date()
+                tempSheetDate = matchDate ?? Date() // Pre-fill with current date or selection
                 showDateSheet = true
             } label: {
                 HStack {
@@ -433,10 +477,12 @@ struct PerformanceFeedbackView: View {
         .padding(.top, 6)
     }
 
-    // MARK: - Post Button (Unchanged)
+    // MARK: - Post Button
+    // The floating "Post" button at the bottom of the screen.
     private var postButton: some View {
         VStack {
             Button {
+                // Run the upload and post creation in an async Task
                 Task {
                     do {
                         try await viewModel.createPost(
@@ -444,9 +490,11 @@ struct PerformanceFeedbackView: View {
                             isPrivate: isPrivate,
                             matchDate: matchDate
                         )
+                        // On success, reset state and dismiss the entire flow
                         viewModel.resetAfterPosting()
                         NotificationCenter.default.post(name: Notification.Name("cancelUploadFlow"), object: nil)
                     } catch {
+                        // On failure, show an error alert
                         postingError = error.localizedDescription
                     }
                 }
@@ -468,9 +516,10 @@ struct PerformanceFeedbackView: View {
         .background(BrandColors.background)
     }
 
-    // MARK: - Player setup / teardown (Unchanged)
+    // MARK: - Player Lifecycle
+    // Sets up the AVPlayer with the given URL and adds an observer to loop it.
     private func configurePlayer(with url: URL?) {
-        teardownPlayer()
+        teardownPlayer() // Clean up existing player first
 
         guard let url else {
             player = nil
@@ -480,25 +529,30 @@ struct PerformanceFeedbackView: View {
         let p = AVPlayer(url: url)
         player = p
 
+        // Add an observer to detect when the video plays to the end
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: p.currentItem,
             queue: .main
         ) { _ in
+            // When it ends, seek back to the beginning
             self.player?.seek(to: .zero)
         }
     }
 
+    // Cleans up the player and removes observers.
     private func teardownPlayer() {
         player?.pause()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         player = nil
     }
 
-    // MARK: - Helpers (Unchanged)
+    // MARK: - Helpers
+    // Cleans up the view model and player, then posts a notification to dismiss the upload flow.
     private func cancelAndDismiss() {
         teardownPlayer()
-        viewModel.resetAfterPosting()
+        viewModel.resetAfterPosting() // Clear temp files and state
+        // This notification is caught by a parent coordinator to dismiss the sheet/full-screen cover
         NotificationCenter.default.post(name: Notification.Name("cancelUploadFlow"), object: nil)
     }
 }
