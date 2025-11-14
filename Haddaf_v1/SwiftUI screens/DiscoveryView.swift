@@ -202,8 +202,9 @@ struct DiscoveryView: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
-                .background(BrandColors.lightGray.opacity(0.7))
+                .background(BrandColors.background)
                 .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
 
                 // Filter Button
                 Button { showFiltersSheet = true } label: {
