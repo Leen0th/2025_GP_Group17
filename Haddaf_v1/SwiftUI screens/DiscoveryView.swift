@@ -1,27 +1,25 @@
-//
-//  DiscoveryView.swift
-//  Haddaf_v1
-//
-
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 import AVKit
 
 // MARK: - Discovery View
+// The main view for the "Discovery" tab, which also hosts the "Leaderboard" tab
 struct DiscoveryView: View {
+    // An enum to define the two top level tabs in this view
     enum TopTab: String, CaseIterable { case discovery = "Discovery", leaderboard = "Leaderboard" }
-    @State private var selectedTab: TopTab = .discovery   // يفتح على الديسكفري
-
+    // The currently selected top tab
+    @State private var selectedTab: TopTab = .discovery
+    // The view model that fetches and manages all public posts
     @StateObject private var viewModel = DiscoveryViewModel()
+    // The view model that fetches and manages the leaderboard data
     @StateObject private var lbViewModel = LeaderboardViewModel()
-    
-    // --- Use the shared reporting service and observe its changes ---
+    // A shared service that tracks reported/hidden content across the app
     @StateObject private var reportService = ReportStateService.shared
-
+    // The text entered into the search bar
     @State private var searchText = ""
 
-    // Filters
+    // MARK: - Filters
     @State private var filterPosition: String? = nil
     @State private var filterAgeMin: Int? = nil
     @State private var filterAgeMax: Int? = nil
@@ -30,25 +28,32 @@ struct DiscoveryView: View {
     @State private var filterTeam: String? = nil
     @State private var filterLocation: String? = nil
 
+    // Controls the presentation of the `FiltersSheetView`
     @State private var showFiltersSheet = false
     
-    // State to manage the comments sheet
+    // Holds the `Post` object when the comment button is tapped, triggering the `CommentsView` sheet
     @State private var postForComments: Post? = nil
     
-    // --- 1. ADDED STATE FOR PROGRAMMATIC NAVIGATION ---
+    // The user ID to navigate to
     @State private var navigateToProfileID: String?
+    // The `isActive` binding for the `NavigationLink`.
     @State private var navigationTrigger = false
     
-    // --- ADDED: State for reporting ---
+    // Holds the `ReportableItem` when a report button is tapped, triggering the `ReportView` sheet
     @State private var itemToReport: ReportableItem?
 
+    // A computed property that filters the main `viewModel.posts` list
     private var filteredPosts: [Post] {
         viewModel.posts.filter { post in
+            // 1. Filter by search text (author name)
             let nameMatch = searchText.isEmpty || post.authorName.localizedCaseInsensitiveContains(searchText)
+            // 2. Get the cached author profile for this post
             guard let authorUid = post.authorUid,
                   let profile = viewModel.authorProfiles[authorUid] else {
+                // If profile isn't loaded yet, just return the name match
                 return nameMatch
             }
+            // 3. Apply all filters from the filter sheet
             let positionMatch = filterPosition == nil || profile.position == filterPosition
             let age = Int(profile.age) ?? 0
             let ageMatch = (filterAgeMin == nil || age >= filterAgeMin!) &&
@@ -58,34 +63,34 @@ struct DiscoveryView: View {
                              (filterScoreMax == nil || score <= filterScoreMax!)
             let teamMatch = filterTeam == nil || profile.team == filterTeam
             let locationMatch = filterLocation == nil || profile.location == filterLocation
+            
+            // Return true only if all conditions are met
             return nameMatch && positionMatch && ageMatch && scoreMatch && teamMatch && locationMatch
         }
     }
 
+    // returns `true` if any filter (including search) is active
     private var isFiltering: Bool {
         !searchText.isEmpty || filterPosition != nil || filterAgeMin != nil || filterAgeMax != nil ||
         filterScoreMin != nil || filterScoreMax != nil || filterTeam != nil || filterLocation != nil
     }
 
     var body: some View {
-        // ✅ NavigationStack هنا يزيل الضباب ويُفعّل التنقّل للروابط
         NavigationStack {
             ZStack {
-                // خلفية ثابتة بدون أي مواد ضبابية
                 BrandColors.gradientBackground.ignoresSafeArea()
                 
-                // --- 2. ADDED HIDDEN NAVIGATIONLINK ---
+                // navigation link to push to a user's profile
                 NavigationLink(
                     destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
                     isActive: $navigationTrigger
                 ) { EmptyView() }
-                // --- END ADDED ---
 
                 if viewModel.isLoadingPosts {
                     ProgressView().tint(BrandColors.darkTeal)
                 } else {
                     VStack(spacing: 0) {
-                        // ===== Tabs =====
+                        // ===== Top Tabs ("Discovery" / "Leaderboard") =====
                         HStack(spacing: 0) {
                             topTabButton(.discovery)
                             Divider().frame(height: 24).padding(.horizontal, 12)
@@ -93,7 +98,7 @@ struct DiscoveryView: View {
                         }
                         .padding(.vertical, 8)
 
-                        // ===== Body per tab =====
+                        // ===== Body content switches based on selected tab =====
                         Group {
                             switch selectedTab {
                             case .discovery:
@@ -106,12 +111,16 @@ struct DiscoveryView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar) // لا شريط علوي
+            .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
+            // Load the leaderboard data when the view appears, if it hasn't been loaded
             .onAppear { lbViewModel.loadLeaderboardIfNeeded() }
+            // MARK: - Sheets
             .sheet(isPresented: Binding(get: {
+                // Only show the filter sheet if the Discovery tab is active
                 selectedTab == .discovery && showFiltersSheet
             }, set: { showFiltersSheet = $0 })) {
+                // Filter Sheet
                 FiltersSheetView(
                     position: $filterPosition,
                     ageMin: $filterAgeMin,
@@ -122,18 +131,16 @@ struct DiscoveryView: View {
                     location: $filterLocation
                 )
             }
-            // --- ✅ MODIFIED: Sheet for showing comments ---
             .sheet(item: $postForComments) { post in
+                // Comments Sheet
                 if let postId = post.id {
                     CommentsView(
                         postId: postId,
-                        // --- 3. THIS IS THE FIX ---
                         onProfileTapped: { userID in
-                            // 1. Set the ID for our NavigationLink
+                            // This closure handles navigation from a comment to a profile
                             navigateToProfileID = userID
-                            // 2. Dismiss the sheet
-                            postForComments = nil // Use this to dismiss an item-based sheet
-                            // 3. Trigger the navigation after a short delay
+                            postForComments = nil // Dismiss the comment sheet
+                            // Use a slight delay to allow the sheet to dismiss before navigating
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 navigationTrigger = true
                             }
@@ -145,19 +152,21 @@ struct DiscoveryView: View {
             // --- Sheet for reporting ---
             .sheet(item: $itemToReport) { item in
                 ReportView(item: item) { reportedID in
-                    // On complete, tell the shared service to report the post
+                    // On complete, tell the shared service to hide the post
                     reportService.reportPost(id: reportedID)
                 }
             }
-            // --- Listener for sync ---
+            // MARK: - Notification Listener
             .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
+                // Listens for updates (likes/comments) from other views and updates the local view model to keep data in sync.
                 viewModel.handlePostDataUpdate(notification: notification)
             }
-            // --- END ADDED ---
         }
     }
+    
+    // MARK: - ViewBuilders
 
-    // MARK: - Tab Button
+    // A view builder for the top tab buttons ("Discovery", "Leaderboard")
     @ViewBuilder
     private func topTabButton(_ tab: TopTab) -> some View {
         Button {
@@ -167,6 +176,7 @@ struct DiscoveryView: View {
                 Text(tab.rawValue)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(selectedTab == tab ? BrandColors.darkTeal : BrandColors.darkTeal.opacity(0.45))
+                // Underline for the selected tab
                 RoundedRectangle(cornerRadius: 1)
                     .frame(height: 2)
                     .foregroundColor(selectedTab == tab ? BrandColors.darkTeal : .clear)
@@ -177,7 +187,7 @@ struct DiscoveryView: View {
         }
     }
 
-    // MARK: - Discovery Tab Content
+    /// The main content body for the "Discovery" tab
     @ViewBuilder
     private var discoveryContent: some View {
         VStack(spacing: 0) {
@@ -195,8 +205,9 @@ struct DiscoveryView: View {
                 .background(BrandColors.lightGray.opacity(0.7))
                 .clipShape(Capsule())
 
+                // Filter Button
                 Button { showFiltersSheet = true } label: {
-                    // Icon changes based on isFiltering
+                    // Icon changes based on isFiltering if active
                     Image(systemName: isFiltering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                         .font(.system(size: 24, weight: .medium))
                         .foregroundColor(BrandColors.darkTeal)
@@ -205,35 +216,40 @@ struct DiscoveryView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
 
+            // MARK: - Post List
             if filteredPosts.isEmpty && isFiltering {
+                // Empty state for when filters return no results
                 EmptyStateView(
                     image: "doc.text.magnifyingglass",
                     title: "No Matching Results",
                     message: "Try adjusting your search or filter settings."
                 )
             } else {
+                // The main list of posts
                 ScrollView {
                     LazyVStack(spacing: 16) {
                         ForEach(filteredPosts, id: \.id) { post in
-                        
-                            // Check the *hidden* list to show the placeholder
+                            // Check if this post has been hidden by the report service
                             if let postId = post.id, reportService.hiddenPostIDs.contains(postId) {
+                                // If hidden, show the "ReportedContentView" placeholder
                                 ReportedContentView(type: .post) {
-                                    // This call is now correct: it only un-hides
                                     reportService.unhidePost(id: postId)
                                 }
                             } else {
+                                // If not hidden, show the post card
                                 NavigationLink(destination: PostDetailView(post: post)) {
+                                    // get the author's profile from the cache
                                     let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
                                     DiscoveryPostCardView(
-                                        viewModel: viewModel, // Pass the view model
+                                        viewModel: viewModel,
                                         post: post,
                                         authorProfile: authorProfile,
-                                        onCommentTapped: { // Pass the closure
+                                        onCommentTapped: {
+                                            // Set the post to trigger the comment sheet
                                             self.postForComments = post
                                         },
                                         onReport: {
-                                            // --- ADDED: Trigger report flow ---
+                                            // Set the item to trigger the report sheet
                                             itemToReport = ReportableItem(
                                                 id: post.id ?? "",
                                                 type: .post,
@@ -250,12 +266,12 @@ struct DiscoveryView: View {
                     .padding()
                     .padding(.bottom, 80)
                 }
-                .opacity(1) // تأكيد: لا تعتيم
+                .opacity(1)
             }
         }
     }
 
-    // --- Empty state
+    // An empty state view for when no posts are found
     @ViewBuilder
     private func EmptyStateView(image: String, title: String, message: String) -> some View {
         VStack {
@@ -276,6 +292,7 @@ struct DiscoveryView: View {
 }
 
 // MARK: - Post Card
+// A view for a single post card shown in the `DiscoveryView` feed
 struct DiscoveryPostCardView: View {
     @ObservedObject var viewModel: DiscoveryViewModel
     let post: Post
@@ -291,8 +308,9 @@ struct DiscoveryPostCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
+            // MARK: - Header (Profile Image, Name, Report)
             HStack(spacing: 12) {
+                // Navigate to profile if UID exists
                 if let uid = post.authorUid, !uid.isEmpty {
                     NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
                         profileImage
@@ -313,27 +331,27 @@ struct DiscoveryPostCardView: View {
                 
                 // Only show the report button if the user is NOT the owner
                 if !isOwner {
-                    // It checks the *permanent* reported list.
                     let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
                     
                     Button(action: onReport) {
-                        Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
+                        Image(systemName: isReported ? "flag.fill" : "flag")
                             .font(.caption)
-                            .foregroundColor(.red) // Always red
+                            .foregroundColor(.red)
                             .padding(8)
-                            .contentShape(Rectangle()) // Make tap area larger
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain) // Prevent NavigationLink trigger
-                    .disabled(isReported)
+                    .buttonStyle(.plain)
+                    .disabled(isReported) // Disable if already reported
                 }
             }
             
-            // Media
+            // MARK: - Video post
             if let videoStr = post.videoURL, let url = URL(string: videoStr) {
                 VideoPlayer(player: AVPlayer(url: url))
                     .frame(height: 200)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
+                // Fallback to thumbnail image
                 AsyncImage(url: URL(string: post.imageName)) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: { BrandColors.lightGray }
@@ -341,16 +359,17 @@ struct DiscoveryPostCardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             }
 
-            // Caption
+            // MARK: - Caption
             Text(post.caption)
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(BrandColors.darkGray)
                 .lineLimit(2)
 
-            // --- ✅ MODIFIED: Interactions are now buttons ---
+            // MARK: - Action Buttons (Like, Comment)
             HStack(spacing: 16) {
                 // --- LIKE BUTTON ---
                 Button {
+                    // Perform the like/unlike action asynchronously
                     Task { await viewModel.toggleLike(post: post) }
                 } label: {
                     HStack(spacing: 4) {
@@ -359,11 +378,11 @@ struct DiscoveryPostCardView: View {
                     }
                     .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
                 }
-                .buttonStyle(.plain) // IMPORTANT: Prevents triggering the NavigationLink
+                .buttonStyle(.plain)
 
                 // --- COMMENT BUTTON ---
                 Button {
-                    onCommentTapped()
+                    onCommentTapped() // Trigger the comment sheet
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "message")
@@ -371,18 +390,18 @@ struct DiscoveryPostCardView: View {
                     }
                     .foregroundColor(BrandColors.darkGray)
                 }
-                .buttonStyle(.plain) // IMPORTANT
+                .buttonStyle(.plain)
             }
             .font(.system(size: 14, design: .rounded))
-            // --- END MODIFICATION ---
         }
         .padding()
-        .background(Color.white) // لا مواد ولا تعتيم
+        .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
         .opacity(1)
     }
 
+    // A reusable view builder for the author's profile image
     @ViewBuilder
     private var profileImage: some View {
         if let image = authorProfile.profileImage {
@@ -391,6 +410,7 @@ struct DiscoveryPostCardView: View {
                 .frame(width: 44, height: 44)
                 .clipShape(Circle())
         } else {
+            // Placeholder
             Image(systemName: "person.circle.fill")
                 .resizable().aspectRatio(contentMode: .fill)
                 .frame(width: 44, height: 44)
@@ -401,6 +421,7 @@ struct DiscoveryPostCardView: View {
 
 // MARK: - Filters Sheet
 struct FiltersSheetView: View {
+    // Bindings (Filter State)
     @Binding var position: String?
     @Binding var ageMin: Int?
     @Binding var ageMax: Int?
@@ -409,71 +430,74 @@ struct FiltersSheetView: View {
     @Binding var team: String?
     @Binding var location: String?
 
+    // Local Data
     let positions = ["Attacker", "Midfielder", "Defender"]
     let teams = ["Unassigned"]
     let locations = SAUDI_CITIES
 
+    // The environment object for dismissing the sheet
     @Environment(\.dismiss) private var dismiss
     
+    // Info Details
     @State private var showScoreInfo = false
     @State private var showLocationInfo = false
     
-    // --- NEW: State for string text field values ---
+    // Validation States
     @State private var ageMinString: String = ""
     @State private var ageMaxString: String = ""
     @State private var scoreMinString: String = ""
     @State private var scoreMaxString: String = ""
-    
-    // --- NEW: State for number validation ---
     @State private var ageMinNotNumber: Bool = false
     @State private var ageMaxNotNumber: Bool = false
     @State private var scoreMinNotNumber: Bool = false
     @State private var scoreMaxNotNumber: Bool = false
 
-    // Check if Age min/max are within the 0-100 range
+    // `true` if age values are outside the logical range (0-100)
     private var ageValuesInvalid: Bool {
         if let min = ageMin, (min < 4 || min > 100) {
-            return true // Min age must be between 4 and 100
+            return true
         }
         if let max = ageMax, (max < 0 || max > 100) {
-            return true // Max age must be 0-100
+            return true
         }
         return false
     }
 
-    // Check if Age min is greater than max
+    // `true` if the minimum age is greater than the maximum age
     private var ageRangeInvalid: Bool {
         if let min = ageMin, let max = ageMax {
-            return min > max // Min must be <= Max
+            return min > max
         }
         return false
     }
     
-    // --- MODIFIED: Added NotNumber checks ---
+    // `true` if the age section is valid (no numeric errors, value errors, or range errors)
     private var isAgeSectionValid: Bool {
         !ageValuesInvalid && !ageRangeInvalid && !ageMinNotNumber && !ageMaxNotNumber
     }
     
-    // --- MODIFIED: Check only min score for < 0 ---
+    // `true` if score values are outside the logical range (e.g., < 0)
     private var scoreValuesInvalid: Bool {
         if let min = scoreMin, min < 0 {
-            return true // Min score must be 0 or greater
+            return true
         }
         return false
     }
     
-    // Check if Score min is greater than max
+    // `true` if the minimum score is greater than the maximum score
     private var scoreRangeInvalid: Bool {
         if let min = scoreMin, let max = scoreMax {
-            return min > max // Min must be <= Max
+            return min > max
         }
         return false
     }
 
+    // `true` if the score section is valid (no numeric errors, value errors, or range errors)
     private var isScoreSectionValid: Bool {
         !scoreValuesInvalid && !scoreRangeInvalid && !scoreMinNotNumber && !scoreMaxNotNumber
     }
     
+    // `true` if all form sections are valid, enabling the "Apply" button
     private var isFormValid: Bool {
         isAgeSectionValid && isScoreSectionValid
     }
@@ -481,14 +505,16 @@ struct FiltersSheetView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: - Position Filter
                 Section("Position") {
                     Picker("Position", selection: $position) {
-                        Text("Any").tag(String?.none)
+                        Text("Any").tag(String?.none) // Tag for nil (no filter)
                         ForEach(positions, id: \.self) { pos in
-                            Text(pos).tag(String?.some(pos))
+                            Text(pos).tag(String?.some(pos)) // Tag for a specific string
                         }
                     }
                 }
+                // MARK: - Age Filter
                 Section("Age Range") {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -496,6 +522,7 @@ struct FiltersSheetView: View {
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
                                 .onChange(of: ageMinString) { newValue in
+                                    // Live validation as the user types
                                     if newValue.isEmpty {
                                         ageMinNotNumber = false
                                         ageMin = nil
@@ -503,8 +530,8 @@ struct FiltersSheetView: View {
                                         ageMinNotNumber = false
                                         ageMin = number
                                     } else {
-                                        ageMinNotNumber = true
-                                        ageMin = nil // Set to nil to trigger other validations
+                                        ageMinNotNumber = true // Contains non-numbers
+                                        ageMin = nil
                                     }
                                 }
                             Text("-")
@@ -525,6 +552,7 @@ struct FiltersSheetView: View {
                                 }
                         }
                         
+                        // --- Age Error Messages ---
                         if ageMinNotNumber {
                             Text("Min age must be numbers only.")
                                 .font(.caption)
@@ -536,10 +564,10 @@ struct FiltersSheetView: View {
                                 .foregroundColor(.red)
                         }
                         
-                        // Show other errors only if number format is valid
+                        // Show range/value errors only if there are no text input errors
                         if !ageMinNotNumber && !ageMaxNotNumber && !isAgeSectionValid {
                             if ageValuesInvalid {
-                                Text("Age values must be between 0 and 100.")
+                                Text("Age values must be between 4 and 100.")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }
@@ -552,6 +580,8 @@ struct FiltersSheetView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                
+                // MARK: - Score Filter
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -587,7 +617,7 @@ struct FiltersSheetView: View {
                                     }
                                 }
                         }
-                        
+                        // --- Score Error Messages ---
                         if scoreMinNotNumber {
                             Text("Min score must be numbers only.")
                                 .font(.caption)
@@ -598,8 +628,6 @@ struct FiltersSheetView: View {
                                 .font(.caption)
                                 .foregroundColor(.red)
                         }
-
-                        // Show other errors only if number format is valid
                         if !scoreMinNotNumber && !scoreMaxNotNumber && !isScoreSectionValid {
                             if scoreValuesInvalid {
                                 Text("Min score must be 0 or greater.")
@@ -615,6 +643,7 @@ struct FiltersSheetView: View {
                     }
                     .padding(.vertical, 4)
                 } header: {
+                    // Header with info button
                     HStack {
                         Text("Score Range")
                         Button {
@@ -626,12 +655,14 @@ struct FiltersSheetView: View {
                         }
                     }
                 }
+                // MARK: - Team Filter
                 Section("Current Team") {
                     Picker("Team", selection: $team) {
                         Text("Any").tag(String?.none)
                         ForEach(teams, id: \.self) { t in Text(t).tag(String?.some(t)) }
                     }
                 }
+                // MARK: - Location Filter
                 Section {
                     Picker("Location", selection: $location) {
                         Text("Any").tag(String?.none)
@@ -649,15 +680,18 @@ struct FiltersSheetView: View {
                         }
                     }
                 }
+                
+                // MARK: - Action Buttons
                 Section {
                     Button("Apply Filters") { dismiss() }
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundColor(BrandColors.darkTeal)
                         .frame(maxWidth: .infinity)
-                        .disabled(!isFormValid)
+                        .disabled(!isFormValid) // Enabled only if form is valid
                         .opacity(isFormValid ? 1.0 : 0.5)
                     
                     Button("Reset All", role: .destructive) {
+                        // Clear all bindings and local string state
                         position = nil; ageMin = nil; ageMax = nil
                         scoreMin = nil; scoreMax = nil
                         team = nil; location = nil
@@ -671,6 +705,7 @@ struct FiltersSheetView: View {
             }
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
+            // MARK: - Score Info Alerts
             .alert("How is this calculated?", isPresented: $showScoreInfo) {
                 Button("Got it!") { }
             } message: {
@@ -687,10 +722,10 @@ struct FiltersSheetView: View {
                 
                 3. Scores averaged & rounded.
                 """)
-                .font(.system(size: 13, design: .monospaced)) // Monospaced for table
-                .multilineTextAlignment(.leading)   // Aligned left
+                .font(.system(size: 13, design: .monospaced))
+                .multilineTextAlignment(.leading)
                 .foregroundColor(.secondary)
-                .padding(.horizontal, 12) // Give text a bit more room
+                .padding(.horizontal, 12)
             }
             .alert("Location", isPresented: $showLocationInfo) {
                 Button("Got it!") { }
@@ -698,6 +733,7 @@ struct FiltersSheetView: View {
                 Text("The player's place of residence.")
             }
             .onAppear {
+                // When the sheet appears, populate the string text fields from the main view's filter bindings
                 ageMinString = ageMin.map { String($0) } ?? ""
                 ageMaxString = ageMax.map { String($0) } ?? ""
                 scoreMinString = scoreMin.map { String($0) } ?? ""
