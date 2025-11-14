@@ -16,5 +16,14 @@ By applying computer vision and machine learning techniques, Haddaf automaticall
 - **Python** – used to build and run the AI models for player detection, tracking, action detection and player's performance analysis.
 
 ## Launching Instructions
-TBD
+1. **Clone the repository**  
+   Download or clone the project to your local machine.
 
+2. **Open the project in Xcode**  
+   Open the project using Xcode (latest recommended version).
+
+3. **Select a simulator**  
+   Choose an iOS Simulator from the Xcode toolbar.
+
+4. **Run the project**  
+   Press **⌘ + R** (Run) or click the run button to build and launch the app.
