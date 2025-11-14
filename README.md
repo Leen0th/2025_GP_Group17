@@ -5,11 +5,11 @@
 </p>
 
 ## Introduction
-Haddaf is an AI based football performance analysis and talent discovery application.  
+Haddaf is an AI Powered Football Talents Discovery and Tracking Application   
 
 The goal of the project is to provide players, coaches and scouts with an intelligent system to evaluate player performance based on match video clips.  
 
-By applying computer vision and machine learning techniques, Haddaf automatically extracts key performance metrics to help coaches track their players’ performance, give players a platform to showcase their skills and support scouts in talent identification. 
+By applying computer vision and machine learning techniques, Haddaf automatically extracts key performance metrics to give players a platform to showcase their skills, help coaches track their players’ performance and support scouts in talent discovery. 
 
 ## Technologies
 - **Swift** – used to develop the iOS application.
