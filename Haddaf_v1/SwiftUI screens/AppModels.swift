@@ -214,73 +214,39 @@ extension Color {
     }
 }
 
-// MARK: - TO BE DELETED
 // MARK: - Country Code Model
 struct CountryDialCode: Identifiable {
     let id = UUID()
-    let name: String
-    let code: String
+    let name: String = "Saudi Arabia"
+    let code: String = "+966"
+    
+    // A singleton instance to use everywhere
+    static let saudi = CountryDialCode()
 }
-
-let countryCodes: [CountryDialCode] = [
-    .init(name: "Saudi Arabia", code: "+966"),
-    .init(name: "Qatar", code: "+974"),
-    .init(name: "United Arab Emirates", code: "+971"),
-    .init(name: "Kuwait", code: "+965"),
-    .init(name: "Bahrain", code: "+973"),
-    .init(name: "Oman", code: "+968"),
-    .init(name: "Jordan", code: "+962"),
-    .init(name: "Egypt", code: "+20"),
-    .init(name: "United States", code: "+1"),
-    .init(name: "United Kingdom", code: "+44"),
-    .init(name: "Germany", code: "+49"),
-    .init(name: "France", code: "+33"),
-    .init(name: "Spain", code: "+34"),
-    .init(name: "Italy", code: "+39"),
-    .init(name: "India", code: "+91"),
-    .init(name: "Pakistan", code: "+92"),
-    .init(name: "Philippines", code: "+63"),
-    .init(name: "Indonesia", code: "+62"),
-    .init(name: "Malaysia", code: "+60"),
-    .init(name: "South Africa", code: "+27"),
-    .init(name: "Canada", code: "+1"),
-    .init(name: "Mexico", code: "+52"),
-    .init(name: "Brazil", code: "+55"),
-    .init(name: "Argentina", code: "+54"),
-    .init(name: "Nigeria", code: "+234"),
-    .init(name: "Russia", code: "+7"),
-    .init(name: "China", code: "+86"),
-    .init(name: "Japan", code: "+81"),
-    .init(name: "South Korea", code: "+82")
-].sorted { $0.name < $1.name }
 
 // MARK: - Phone Number Parser
 // Splits a full phone number (e.g., "+966501234567" or "0501234567") into its constituent country code and local part.
 func parsePhoneNumber(_ phone: String) -> (CountryDialCode, String) {
-    let ksa = countryCodes.first { $0.code == "+966" } ?? countryCodes[0]
+    let ksa = CountryDialCode.saudi
     
-    // Sort codes by length, longest first, to match "+971" before "+97"
-    let sortedCodes = countryCodes.sorted { $0.code.count > $1.code.count }
-
-    for country in sortedCodes {
-        if phone.hasPrefix(country.code) {
-            let localPart = String(phone.dropFirst(country.code.count))
-            return (country, localPart)
-        }
+    // Case 1: Already has +966 prefix
+    if phone.hasPrefix(ksa.code) {
+        let localPart = String(phone.dropFirst(ksa.code.count))
+        return (ksa, localPart)
     }
 
-    // Fallback: Check for local KSA number "05..."
+    // Case 2: Local KSA number "05..."
     if phone.starts(with: "05") && phone.count == 10 {
         let localPart = String(phone.dropFirst(1)) // "5..."
         return (ksa, localPart)
     }
     
-    // Fallback: Check for local KSA number "5..."
+    // Case 3: Local KSA number "5..."
     if phone.starts(with: "5") && phone.count == 9 {
         return (ksa, phone)
     }
 
-    // Default fallback: return KSA and the original string as local
+    // Default fallback: return KSA and the original string, filtered
     return (ksa, phone.filter(\.isNumber))
 }
 
@@ -464,62 +430,6 @@ struct DateWheelPickerSheet: View {
         .padding(.horizontal, 20)
     }
 }
-
-struct CountryCodePickerSheet: View {
-    @Binding var selected: CountryDialCode
-    let primary: Color
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    
-    // Filtered list based on search query
-    var filteredCodes: [CountryDialCode] {
-        if query.isEmpty {
-            return countryCodes
-        }
-        return countryCodes.filter {
-            $0.name.lowercased().contains(query.lowercased()) ||
-            $0.code.contains(query)
-        }
-    }
-    var body: some View {
-        NavigationView {
-            List {
-                // Search bar
-                TextField("Search Country or Code", text: $query)
-                    .autocorrectionDisabled(true)
-                    .tint(primary)
-
-                ForEach(filteredCodes, id: \.id) { country in
-                    Button {
-                        selected = country
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(country.name)
-                            Spacer()
-                            Text(country.code)
-                                .foregroundColor(.secondary)
-                            if country.code == selected.code {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(primary)
-                            }
-                        }
-                    }
-                    .foregroundColor(.primary)
-                }
-            }
-            .listStyle(.plain)
-            .navigationTitle("Select Code")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") { dismiss() }.tint(primary)
-                }
-            }
-        }
-    }
-}
-
 
 // MARK: - Saudi cities
 // A sorted, static array of major cities in Saudi Arabia
