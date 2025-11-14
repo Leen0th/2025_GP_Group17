@@ -1,38 +1,42 @@
-//
-//  DiscoveryViewModel.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 30/10/2025.
-//
-//
-
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 import AVKit
 
 // MARK: - Discovery View Model
+
+// Manages the state for the Discovery feed
 @MainActor
 final class DiscoveryViewModel: ObservableObject {
-    // @Published var isLoading = false // Replaced with isLoadingPosts
-    @Published var isLoadingPosts = true // <-- FIX: Use this for initial load
+    // `true` while the initial batch of posts is being loaded
+    @Published var isLoadingPosts = true
+    // The array of public posts to be displayed in the feed
     @Published var posts: [Post] = []
-    @Published var authorProfiles: [String: UserProfile] = [:] // Cache author profiles by UID
-
+    // A dictionary caching `UserProfile` objects, keyed by author UID, to avoid redundant fetches
+    @Published var authorProfiles: [String: UserProfile] = [:]
+    
+    // A reference to the Firestore database
     private let db = Firestore.firestore()
+    // The registration for the real-time Firestore listener
     private var postsListener: ListenerRegistration?
+    // A shared `DateFormatter` for converting timestamps to strings
     private let df = DateFormatter()
 
+    // Initializes the view model
     init() {
         df.dateFormat = "dd/MM/yyyy HH:mm"
         listenToPublicPosts()
     }
 
+    // Cleans up the Firestore listener when the view model is deallocated to prevent memory leaks
     deinit {
         postsListener?.remove()
     }
 
-    // Fetch all public posts (visibility == true)
+    // A real-time listener for all public video posts in Firestore
+    /// This function queries the `videoPosts` collection where `visibility` is `true`
+    /// orders them by date, and maps the documents to `Post` objects
+    /// It also triggers the concurrent fetching of author profiles for any new posts
     func listenToPublicPosts() {
         postsListener?.remove()
         
@@ -43,10 +47,6 @@ final class DiscoveryViewModel: ObservableObject {
             .order(by: "uploadDateTime", descending: true)
             .addSnapshotListener { [weak self] snap, err in
                 
-                // --- FIX for Error 1 & 2 ---
-                // We handle the error case first.
-                // We use Task { } to move the UI update off the listener's closure.
-                // We use `self?` because self is weak.
                 guard let docs = snap?.documents else {
                     if let err = err { print("listenToPublicPosts error: \(err)") }
                     Task { @MainActor in
@@ -55,17 +55,14 @@ final class DiscoveryViewModel: ObservableObject {
                     return
                 }
                 
-                // Now we unwrap self for the main logic
                 guard let self = self else { return }
 
                 Task {
-                    // --- MODIFICATION 1: Use compactMap, not asyncMap ---
-                    // We just want to map the data synchronously first.
+                    // Asynchronously map each Firestore document to a `Post` model
                     let mappedPosts: [Post] = docs.compactMap { doc in
                         let d = doc.data()
-                        
-                        // ... (rest of your mapping logic) ...
                         var postStats: [PostStat] = []
+                        // A helper to safely convert Firestore's `Any` (which could be `Int` or `Double`) to `Double`
                         func toDouble(_ val: Any?) -> Double? {
                             return val as? Double ?? (val as? Int).map(Double.init)
                         }
@@ -93,17 +90,12 @@ final class DiscoveryViewModel: ObservableObject {
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
                         
-                        // --- MODIFICATION 2: Just get the authorUid ---
+                        // Extracts the author's UID from the `DocumentReference`
                         let authorIdRef = d["authorId"] as? DocumentReference
                         let authorUid = authorIdRef?.documentID ?? ""
 
-                        // --- REMOVED: Do NOT fetch profile inside the loop ---
-                        // if self.authorProfiles[authorUid] == nil && !authorUid.isEmpty {
-                        //     await self.fetchAuthorProfile(uid: authorUid)
-                        // }
-
                         return Post(
-                            authorUid: authorUid, // Just store the UID
+                            authorUid: authorUid,
                             id: doc.documentID,
                             imageName: (d["thumbnailURL"] as? String) ?? "",
                             videoURL: (d["url"] as? String) ?? "",
@@ -115,20 +107,19 @@ final class DiscoveryViewModel: ObservableObject {
                             likeCount: (d["likeCount"] as? Int) ?? 0,
                             commentCount: (d["commentCount"] as? Int) ?? 0,
                             likedBy: likedBy,
-                            isLikedByUser: likedBy.contains(uid),
+                            isLikedByUser: likedBy.contains(uid), // Check if current user liked it
                             stats: postStats,
                             matchDate: matchDate
                         )
                     }
-                    // --- END MODIFICATION 1 ---
                     
-                    // --- MODIFICATION 3: Get all unique UIDs from the posts ---
+                    // Gathers all unique author UIDs from the newly fetched posts
                     let allUIDs = Set(mappedPosts.compactMap { $0.authorUid })
                     
-                    // --- MODIFICATION 4: Fetch all missing profiles at once ---
+                    // Fetches any author profiles that aren't already in the cache
                     await self.fetchAuthorProfiles(for: Array(allUIDs))
                     
-                    // --- MODIFICATION 5: NOW publish posts, after profiles are fetched ---
+                    // After all data is fetched and mapped, update the UI on the main thread
                     await MainActor.run {
                         self.posts = mappedPosts
                         self.isLoadingPosts = false
@@ -137,37 +128,31 @@ final class DiscoveryViewModel: ObservableObject {
             }
         }
     
-    // --- ADDED: New function to fetch profiles concurrently ---
+    // Concurrently fetches multiple author profiles from Firestore
     private func fetchAuthorProfiles(for uids: [String]) async {
-        // Filter out UIDs we already have or are empty
+        // Filters out UIDs that are empty or already present in the `authorProfiles` cache
         let uidsToFetch = uids.filter { !$0.isEmpty && self.authorProfiles[$0] == nil }
         
-        // If there's nothing new to fetch, just return
         guard !uidsToFetch.isEmpty else { return }
         
-        // Use a TaskGroup to fetch them all concurrently
         await withTaskGroup(of: Void.self) { group in
             for uid in uidsToFetch {
                 group.addTask {
-                    // Call the existing single-fetch function
-                    // This will update the `authorProfiles` dictionary
                     await self.fetchAuthorProfile(uid: uid)
                 }
             }
         }
     }
-    // --- END ADDED ---
 
-    // Fetch author profile (similar to fetchProfile in PlayerProfileViewModel)
+    // Fetches a single user's complete profile data from multiple Firestore documents
     private func fetchAuthorProfile(uid: String) async {
         guard !uid.isEmpty else { return } // Don't fetch for empty UID
         
-        // --- MODIFIED: Check cache again, in case another task fetched it ---
-        // This check prevents duplicate fetches inside the TaskGroup
+        // Skips the fetch if the profile is already cached
         if self.authorProfiles[uid] != nil { return }
-        // --- END MODIFICATION ---
         
         do {
+            // 1. Fetch root user document
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let data = userDoc.data() ?? [:]
 
@@ -175,18 +160,20 @@ final class DiscoveryViewModel: ObservableObject {
             let last = (data["lastName"] as? String) ?? ""
             let full = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
 
+            // 2. Fetch nested player profile document
             let pDoc = try await db.collection("users").document(uid)
                 .collection("player").document("profile")
                 .getDocument()
             let p = pDoc.data() ?? [:]
 
+            // 3. Map data to a UserProfile object
             let profile = UserProfile()
             profile.name = full.isEmpty ? "Player" : full
             profile.position = (p["position"] as? String) ?? ""
             if let h = p["height"] as? Int { profile.height = "\(h)cm" } else { profile.height = "" }
             if let w = p["weight"] as? Int { profile.weight = "\(w)kg" } else { profile.weight = "" }
             
-            // Check for "location" first, then fall back to "Residence"
+            // Handle keys for location
             profile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
             
             profile.email = (data["email"] as? String) ?? ""
@@ -194,6 +181,7 @@ final class DiscoveryViewModel: ObservableObject {
             profile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
             profile.isPhoneNumberVisible = (p["contactVisibility"] as? Bool) ?? false
 
+            // Calculate age from Date of Birth
             if let dobTimestamp = data["dob"] as? Timestamp {
                 let dobDate = dobTimestamp.dateValue()
                 profile.dob = dobDate
@@ -205,18 +193,19 @@ final class DiscoveryViewModel: ObservableObject {
                 profile.age = ""
             }
 
+            // 4. Asynchronously fetch the profile image from its URL
             if let urlStr = data["profilePic"] as? String, !urlStr.isEmpty {
                 profile.profileImage = await fetchImage(from: urlStr)
             } else {
                 profile.profileImage = UIImage(systemName: "person.circle.fill")
             }
 
-            profile.team = "Unassigned" // As per existing code
-            profile.rank = "0"
+            profile.team = "Unassigned" // Default value
+            profile.rank = "0" // Default value
             profile.score = (p["cumulativeScore"] as? String) ?? "0"
 
+            // Saves the newly fetched profile to the cache on the main thread
             await MainActor.run {
-                // This update is thread-safe and updates the cache
                 self.authorProfiles[uid] = profile
             }
         } catch {
@@ -224,6 +213,7 @@ final class DiscoveryViewModel: ObservableObject {
         }
     }
 
+    // Asynchronously downloads an image from a given URL string.
     private func fetchImage(from urlString: String) async -> UIImage? {
         guard let url = URL(string: urlString) else { return UIImage(systemName: "person.circle.fill") }
         do {
@@ -234,16 +224,16 @@ final class DiscoveryViewModel: ObservableObject {
         }
     }
     
-    // Function to toggle like from the discovery card
+    // Toggles the "like" state for a post for the current user
     func toggleLike(post: Post) async {
         guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
         
+        // Determine the action to take and the change in like count
         let isLiking = !post.isLikedByUser
         let delta: Int64 = isLiking ? 1 : -1
         let firestoreAction = isLiking ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])
 
-        // --- OPTIMISTIC UI UPDATE ---
-        // Find the post in our array and update it *immediately*
+        // 1. Optimistic UI Update: Change local data first
         if let index = self.posts.firstIndex(where: { $0.id == postId }) {
             self.posts[index].isLikedByUser = isLiking
             self.posts[index].likeCount += Int(delta)
@@ -253,26 +243,22 @@ final class DiscoveryViewModel: ObservableObject {
                 self.posts[index].likedBy.removeAll { $0 == uid }
             }
         }
-        // --- END OPTIMISTIC UI UPDATE ---
 
         do {
-            // Now, update Firestore in the background
+            // 2. Remote Update:  Send the change to Firestore
             try await db.collection("videoPosts").document(postId).updateData([
                 "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
             ])
-            
-            // Post notification for other views (like PostDetailView)
+            // 3. Sync State: Notify other parts of the app
             var userInfo: [String: Any] = ["postId": postId]
-            // --- FIX: Pass the *new* count ---
             let newLikeCount = post.likeCount + Int(delta)
             userInfo["likeUpdate"] = (isLiking, newLikeCount)
-            // --- END FIX ---
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
 
         } catch {
             print("Error updating like count from DiscoveryVM: \(error.localizedDescription)")
             
-            // --- ROLLBACK on failure ---
+            // 4. Rollback:  Revert local changes if the remote update fails
             if let index = self.posts.firstIndex(where: { $0.id == postId }) {
                 self.posts[index].isLikedByUser = !isLiking
                 self.posts[index].likeCount -= Int(delta)
@@ -282,12 +268,11 @@ final class DiscoveryViewModel: ObservableObject {
                     self.posts[index].likedBy.append(uid)
                 }
             }
-            // --- END ROLLBACK ---
         }
     }
-    // --- END ADDED ---
     
-    // Function to handle incoming notifications ---
+    // Handles incoming notifications from `.postDataUpdated`
+    /// This keeps the Discovery feed's like/comment counts in sync with changes made elsewhere in the app without requiring a full re-fetch.
     @MainActor
     func handlePostDataUpdate(notification: Notification) {
         guard let userInfo = notification.userInfo,
@@ -295,7 +280,7 @@ final class DiscoveryViewModel: ObservableObject {
             return
         }
 
-        // Find the index of the post that needs updating
+        // Finds the post in the `posts` array to update
         guard let index = self.posts.firstIndex(where: { $0.id == updatedPostId }) else {
             return // This post isn't in our list
         }
@@ -311,5 +296,4 @@ final class DiscoveryViewModel: ObservableObject {
             self.posts[index].likeCount = likeCount
         }
     }
-    // --- END ADDED ---
 }

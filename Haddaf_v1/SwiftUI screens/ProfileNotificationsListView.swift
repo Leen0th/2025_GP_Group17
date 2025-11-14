@@ -9,7 +9,7 @@ struct ProfileNotificationsListView: View {
     // The currently selected notification filter category. Defaults to `.all`.
     @State private var selectedFilter: AppNotificationType = .all
 
-    // Mock data for demonstration
+    // Notifications mock data for demonstration
     @State private var allNotifications: [AppNotification] = [
         // .init(type: .likes, title: "New Like", message: "Ahmed liked your latest video.", date: .now.addingTimeInterval(-300)),
         // .init(type: .comments, title: "New Comment", message: "Sara commented: 'Great skills!'", date: .now.addingTimeInterval(-1800)),
