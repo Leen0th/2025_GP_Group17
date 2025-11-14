@@ -1,10 +1,3 @@
-//
-//  MultiStepProgressBar.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 28/10/2025.
-//
-
 import SwiftUI
 
 // MARK: - Step Definition
@@ -18,7 +11,7 @@ enum UploadStep: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .upload: return "Upload" // NEW
+        case .upload: return "Upload"
         case .selectScene: return "Scene"
         case .pinpoint: return "Pinpoint"
         case .processing: return "Process"
@@ -35,8 +28,6 @@ struct MultiStepProgressBar: View {
     let currentStep: UploadStep
     
     private let activeColor = BrandColors.darkTeal
-    // --- MODIFIED (1 of 2) ---
-    // Changed inactiveColor to background to make inactive lines white/invisible
     private let inactiveColor = BrandColors.background
     private let activeTextColor = BrandColors.darkGray
     private let inactiveTextColor = Color.secondary
@@ -45,22 +36,19 @@ struct MultiStepProgressBar: View {
         VStack {
             HStack(spacing: 0) {
                 ForEach(UploadStep.allCases, id: \.self) { step in
-                    // Draw the step circle and title
                     StepView(
                         step: step,
                         isCurrent: currentStep == step,
                         isCompleted: currentStep.rawValue > step.rawValue
                     )
 
-                    // Draw the connector line, but not after the last step
+                    
                     if step != UploadStep.allCases.last {
-                        // --- MODIFIED (2 of 2) ---
-                        // Inactive lines will now be filled with 'inactiveColor' (BrandColors.background)
                         Rectangle()
                             .fill(currentStep.rawValue > step.rawValue ? activeColor : inactiveColor)
                             .frame(height: 2)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, -4) // Slightly overlap the circles
+                            .padding(.horizontal, -4)
                     }
                 }
             }
@@ -75,18 +63,14 @@ struct MultiStepProgressBar: View {
     private func StepView(step: UploadStep, isCurrent: Bool, isCompleted: Bool) -> some View {
         VStack(spacing: 8) {
             ZStack {
-                // Background circle
-                // Completed = Teal
-                // Current = Page Background (to sit behind the outline)
-                // Future = White
                 Circle()
                     .fill(isCompleted ? activeColor : (isCurrent ? BrandColors.backgroundGradientEnd : BrandColors.background))
                     .frame(width: 30, height: 30)
                 
-                // Add a border ONLY to future (white) circles to make them visible
+                
                 if !isCompleted && !isCurrent {
                     Circle()
-                        .stroke(BrandColors.lightGray, lineWidth: 1) // Use lightGray for the border
+                        .stroke(BrandColors.lightGray, lineWidth: 1)
                         .frame(width: 30, height: 30)
                 }
 

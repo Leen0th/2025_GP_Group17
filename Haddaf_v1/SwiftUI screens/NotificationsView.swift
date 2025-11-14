@@ -1,14 +1,13 @@
 import SwiftUI
 
 struct NotificationsView: View {
-    // MODIFIED: Use new BrandColors
+    // MODIFIED:new BrandColors
     private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.12)
 
-    // القيم الافتراضية
+    // Default values for notification settings
     @State private var newChallenge = true
     @State private var upcomingMatch = true
-    // --- MODIFIED: Renamed state variable ---
     @State private var personalMilestones = false
     @State private var endorsements = false
     @State private var likes = true
@@ -18,7 +17,7 @@ struct NotificationsView: View {
 
     var body: some View {
         ZStack {
-            // MODIFIED: Use new gradient background
+            // MODIFIED: new gradient background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -60,9 +59,8 @@ struct NotificationsView: View {
                     divider
                     notifRow(title: "Comments", isOn: $comments)
                 }
-                .padding(.horizontal, 24) // MODIFIED
-                .padding(.vertical, 20) // MODIFIED
-                // MODIFIED: Add card styling
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
                 .background(BrandColors.background)
                 .cornerRadius(16)
                 .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -85,7 +83,6 @@ struct NotificationsView: View {
     private func notifRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
             Text(title)
-                // MODIFIED: Use new font
                 .font(.system(size: 18, design: .rounded))
                 .foregroundColor(primary)
                 .padding(.vertical, 10)

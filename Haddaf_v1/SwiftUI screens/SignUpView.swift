@@ -1,4 +1,3 @@
-// SignUpView.swift
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -232,7 +231,7 @@ struct SignUpView: View {
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(Color.orange.opacity(0.9))
                         }
-                        .padding(.top, -10) // Pull it closer
+                        .padding(.top, -10)
                     }
 
                     // Password
@@ -305,7 +304,7 @@ struct SignUpView: View {
                 .padding(.bottom, 24)
             }
 
-            // ✅ Overlay-only verify popup with transparent background
+            //Overlay-only verify popup with transparent background
             if showVerifyPrompt {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
@@ -405,26 +404,26 @@ struct SignUpView: View {
         let fullPhone = selectedDialCode + phoneLocal
 
         do {
-            // 1) إنشاء الحساب فقط (بدون لمس session)
+            // 1) Create the account only (without touching the session yet).
             let authResult = try await Auth.auth().createUser(withEmail: mail, password: password)
-
-            // 2) الاسم (اختياري)
+            
+            // 2) Set the display name.
             let changeReq = authResult.user.createProfileChangeRequest()
             changeReq.displayName = name
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 changeReq.commitChanges { err in if let err = err { cont.resume(throwing: err) } else { cont.resume() } }
             }
 
-            // 3) خزّني مسودة التسجيل محليًا فقط
+            // 3) Store the registration draft locally only.
             let draft = ProfileDraft(fullName: name, phone: fullPhone, role: role.rawValue.lowercased(), dob: dob, email: mail)
             DraftStore.save(draft)
 
-            // 4) أرسلي رسالة التفعيل
+            // 4) Send the verification email.
             try await sendVerificationEmail(to: authResult.user)
             markVerificationSentNow()
             startResendCooldown(seconds: resendCooldownSeconds)
 
-            // 5) اعرضي ورقة التفعيل و ابدئي الـ watcher
+            // 5) Show the verification sheet and start the watcher.
             await MainActor.run { showVerifyPrompt = true }
             startVerificationWatcher()
 
@@ -442,7 +441,7 @@ struct SignUpView: View {
 
         isSubmitting = false
     }
-
+    /// Starts a background task that checks if the user has verified their email.
     private func startVerificationWatcher() {
         verifyTask?.cancel()
         verifyTask = Task {
@@ -461,13 +460,13 @@ struct SignUpView: View {
 
     @MainActor
     private func finalizeAndGo(for user: User) async {
-        // تحديث التوكن بعد التفعيل
+        // Refresh the ID token after verification.
         do {
             try await user.reload()
             _ = try await user.getIDTokenResult(forcingRefresh: true)
         } catch { /* ignore */ }
 
-        // نروّج المسودة المحلية إلى users/{uid}
+        // Promote the local draft to users/{uid} in Firestore.
         if let draft = DraftStore.load() {
             let (first, last) = firstLast(from: draft.fullName)
             var data: [String: Any] = [
@@ -490,7 +489,7 @@ struct SignUpView: View {
             ], merge: true)
         }
 
-        // الآن نفكّ وضع الضيف
+        // Now exit guest mode and attach the session to the verified user.
         session.user = user
         session.isGuest = false
 

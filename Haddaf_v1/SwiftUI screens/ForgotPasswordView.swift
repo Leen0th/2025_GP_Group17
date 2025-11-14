@@ -18,14 +18,12 @@ struct ForgotPasswordView: View {
 
     var body: some View {
         ZStack {
-            // MODIFIED: Use new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
 
                     Text("Forgot password")
-                        // MODIFIED: Use new font
                         .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -33,7 +31,6 @@ struct ForgotPasswordView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Email")
-                            // MODIFIED: Use new font
                             .font(.system(size: 14, design: .rounded))
                             .foregroundColor(.gray)
 
@@ -41,11 +38,9 @@ struct ForgotPasswordView: View {
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
-                            // MODIFIED: Use new font
                             .font(.system(size: 16, design: .rounded))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
-                            // MODIFIED: Use new card style
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(BrandColors.background)
@@ -61,14 +56,12 @@ struct ForgotPasswordView: View {
                             if isLoading { ProgressView().tint(.white) }
                             Text("Request Reset Code")
                         }
-                        // MODIFIED: Use new font
                         .font(.system(size: 18, weight: .medium, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
                         .background(primary)
                         .clipShape(Capsule())
-                        // MODIFIED: Add shadow
                         .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(isLoading || emailTrimmed.isEmpty)
@@ -114,7 +107,8 @@ struct ForgotPasswordView: View {
         }
 
         isLoading = true
-
+        
+        // Firebase Auth handles sending the actual password reset email to the user.
         do {
             try await Auth.auth().sendPasswordReset(withEmail: value)
             presentAlert(

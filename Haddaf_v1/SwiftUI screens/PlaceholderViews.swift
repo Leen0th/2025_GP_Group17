@@ -6,10 +6,9 @@ import AVKit
 struct TeamsView: View {
     var body: some View {
         ZStack {
-            // MODIFIED: Use new background
+            // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             Text("Teams Page")
-                // MODIFIED: Use new font
                 .font(.system(size: 32, design: .rounded))
                 .foregroundColor(.secondary)
         }
@@ -19,10 +18,9 @@ struct TeamsView: View {
 struct ChallengeView: View {
     var body: some View {
         ZStack {
-            // MODIFIED: Use new background
+            // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             Text("Challenge Page")
-                // MODIFIED: Use new font
                 .font(.system(size: 32, design: .rounded))
                 .foregroundColor(.secondary)
         }
@@ -41,20 +39,18 @@ struct VideoUploadView: View {
     @State private var showDurationAlert = false
     @State private var isCheckingDuration = false
 
-    // MODIFIED: Use new BrandColors
+    // MODIFIED:new BrandColors
     let accentColor = BrandColors.darkTeal
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // MODIFIED: Use new background
+                // MODIFIED: Use background
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // Header
                     ZStack {
                         Text("Upload Your Video")
-                            // MODIFIED: Use new font
                             .font(.system(size: 28, weight: .medium, design: .rounded))
                             .foregroundColor(accentColor)
                         
@@ -73,11 +69,11 @@ struct VideoUploadView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 20)
-                    .padding(.bottom, 20) // Reduced bottom padding
+                    .padding(.bottom, 20)
                     
-                    // --- MODIFIED: Timeline added here ---
+                    // --- MODIFIED: Timeline ---
                     MultiStepProgressBar(currentStep: .upload)
-                        .padding(.bottom, 30) // Add spacing after timeline
+                        .padding(.bottom, 30)
                     
                     // --- ADDED GUIDELINES ---
                     VStack(alignment: .leading, spacing: 16) {
@@ -87,7 +83,6 @@ struct VideoUploadView: View {
                                 .font(.headline)
                                 .padding(.top, 2)
                             Text("Upload a video of yourself playing football.")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
@@ -98,7 +93,6 @@ struct VideoUploadView: View {
                                 .font(.headline)
                                 .padding(.top, 2)
                             Text("Ensure you are clearly visible from the start.")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
@@ -109,7 +103,6 @@ struct VideoUploadView: View {
                                 .font(.headline)
                                 .padding(.top, 2)
                             Text("The maximum video duration is 30 seconds.")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
@@ -147,10 +140,8 @@ struct VideoUploadView: View {
                         Spacer()
                         ZStack {
                             Circle()
-                                // MODIFIED: Use new background
                                 .fill(BrandColors.background)
                                 .frame(width: 90, height: 90)
-                                // MODIFIED: Use new shadow
                                 .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 
                             Image(systemName: "video.badge.plus")
@@ -160,12 +151,10 @@ struct VideoUploadView: View {
                         Spacer()
                         PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
                             Text("Choose Video")
-                                // MODIFIED: Use new font
                                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                                 .foregroundColor(.white).padding(.horizontal, 40)
                                 .padding(.vertical, 12).background(accentColor)
                                 .clipShape(Capsule())
-                                // MODIFIED: Add shadow
                                 .shadow(color: accentColor.opacity(0.3), radius: 10, y: 5)
                         }
                         .disabled(isCheckingDuration)
@@ -176,7 +165,6 @@ struct VideoUploadView: View {
                     .background(
                         ZStack {
                             Image("upload_background").resizable().aspectRatio(contentMode: .fill).clipped()
-                            // MODIFIED: Use new background
                             BrandColors.background.opacity(0.3)
                         }
                     )
@@ -206,12 +194,10 @@ struct VideoUploadView: View {
                             .scaleEffect(1.5)
                         
                         Text("Checking video duration...")
-                            // MODIFIED: Use new font
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(.primary)
                     }
                     .padding(30)
-                    // MODIFIED: Use new background
                     .background(BrandColors.background)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
@@ -226,22 +212,30 @@ struct VideoUploadView: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isCheckingDuration)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showDurationAlert)
             .onChange(of: selectedVideoItem) { _, newItem in
-                // ... (your original onChange logic is unchanged) ...
+                // 1: Make sure a video was actually selected
                 guard let item = newItem else { return }
                 Task {
+                    // 2: Show loading while checking the video duration
                     isCheckingDuration = true
                     defer { isCheckingDuration = false }
                     do {
+                        // 3: Load transferable object to extract the video URL
                         guard let transferable = try? await item.loadTransferable(type: VideoPickerTransferable.self) else {
                             print("Failed to load video URL from picker item.")
                             await MainActor.run { selectedVideoItem = nil }
                             return
                         }
+                        // 4: Get the video file URL
                         let videoURL = transferable.videoURL
+                        // 5: Create an AVAsset to read metadata
                         let asset = AVURLAsset(url: videoURL)
+                        // 6: Load the duration from the asset
                         let duration = try await asset.load(.duration)
+                        // 7: Convert the duration to seconds
                         let durationInSeconds = CMTimeGetSeconds(duration)
+                        // 8: Check that the video does not exceed 30 seconds
                         if durationInSeconds <= 30.0 {
+                            // 9: Save the URL and navigate to the next screen
                             self.videoURLForNextView = videoURL
                             navigateToPinpointing = true
                         } else {
@@ -284,11 +278,9 @@ private struct DurationWarningOverlay: View {
 
             VStack(spacing: 20) {
                 Text("Video Too Long")
-                    // MODIFIED: Use new font
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
 
                 Text("Please select a video that is 30 seconds or shorter.")
-                    // MODIFIED: Use new font
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -297,18 +289,16 @@ private struct DurationWarningOverlay: View {
                 Button("OK") {
                     isPresented = false
                 }
-                // MODIFIED: Use new font
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(accentColor)
-                .cornerRadius(12) // MODIFIED
+                .cornerRadius(12)
                 .padding(.top, 4)
             }
             .padding(EdgeInsets(top: 30, leading: 20, bottom: 20, trailing: 20))
             .frame(width: 320)
-            // MODIFIED: Use new background
             .background(BrandColors.background)
             .cornerRadius(20)
             .shadow(radius: 12)

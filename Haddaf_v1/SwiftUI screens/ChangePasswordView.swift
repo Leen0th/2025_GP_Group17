@@ -3,10 +3,10 @@ import FirebaseAuth
 
 struct ChangePasswordView: View {
     // MARK: - Theme
-    // MODIFIED: Use new BrandColors
+    // MODIFIED: BrandColors
     private let primary = BrandColors.darkTeal
-    private let fieldBorder = Color.black.opacity(0.1) // MODIFIED
-    private let bg = BrandColors.backgroundGradientEnd // MODIFIED
+    private let fieldBorder = Color.black.opacity(0.1)
+    private let bg = BrandColors.backgroundGradientEnd
 
     @Environment(\.dismiss) private var dismiss
 
@@ -44,7 +44,6 @@ struct ChangePasswordView: View {
                 VStack(alignment: .leading, spacing: 22) {
 
                     Text("Change password")
-                        // MODIFIED: Use new font
                         .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -90,18 +89,16 @@ struct ChangePasswordView: View {
                     // Change Button
                     Button(action: changePassword) {
                         Text("Change")
-                            // MODIFIED: Use new font
                             .font(.system(size: 20, weight: .medium, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(primary) // MODIFIED: Removed ternary
+                            .background(primary)
                             .clipShape(Capsule())
-                            // MODIFIED: Add shadow
                             .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
                     .disabled(!isFormValid)
-                    .opacity(isFormValid ? 1.0 : 0.5) // MODIFIED: Use opacity for disabled
+                    .opacity(isFormValid ? 1.0 : 0.5)
                     .padding(.top, 18)
                 }
                 .padding(.horizontal, 20)
@@ -158,9 +155,8 @@ struct ChangePasswordView: View {
     // MARK: - UI Parts
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
-            // MODIFIED: Use new font
-            .font(.system(size: 14, weight: .medium, design: .rounded)) // MODIFIED
-            .foregroundColor(.gray) // MODIFIED
+            .font(.system(size: 14, weight: .medium, design: .rounded))
+            .foregroundColor(.gray)
     }
 
     private func requirementRow(_ text: String, met: Bool) -> some View {
@@ -170,7 +166,6 @@ struct ChangePasswordView: View {
                 .foregroundColor(met ? primary : .gray.opacity(0.4))
             
             Text(text)
-                // MODIFIED: Use new font
                 .font(.system(size: 13, design: .rounded))
                 .foregroundColor(met ? primary : .gray.opacity(0.6))
         }
@@ -196,7 +191,6 @@ struct ChangePasswordView: View {
                         .textContentType(.password)
                 }
             }
-            // MODIFIED: Use new font
             .font(.system(size: 16, design: .rounded))
             .foregroundColor(primary)
             .tint(primary)
@@ -204,7 +198,6 @@ struct ChangePasswordView: View {
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    // MODIFIED: Use new card style
                     .fill(BrandColors.background)
                     .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(fieldBorder, lineWidth: 1))
@@ -219,32 +212,33 @@ struct ChangePasswordView: View {
     }
 
     // MARK: - Logic
+    // 1. Check if there is a logged-in user (currentUser).
     private func changePassword() {
         guard let user = Auth.auth().currentUser else {
             alertMessage = "No logged-in user found."
             showErrorAlert = true
             return
         }
-
+        // 2. Validate that the new password matches the confirm password.
         guard newPass == confirm else {
             alertMessage = "New passwords do not match."
             showErrorAlert = true
             return
         }
-
+        // 3. Validate password strength using isValidPassword().
         guard isValidPassword(newPass) else {
             alertMessage = "Password does not meet the requirements."
             showErrorAlert = true
             return
         }
-
+        // 4. Retrieve the user’s email (needed for re-authentication).
         guard let email = user.email else {
             alertMessage = "Could not get user email."
             showErrorAlert = true
             return
         }
 
-        // Re-authenticate using current password
+        // 5. Re-authenticate the user using the CURRENT password:
         let credential = EmailAuthProvider.credential(withEmail: email, password: current)
         user.reauthenticate(with: credential) { _, error in
             if let error = error {
@@ -252,7 +246,7 @@ struct ChangePasswordView: View {
                 showErrorAlert = true
                 return
             }
-
+            // 6. Update password using user.updatePassword(to: newPass)
             user.updatePassword(to: newPass) { err in
                 if let err = err {
                     alertMessage = "Failed to update password: \(err.localizedDescription)"
@@ -285,14 +279,12 @@ struct SuccessOverlay: View {
                     .foregroundColor(primary)
 
                 Text(title)
-                    // MODIFIED: Use new font
                     .font(.system(size: 18, weight: .medium, design: .rounded))
                     .multilineTextAlignment(.center)
                     .foregroundColor(BrandColors.darkGray) // MODIFIED
 
                 Button(action: okAction) {
                     Text("OK")
-                        // MODIFIED: Use new font
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -306,7 +298,6 @@ struct SuccessOverlay: View {
             .padding(.vertical, 30)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    // MODIFIED: Use new background
                     .fill(BrandColors.background)
             )
             .shadow(color: .black.opacity(0.25), radius: 20, x: 0, y: 10)

@@ -1,4 +1,3 @@
-// PlayerSetupView.swift
 import SwiftUI
 import PhotosUI
 import FirebaseAuth
@@ -36,7 +35,7 @@ struct PlayerSetupView: View {
     @State private var goToProfile = false // Navigation trigger
 
     // MARK: - Theme
-    // MODIFIED: Use new BrandColors
+    // MODIFIED:new BrandColors
     private let primary = BrandColors.darkTeal
     private let bg = BrandColors.backgroundGradientEnd
 
@@ -53,7 +52,6 @@ struct PlayerSetupView: View {
         return (100...230).contains(h)
     }
 
-    // --- MODIFIED: Renamed to clearly indicate validation ---
     /// Checks if all mandatory fields have valid input.
     private var allFieldsValidAndFilled: Bool {
         !position.isEmpty &&
@@ -62,7 +60,6 @@ struct PlayerSetupView: View {
         isHeightValid
     }
 
-    // --- MODIFIED: Updated logic for clarity ---
     /// Determines if the "Done" button should be enabled.
     private var canSubmit: Bool {
         // 1. All fields must be validly filled.
@@ -330,8 +327,9 @@ struct PlayerSetupView: View {
         }
 
         isUploading = true // Start uploading state
-
+        // Creates a unique file name.
         let filename = "\(UUID().uuidString).\(fileExt)"
+        // Builds the Storage path structure.
         let storageRef = Storage.storage().reference()
             .child("profile")
             .child(uid)
@@ -352,7 +350,7 @@ struct PlayerSetupView: View {
                 self.isUploading = false // Finish uploading state
             }
             
-            // Save the URL to Firestore (optional here, could be done in savePlayerSetupData)
+            // Save the URL to Firestore
             try await Firestore.firestore().collection("users").document(uid)
                 .setData(["profilePic": url.absoluteString], merge: true)
             
@@ -368,9 +366,10 @@ struct PlayerSetupView: View {
 
     // MARK: - Save Player Setup Data
     private func savePlayerSetupData() async throws {
-        // 🔄 حدّث التوكن قبل أي كتابة
           if let u = Auth.auth().currentUser {
+              // Reload the user object to ensure we have the latest server-side auth state.
               try? await u.reload()
+              // Force-refresh the ID token so any recent auth changes are applied to the session.
               _ = try? await u.getIDTokenResult(forcingRefresh: true)
           }
         guard let uid = Auth.auth().currentUser?.uid else {
