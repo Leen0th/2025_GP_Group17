@@ -1,4 +1,3 @@
-// SignInView.swift
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -33,6 +32,7 @@ struct SignInView: View {
     private let bg = BrandColors.backgroundGradientEnd
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
 
+    // Returns true only when email and password are non-empty and the email format is valid.
     private var isFormValid: Bool {
         !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -142,7 +142,7 @@ struct SignInView: View {
                 .padding(.horizontal, 22)
             }
 
-            // ✅ Overlay-only verify popup with transparent background (no sheet)
+            // Overlay-only verify popup with transparent background (no sheet)
             if showVerifyPrompt {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
@@ -178,18 +178,23 @@ struct SignInView: View {
 
     // MARK: - Sign In Logic
     private func handleSignIn() async {
+        // Make sure the form is valid before trying to sign in.
         guard isFormValid else { return }
         signInError = nil
         inlineVerifyError = nil
         do {
+            // Try to sign in with Firebase using the lowercased email and password.
             let result = try await Auth.auth().signIn(withEmail: email.lowercased(), password: password)
+            // Extract the signed-in user from the result.
             let user = result.user
-
+            
+            // Reload the user object from Firebase to get the latest state (including email verification).
             try await user.reload()
             if user.isEmailVerified {
-                // ✅ مفعّل: حدّث التوكن، روّج المسودة، فعّل الجلسة ثم وجّه
+                // Force-refresh the ID token so we have a fresh authenticated session.
                 _ = try? await user.getIDTokenResult(forcingRefresh: true)
                 await promoteSignupDraftIfNeeded(for: user)
+                // On the main thread, update the global session and mark the user as non-guest.
                 await MainActor.run {
                     session.user = user
                     session.isGuest = false
@@ -197,13 +202,17 @@ struct SignInView: View {
                 do {
                     let complete = try await isPlayerProfileComplete(uid: user.uid)
                     await MainActor.run {
-                        if complete { goToProfile = true } else { goToPlayerSetup = true }
+                        // If profile is complete, go directly to the main player profile screen.
+                        if complete { goToProfile = true } else {
+                            // Otherwise, send the user to the player setup flow.
+                            goToPlayerSetup = true }
                     }
                 } catch {
                     await MainActor.run { goToPlayerSetup = true }
                 }
             } else {
-                // ❌ غير مفعّل: لا نلمس الجلسة. نعرض ورقة التفعيل + watcher
+                // If the email is not verified, send a new verification email to this user.
+
                 try await sendVerificationEmail(to: user)
                 markVerificationSentNow()
                 startResendCooldown(seconds: max(resendCooldownSeconds, resendBackoff))
@@ -229,7 +238,6 @@ struct SignInView: View {
         }
     }
 
-    // ✅ Promotion logic (DraftStore فقط)
     private func promoteSignupDraftIfNeeded(for user: User) async {
         let usersRef = Firestore.firestore().collection("users").document(user.uid)
         if let snap = try? await usersRef.getDocument(),
@@ -237,7 +245,7 @@ struct SignInView: View {
            (data["firstName"] as? String).map({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }) == true {
             return
         }
-
+        // Try to load the locally saved sign-up draft (from DraftStore).
         if let localDraft = DraftStore.load() {
             let (first, last) = splitName(localDraft.fullName)
             var base: [String: Any] = [
@@ -262,6 +270,7 @@ struct SignInView: View {
     }
 
     // MARK: - Player profile completion check
+    // Checks if the player's profile document (users/{uid}/player/profile) is complete.
     private func isPlayerProfileComplete(uid: String) async throws -> Bool {
         let snap = try await Firestore.firestore()
             .collection("users").document(uid)
@@ -337,6 +346,8 @@ struct SignInView: View {
             }
         }
     }
+    
+    // Sends an email verification link using Firebase's ActionCodeSettings.
 
     private func sendVerificationEmail(to user: User) async throws {
         let acs = ActionCodeSettings()
