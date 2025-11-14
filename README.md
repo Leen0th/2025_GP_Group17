@@ -1,7 +1,7 @@
 # Haddaf
 
 <p align="center">
-  <img src="pics/haddaf header.png" alt="Haddaf Header" width="100%">
+  <img src="pics/haddaf-header.png" alt="Haddaf Header" width="100%">
 </p>
 
 ## Introduction
