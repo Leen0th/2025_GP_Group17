@@ -4,6 +4,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 extension Sequence {
+    /// Async version of map that awaits each transform.
     func asyncMap<T>(
         _ transform: (Element) async throws -> T
     ) async rethrows -> [T] {
@@ -25,23 +26,24 @@ final class PlayerProfileViewModel: ObservableObject {
     private var postsListener: ListenerRegistration?
     private let df = DateFormatter()
 
-    // Observers for post create/delete events
+    //Insert newly created posts at the top of the list for instant UI feedback.
     private var postCreatedObs: NSObjectProtocol?
+    //Remove deleted posts from the local list when a delete event is broadcast.
     private var postDeletedObs: NSObjectProtocol?
     private var profileUpdatedObs: NSObjectProtocol?
     
-    // --- ✅ ADDED: Observer for like/comment sync ---
+    // Observer for like/comment sync
     private var postDataUpdatedObs: NSObjectProtocol?
     
-    // --- MODIFIED: Added properties to track target user ---
+    // Tracks which user's profile we are showing
     private var targetUserID: String?
     private var uidToFetch: String? {
-        // If we have a targetUserID, use it. Otherwise, fall back to the current user.
+        // Prefer target user, otherwise current authenticated user
+
         return targetUserID ?? Auth.auth().currentUser?.uid
     }
-    // --- END MODIFICATION ---
 
-    // --- MODIFIED: Updated init to accept a userID ---
+    /// Initialize view model and set up notification observers.
     init(userID: String? = nil) {
         self.targetUserID = userID
         df.dateFormat = "dd/MM/yyyy HH:mm"
@@ -71,67 +73,54 @@ final class PlayerProfileViewModel: ObservableObject {
             self.posts.removeAll { $0.id == postId }
         }
         
-        // This listens for the change from EditProfileView
+        // Recompute score when profile (non-image fields) changes.
         profileUpdatedObs = NotificationCenter.default.addObserver(
             forName: .profileUpdated, object: nil, queue: .main
         ) { [weak self] note in
-            // لو جاني إشعار وفيه قائمة الحقول المعدّلة:
             if let fields = note.userInfo?["fields"] as? [String] {
-                // إذا كان التعديل محصور بالصورة فقط → لا تعيدي حساب السكور
                 let imgKeys: Set<String> = ["profilePic", "profileImage", "profilePicURL"]
                 if Set(fields).isSubset(of: imgKeys) { return }
             }
-            // غير كذا (أو ما وصل userInfo) نحسب السكور كالمعتاد
             Task { await self?.calculateAndUpdateScore() }
         }
         
-        // --- ✅ ADDED: Observer for like/comment sync ---
+        // Keep likes and comments in sync across the app.
         postDataUpdatedObs = NotificationCenter.default.addObserver(
             forName: .postDataUpdated, object: nil, queue: .main
         ) { [weak self] notification in
             // Call the handler function
             self?.handlePostDataUpdate(notification: notification)
         }
-        // --- END ADDED ---
             
     }
-    // --- END MODIFICATION ---
     
+    /// Clean up Firestore listeners and notification observers.
     deinit {
         postsListener?.remove()
         if let t = postCreatedObs { NotificationCenter.default.removeObserver(t) }
         if let t = postDeletedObs { NotificationCenter.default.removeObserver(t) }
         if let t = profileUpdatedObs { NotificationCenter.default.removeObserver(t) }
         
-        // --- ✅ ADDED: Remove the new observer ---
         if let t = postDataUpdatedObs { NotificationCenter.default.removeObserver(t) }
-        // --- END ADDED ---
     }
 
-    // MODIFIED: Made sequential to prevent race condition
+    /// Load profile first, then attach posts listener in sequence.
     func fetchAllData() async {
         isLoading = true
         // Set default image immediately
         userProfile.profileImage = UIImage(systemName: "person.circle.fill")
         
-        // 1. Await the profile data (and its image) to be fully fetched.
         await fetchProfile()
         
-        // 2. ONLY after the profile is loaded, attach the listener for posts.
-        //    The listener will now also trigger the score calculation.
         listenToMyPosts()
         
-        // 3. Now that all data is fetched and listeners are attached, stop loading.
         isLoading = false
     }
 
-    // MODIFIED: Corrected field names to match SignUpView/PlayerSetupView
+    /// Fetch user profile data and basic player info from Firestore.
     func fetchProfile() async {
-        // --- MODIFIED: Use uidToFetch ---
         guard let uid = uidToFetch else { return }
-        // --- END MODIFICATION ---
         do {
-            // 'data' is from the main '/users/{uid}' document
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let data = userDoc.data() ?? [:]
 
@@ -139,7 +128,7 @@ final class PlayerProfileViewModel: ObservableObject {
             let last  = (data["lastName"]  as? String) ?? ""
             let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
 
-            // 'p' is from the '/users/{uid}/player/profile' sub-document
+           
             let pDoc = try await db.collection("users").document(uid)
                 .collection("player").document("profile")
                 .getDocument()
@@ -150,40 +139,33 @@ final class PlayerProfileViewModel: ObservableObject {
             if let h = p["height"] as? Int { userProfile.height = "\(h)cm" } else { userProfile.height = "" }
             if let w = p["weight"] as? Int { userProfile.weight = "\(w)kg" } else { userProfile.weight = "" }
             
-            // Check for "location" first, then fall back to "Residence"
             userProfile.location = (p["location"] as? String) ?? (p["Residence"] as? String) ?? ""
             
             userProfile.email = (data["email"] as? String) ?? ""
             
-            // --- MODIFIED (1) ---
-            // 'phone' is in the main 'data' object
+            
             userProfile.phoneNumber = (data["phone"] as? String) ?? ""
             
             userProfile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
             
-            // --- MODIFIED (2) ---
-            // The key is 'contactVisibility' in 'p'
+           
             userProfile.isPhoneNumberVisible = (p["contactVisibility"] as? Bool) ?? false
 
-            // --- MODIFIED (3) ---
-            // 'dob' is in the main 'data' object
-            if let dobTimestamp = data["dob"] as? Timestamp { // <-- Read "dob", not "dateOfBirth"
+           
+            if let dobTimestamp = data["dob"] as? Timestamp {
                 let dobDate = dobTimestamp.dateValue()
                 
-                // 1. Set the actual Date object for EditProfileView
                 userProfile.dob = dobDate
                 
-                // 2. Calculate and set the age string for StatsGridView
+             
                 let calendar = Calendar.current
                 let ageComponents = calendar.dateComponents([.year], from: dobDate, to: Date())
                 userProfile.age = "\(ageComponents.year ?? 0)"
             } else {
-                // Ensure they are nil/empty if not found
                 userProfile.dob = nil
                 userProfile.age = ""
             }
 
-            // Asynchronous image fetching
             if let urlStr = data["profilePic"] as? String, !urlStr.isEmpty {
                 self.userProfile.profileImage = await fetchImage(from: urlStr)
             } else {
@@ -193,15 +175,14 @@ final class PlayerProfileViewModel: ObservableObject {
             userProfile.team  = "Unassigned"
             userProfile.rank  = "0"
             
-            // Set score from profile, or default to 0
-            // This will be overwritten by calculateAndUpdateScore()
+           
             userProfile.score = (p["cumulativeScore"] as? String) ?? "0"
             
         } catch {
             print("fetchProfile error: \(error)")
         }
     }
-    
+    /// Download a profile image from a remote URL.
     private func fetchImage(from urlString: String) async -> UIImage? {
         print("---------------------------------")
         print("ProfileVM: Attempting to fetch image from URL: \(urlString)")
@@ -232,7 +213,7 @@ final class PlayerProfileViewModel: ObservableObject {
                 return UIImage(systemName: "person.circle.fill")
             }
         } catch {
-            // This will catch the "cancelled" error if it still happens
+            
             print("ProfileVM Error: Network request failed. \(error.localizedDescription)")
             print("---------------------------------")
             return UIImage(systemName: "person.circle.fill")
@@ -240,12 +221,11 @@ final class PlayerProfileViewModel: ObservableObject {
     }
 
     // MARK: - Posts (with static placeholder stats)
+    /// Attach a Firestore listener for this user's posts.
     func listenToMyPosts() {
         postsListener?.remove()
 
-        // --- MODIFIED: Use uidToFetch ---
         guard let uid = uidToFetch else { return }
-        // --- END MODIFICATION ---
         let userRef = db.collection("users").document(uid)
 
         postsListener = db.collection("videoPosts")
@@ -261,7 +241,7 @@ final class PlayerProfileViewModel: ObservableObject {
                     let mappedPosts: [Post] = await docs.asyncMap { doc in
                         let d = doc.data()
                         
-                        // --- MODIFIED: Robust parsing to include maxValue ---
+                        // Build stats array from either map or array format.
                         var postStats: [PostStat] = []
                         
                         // Helper function to safely convert Any to Double
@@ -270,8 +250,7 @@ final class PlayerProfileViewModel: ObservableObject {
                         }
                         
                         if let feedbackMap = d["performanceFeedback"] as? [String: Any] {
-                            // Case 1: Stats are stored as a Map, e.g., {"dribble": 7.0, "pass": 5.0}
-                            // This format DOESN'T have maxValue, so we default to 10.
+                           
                             postStats = feedbackMap.compactMap { (key, anyValue) in
                                 guard let value = toDouble(anyValue) else { return nil }
                                 return PostStat(
@@ -283,8 +262,7 @@ final class PlayerProfileViewModel: ObservableObject {
                             .sorted { $0.label < $1.label }
                             
                         } else if let feedbackArray = d["performanceFeedback"] as? [[String: Any]] {
-                            // Case 2: Stats are stored as an Array, e.g., [{"label": "DRIBBLE", "value": 7, "maxValue": 10}]
-                            // This is the PREFERRED format.
+                            
                             postStats = feedbackArray.compactMap { dict in
                                 guard let label = dict["label"] as? String,
                                       let value = toDouble(dict["value"])
@@ -292,19 +270,18 @@ final class PlayerProfileViewModel: ObservableObject {
                                     return nil
                                 }
                                 
-                                // Get maxValue, but default to 10.0 if it's missing
+                               
                                 let maxValue = toDouble(dict["maxValue"]) ?? 10.0
                                 
                                 return PostStat(label: label, value: value, maxValue: maxValue)
                             }
                         }
-                        // --- END MODIFICATION ---
+                      
 
                         let likedBy = (d["likedBy"] as? [String]) ?? []
                         
-                        // --- MODIFIED: Use uidToFetch, which is non-optional here ---
+                      
                         let currentUserID = self.uidToFetch ?? ""
-                        // --- END MODIFICATION ---
                         
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
@@ -333,18 +310,17 @@ final class PlayerProfileViewModel: ObservableObject {
                     await MainActor.run {
                         self.posts = mappedPosts
                         
-                        // --- ADDED (1 of 2) ---
-                        // After posts are loaded, calculate the new score
+                        // Recompute cumulative score after posts change.
                         Task {
                             await self.calculateAndUpdateScore()
                         }
-                        // --- END ADDED ---
+                        
                     }
                 }
             }
     }
     
-    // Function to handle incoming notifications
+    /// Apply local updates to like and comment counts based on notifications.
     @MainActor
     private func handlePostDataUpdate(notification: Notification) {
         guard let userInfo = notification.userInfo,
@@ -352,9 +328,8 @@ final class PlayerProfileViewModel: ObservableObject {
             return
         }
 
-        // Find the index of the post that needs updating
         guard let index = self.posts.firstIndex(where: { $0.id == updatedPostId }) else {
-            return // This post isn't in our list
+            return
         }
 
         // Check for comment updates
@@ -366,7 +341,6 @@ final class PlayerProfileViewModel: ObservableObject {
         if userInfo["commentDeleted"] as? Bool == true {
             self.posts[index].commentCount = max(0, self.posts[index].commentCount - 1)
         }
-        // --- END ADDED ---
         
         // Check for like updates
         if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
@@ -374,15 +348,10 @@ final class PlayerProfileViewModel: ObservableObject {
             self.posts[index].likeCount = likeCount
         }
     }
-    // --- END ADDED ---
-    
-    // --- ADDED (2 of 2) ---
-    // This is the new function that calculates and saves the score
+    /// Calculate and persist the player's cumulative score from public AI-scored posts.
     @MainActor
     func calculateAndUpdateScore() async {
-        // --- MODIFIED: Use uidToFetch ---
         guard let uid = uidToFetch else {
-        // --- END MODIFICATION ---
             print("Error: No user ID found.")
             return
         }
@@ -424,7 +393,6 @@ final class PlayerProfileViewModel: ObservableObject {
                     print("❌ Error saving cumulativeScore (0) to Firestore: \(error.localizedDescription)")
                 }
             }
-            // --- END ADDED ---
             return
         }
 
