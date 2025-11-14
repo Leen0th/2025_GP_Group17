@@ -1,11 +1,3 @@
-//
-//  PostViews.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 30/10/2025.
-//
-//
-
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -13,8 +5,10 @@ import FirebaseStorage
 import AVKit
 
 // MARK: - Post Detail View (MODIFIED)
+// Define a SwiftUI view that shows the full details of a single post.
 struct PostDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    // Hold a mutable copy of the post so the UI can react to changes.
     @State var post: Post
     
     @State private var showDeleteConfirmation = false
@@ -39,13 +33,13 @@ struct PostDetailView: View {
     // --- ADDED: State for reporting ---
     @State private var itemToReport: ReportableItem?
     
-    // --- State to hold the fresh author profile ---
+    // Hold a lightweight profile object for the post's author.
     @State private var authorProfile = UserProfile()
     
     private var currentUserID: String? {
         Auth.auth().currentUser?.uid
     }
-    
+    // Check whether the current user is the owner of this post.
     private var isOwner: Bool {
         post.authorUid == currentUserID
     }
@@ -59,13 +53,11 @@ struct PostDetailView: View {
                 isActive: $navigationTrigger
             ) { EmptyView() }
             
-            // Check the *hidden* list to show the placeholder
             if let postId = post.id, reportService.hiddenPostIDs.contains(postId) {
                 VStack {
-                    header // Show header so user can go back
+                    header
                     Spacer()
                     ReportedContentView(type: .post) {
-                        // This call is now correct: it only un-hides
                         reportService.unhidePost(id: postId)
                     }
                     .padding()
@@ -75,7 +67,7 @@ struct PostDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         header
-                        
+                        // Try to build a valid URL from the post's videoURL string.
                         if let videoStr = post.videoURL, let url = URL(string: videoStr) {
                             VideoPlayer(player: AVPlayer(url: url))
                                 .frame(height: 250)
@@ -96,7 +88,6 @@ struct PostDetailView: View {
                 }
                 .disabled(isDeleting || isSavingCaption)
             }
-            // --- END MODIFICATION ---
             
             if showPrivacyAlert {
                 PrivacyWarningPopupView(
@@ -133,7 +124,7 @@ struct PostDetailView: View {
                 reportService.reportPost(id: reportedID)
             }
         }
-        // --- END ADDED ---
+        // Present the comments sheet when showCommentsSheet is true.
         .sheet(isPresented: $showCommentsSheet) {
             if let postId = post.id {
                 CommentsView(
@@ -149,6 +140,7 @@ struct PostDetailView: View {
                 .presentationBackground(BrandColors.background)
             }
         }
+        // Listen for .postDataUpdated notifications to keep this view in sync.
         .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
             guard let userInfo = notification.userInfo,
                   let updatedPostId = userInfo["postId"] as? String,
@@ -171,6 +163,7 @@ struct PostDetailView: View {
         .animation(.easeInOut, value: isEditingCaption)
         // --- Task to fetch the fresh profile on appear ---
         .task {
+            // Load the author's profile from Firestore and update the header.
             await fetchAuthorProfile()
         }
     }
@@ -225,6 +218,7 @@ struct PostDetailView: View {
     
     private func deletePost() async {
         isDeleting = true
+        // Ensure the post has an ID and there is a logged-in user.
         guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else {
             print("Missing post ID or user ID for deletion.")
             isDeleting = false
@@ -235,15 +229,18 @@ struct PostDetailView: View {
             // --- Get the root reference ---
             let storageRef = Storage.storage().reference()
             
+            // Build a reference to the video file path for this post.
             let videoRef = storageRef.child("posts/\(uid)/\(postId).mov")
             let thumbRef = storageRef.child("posts/\(uid)/\(postId)_thumb.jpg")
-
+            
+            // Attempt to delete the video file; ignore error if it doesn't exist.
             try? await videoRef.delete()
             try? await thumbRef.delete()
-
+            
+            // Delete the post document from the `videoPosts` collection.
             let db = Firestore.firestore()
             try await db.collection("videoPosts").document(postId).delete()
-
+            // Notify the app that this post has been deleted.
             NotificationCenter.default.post(name: .postDeleted, object: nil, userInfo: ["postId": postId])
             dismiss()
 
@@ -446,6 +443,7 @@ struct PostDetailView: View {
         // We only fetch the parts we need for the header (name, image)
         do {
             let db = Firestore.firestore()
+            // Read the document for this user from the `users` collection.
             let userDoc = try await db.collection("users").document(uid).getDocument()
             let data = userDoc.data() ?? [:]
 
@@ -514,11 +512,14 @@ struct PostDetailView: View {
         if isLiking { post.likedBy.append(uid) }
         else { post.likedBy.removeAll { $0 == uid } }
         do {
+            // Send the like update to Firestore: increment count and modify likedBy array.
             try await Firestore.firestore().collection("videoPosts").document(postId).updateData([
                 "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
             ])
+            // Build a userInfo dictionary to broadcast the new like state.
             var userInfo: [String: Any] = ["postId": postId]
             userInfo["likeUpdate"] = (isLiking, post.likeCount)
+            // Post a notification so other views can update their UI.
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
         } catch {
             print("Error updating like count: \(error.localizedDescription)")
@@ -534,6 +535,7 @@ struct PostDetailView: View {
         Task {
             guard let postId = post.id else { return }
             do {
+                // Update the `visibility` field to the inverse of isPrivate.
                 try await Firestore.firestore().collection("videoPosts").document(postId)
                     .updateData(["visibility": !post.isPrivate])
             } catch {
@@ -647,12 +649,11 @@ struct CommentsView: View {
                             .padding(.top, 40)
                             .frame(maxWidth: .infinity)
                     } else {
-                        // --- 3. MODIFIED ForEach ---
                         ForEach(viewModel.comments) { comment in
-                            // Check the *hidden* list to show the placeholder
+                            // Check if this comment is hidden in the report service.
                             if let commentId = comment.id, reportService.hiddenCommentIDs.contains(commentId) {
+                                // If hidden, show the placeholder for reported content.
                                 ReportedContentView(type: .comment) {
-                                    // This call is now correct: it only un-hides
                                     reportService.unhideComment(id: commentId)
                                 }
                                 .padding(.horizontal)
@@ -671,8 +672,11 @@ struct CommentsView: View {
                                         editingCommentID = comment.id
                                         editingCommentText = comment.text
                                     },
+                                    // Callback when the user requests to delete this comment.
                                     onDelete: {
+                                        // Store the comment we want to delete.
                                         commentToDelete = comment
+                                        // Show the system alert to confirm deletion.
                                         showDeleteAlert = true
                                     },
                                     onSave: {
@@ -687,13 +691,14 @@ struct CommentsView: View {
                                         viewModel.fetchComments(for: postId) // Restart listener
                                     },
                                     onReport: {
-                                        // --- Use the full initializer `ReportableItem(...)` ---
+                                        // Create a report item so we can open the report sheet.
                                         itemToReport = ReportableItem(
                                             id: comment.id ?? "",
                                             type: .comment,
                                             contentPreview: comment.text
                                         )
                                     },
+                                    // Pass the shared report service so the row can read report state.
                                     reportService: reportService
                                 )
                             }
@@ -717,8 +722,7 @@ struct CommentsView: View {
                     reportService.reportComment(id: reportedID)
                 }
             }
-            // --- END ADDED ---
-            // --- 4. REMOVED .sheet modifier ---
+           
             .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
@@ -765,7 +769,7 @@ struct CommentsView: View {
         }
     }
 }
-// --- END MODIFICATION ---
+
 
 // ===================================================================
 // MARK: - Comments View Model
@@ -775,7 +779,8 @@ final class CommentsViewModel: ObservableObject {
     @Published var isLoading = true
     
     @Published var authorProfiles: [String: UserProfile] = [:]
-
+    
+    // Firestore database reference used for all comment operations.
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     private let lock = NSLock()
@@ -787,7 +792,7 @@ final class CommentsViewModel: ObservableObject {
     func fetchComments(for postId: String) {
         stopListening()
         isLoading = true
-        
+        // Build a Firestore query to fetch comments ordered by creation time.
         let ref = db.collection("videoPosts").document(postId).collection("comments").order(by: "createdAt", descending: false)
         
         let newListener = ref.addSnapshotListener { [weak self] snap, error in
@@ -819,7 +824,7 @@ final class CommentsViewModel: ObservableObject {
         lock.unlock()
         print("Comments listener stopped.")
     }
-
+    // Add a new comment document under the specified post in Firestore.
     func addComment(text: String, for postId: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
@@ -838,7 +843,8 @@ final class CommentsViewModel: ObservableObject {
             batch.setData(commentData, forDocument: commentRef)
             batch.updateData(["commentCount": FieldValue.increment(Int64(1))], forDocument: postRef)
             try await batch.commit()
-
+            
+            // Post a notification so other views know a comment was added.
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: [
                 "postId": postId,
                 "commentAdded": true
@@ -863,12 +869,13 @@ final class CommentsViewModel: ObservableObject {
         
         do {
             let commentRef = db.collection("videoPosts").document(postId).collection("comments").document(commentId)
+            // Update only the text field of this comment.
             try await commentRef.updateData(["text": trimmedText])
         } catch {
             print("Error editing comment: \(error.localizedDescription)")
         }
     }
-    
+    // Delete a comment document and decrement the parent post's commentCount.
     @MainActor
     func deleteComment(_ comment: Comment, from postId: String) async {
         guard let commentId = comment.id else {
@@ -952,7 +959,7 @@ final class CommentsViewModel: ObservableObject {
 
 
 // MARK: - Helper Views (Styling Update)
-
+// View representing a single comment row, including avatar, text, and actions.
 fileprivate struct CommentRowView: View {
     let comment: Comment
     let authorProfile: UserProfile
@@ -1014,8 +1021,8 @@ fileprivate struct CommentRowView: View {
                             .font(.system(size: 15, design: .rounded))
                             .textInputAutocapitalization(.sentences)
                             .disableAutocorrection(true)
-                            .padding(8) // Internal padding
-                            .frame(minHeight: 80) // Give it some space
+                            .padding(8)
+                            .frame(minHeight: 80)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(BrandColors.lightGray.opacity(0.7))
@@ -1050,7 +1057,6 @@ fileprivate struct CommentRowView: View {
                         }
                     }
                 } else {
-                    // --- 3. STANDARD TEXT (Read-only) ---
                     Text(comment.text)
                         .font(.system(size: 15, design: .rounded))
                         .foregroundColor(BrandColors.darkGray)
@@ -1059,8 +1065,7 @@ fileprivate struct CommentRowView: View {
             
             Spacer()
             
-            // --- 4. "THREE DOTS" MENU ---
-            // Hide menu if we are editing this row
+        
             if isOwner && !isEditing {
                 Menu {
                     Button(action: {
@@ -1095,7 +1100,7 @@ fileprivate struct CommentRowView: View {
                 .disabled(isReported)
             }
         }
-        .animation(.easeInOut, value: isEditing) // Animate the transition
+        .animation(.easeInOut, value: isEditing)
     }
 }
 
