@@ -1,10 +1,3 @@
-//
-//  ReportModels.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 07/11/2025.
-//
-
 import Foundation
 
 /// The type of content that can be reported.
