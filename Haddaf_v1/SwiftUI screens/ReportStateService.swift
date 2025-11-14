@@ -1,10 +1,3 @@
-//
-//  ReportStateService.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 07/11/2025.
-//
-
 import Foundation
 import Combine
 
@@ -54,15 +47,11 @@ final class ReportStateService: ObservableObject {
     
     /// Unhides a post that was previously reported.
     func unhidePost(id: String) {
-        // Only remove from the *hidden* list.
-        // Keep it in the *reported* list.
         hiddenPostIDs.remove(id)
     }
     
     /// Unhides a comment that was previously reported.
     func unhideComment(id: String) {
-        // Only remove from the *hidden* list.
-        // Keep it in the *reported* list.
         hiddenCommentIDs.remove(id)
     }
     
