@@ -13,7 +13,7 @@ By applying computer vision and machine learning techniques, Haddaf automaticall
 
 ## Technologies
 - **Swift** – used to develop the iOS application.
-- **Python** – used to build and run the AI models for player detection, tracking, action detection and player's performance analysis.
+- **Python** – used to build and run the AI models for player detection, tracking, action recognition, and performance analysis.
 
 ## Launching Instructions
 1. **Clone the repository**  
