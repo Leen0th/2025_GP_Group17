@@ -23,7 +23,7 @@ struct TrendDataSet: Identifiable {
 
 // MARK: - Main Progress Tab View
 struct ProgressTabView: View {
-    // MODIFIED: Use new BrandColors
+    // MODIFIED:BrandColors
     let accentColor = BrandColors.darkTeal
     let dataTurquoise = BrandColors.turquoise
     let dataTeal = BrandColors.teal
@@ -64,7 +64,7 @@ struct ProgressTabView: View {
         VStack(spacing: 24) {
             overallScoreView
             averagePerformanceCard
-            performanceTrendsCard // This now uses the original chart code
+            performanceTrendsCard
             Spacer()
         }
         .padding(.horizontal)
@@ -83,7 +83,7 @@ struct ProgressTabView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
-        .background(accentColor) // darkTeal
+        .background(accentColor)
         .cornerRadius(20)
         .shadow(color: accentColor.opacity(0.3), radius: 12, y: 5)
     }
@@ -95,7 +95,7 @@ struct ProgressTabView: View {
                 .foregroundColor(BrandColors.darkGray)
                 .padding(.bottom, 8)
             ForEach(averagePerformance) { stat in
-                ProgressBarView(stat: stat, accentColor: accentColor) // Uses new styled ProgressBarView
+                ProgressBarView(stat: stat, accentColor: accentColor)
             }
         }
         .padding(20)
@@ -105,13 +105,12 @@ struct ProgressTabView: View {
     }
     
     private var performanceTrendsCard: some View {
-        VStack(alignment: .leading, spacing: 12) { // <- Original error pointed here, hopefully fixed now
+        VStack(alignment: .leading, spacing: 12) {
             Text("Performance Trends Over the Year")
-                .font(.system(size: 18, weight: .semibold, design: .rounded)) // New font
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(BrandColors.darkGray) // New color
 
             ZStack(alignment: .topLeading) {
-                // Use the original LineChartView struct
                 LineChartView(
                     dataSets: trendDataSets,
                     selectedMonth: $selectedMonth,
@@ -119,21 +118,19 @@ struct ProgressTabView: View {
                 )
                 .frame(height: 180)
 
-                // Use the original TooltipView struct
                 if let month = selectedMonth, let location = touchLocation {
                     TooltipView(dataSets: trendDataSets, selectedMonth: month, touchLocation: location)
                 }
             }
 
-            // Use the original ChartLegendView struct
             ChartLegendView(dataSets: trendDataSets)
                 .padding(.top, 8)
 
         }
         .padding(20)
-        .background(BrandColors.background) // New background
-        .cornerRadius(20) // New corner radius
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 5) // New shadow
+        .background(BrandColors.background)
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
     // --- END REVERT ---
 }
@@ -149,12 +146,12 @@ fileprivate struct ProgressBarView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(stat.label)
-                    // MODIFIED: Use new font
+                    
                     .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary)
                 Spacer()
                 Text("\(stat.value)")
-                    // MODIFIED: Use new font
+                   
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
             }
@@ -162,12 +159,10 @@ fileprivate struct ProgressBarView: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        // MODIFIED: Use new color
                         .fill(BrandColors.lightGray)
                         .frame(height: 8)
                     
                     Capsule()
-                        // MODIFIED: Use gradient for the bar
                         .fill(
                             LinearGradient(
                                 colors: [accentColor.opacity(0.7), accentColor],
@@ -184,8 +179,7 @@ fileprivate struct ProgressBarView: View {
     }
 }
 
-// --- REVERTED: Original LineChartView, ChartLegendView, TooltipView ---
-// These structs are exactly as provided in your original file upload for ProgressTabView.swift
+
 private struct LineChartView: View {
     let dataSets: [TrendDataSet]
     @Binding var selectedMonth: String?
@@ -204,7 +198,7 @@ private struct LineChartView: View {
                         Path { path in
                             for (index, point) in dataSet.dataPoints.enumerated() {
                                 let xPosition = geometry.size.width / CGFloat(dataSet.dataPoints.count - 1) * CGFloat(index)
-                                // Y calculation: 0 is top, 1 is bottom. Invert score percentage.
+                               
                                 let yPosition = (1 - CGFloat((point.score - minScore) / (maxScore - minScore))) * geometry.size.height
 
                                 if index == 0 {
@@ -217,14 +211,14 @@ private struct LineChartView: View {
                         .stroke(dataSet.color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     }
 
-                    // Interactive elements (vertical line, circles on hover)
+                   
                     if let location = touchLocation {
                         let index = Int(round((location.x / geometry.size.width) * CGFloat(monthLabels.count - 1)))
 
                         if index >= 0 && index < monthLabels.count {
                             let xPosition = geometry.size.width / CGFloat(monthLabels.count - 1) * CGFloat(index)
 
-                            // Vertical line
+                          
                             Path { path in
                                 path.move(to: CGPoint(x: xPosition, y: 0))
                                 path.addLine(to: CGPoint(x: xPosition, y: geometry.size.height))
@@ -233,7 +227,7 @@ private struct LineChartView: View {
 
                             // Circles for each dataset at the intersection
                             ForEach(dataSets) { dataSet in
-                                if index < dataSet.dataPoints.count { // Safety check
+                                if index < dataSet.dataPoints.count {
                                     let score = dataSet.dataPoints[index].score
                                     let yPosition = (1 - CGFloat((score - minScore) / (maxScore - minScore))) * geometry.size.height
                                     Circle()
@@ -271,7 +265,7 @@ private struct LineChartView: View {
             HStack {
                 ForEach(monthLabels, id: \.self) { month in
                     Text(month)
-                        .font(.caption) // Original font
+                        .font(.caption)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -292,7 +286,7 @@ private struct ChartLegendView: View {
                         .fill(dataSet.color)
                         .frame(width: 10, height: 10)
                     Text(dataSet.metricName)
-                        .font(.custom("Poppins-Regular", size: 12)) // Original font
+                        .font(.custom("Poppins-Regular", size: 12))
                         .foregroundColor(.secondary)
                 }
             }
@@ -310,7 +304,7 @@ private struct TooltipView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(selectedMonth)
-                .font(.custom("Poppins-Bold", size: 14)) // Original font
+                .font(.custom("Poppins-Bold", size: 14))
                 .foregroundColor(.primary)
                 .bold()
 
@@ -321,11 +315,11 @@ private struct TooltipView: View {
                 if let dataPoint = dataSet.dataPoints.first(where: { $0.month == selectedMonth }) {
                     HStack {
                         Text(dataSet.metricName)
-                            .font(.custom("Poppins-Regular", size: 12)) // Original font
+                            .font(.custom("Poppins-Regular", size: 12))
                             .foregroundColor(.secondary)
                         Spacer()
                         Text(String(format: "%.1f", dataPoint.score))
-                            .font(.custom("Poppins-SemiBold", size: 12)) // Original font
+                            .font(.custom("Poppins-SemiBold", size: 12))
                             .foregroundColor(dataSet.color) // Use the dataset's color
                     }
                 }
@@ -334,11 +328,11 @@ private struct TooltipView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white) // Original background
-                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4) // Original shadow
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
         )
         .frame(width: 120)
         // Position the tooltip relative to the touch location
-        .position(x: touchLocation.x, y: touchLocation.y - 60) // Adjust Y offset as needed
+        .position(x: touchLocation.x, y: touchLocation.y - 60)
     }
 }
