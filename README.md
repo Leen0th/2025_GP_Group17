@@ -11,8 +11,9 @@ The goal of the project is to provide players, coaches and scouts with an intell
 
 By applying computer vision and machine learning techniques, Haddaf automatically extracts key performance metrics to help coaches track their players’ performance, give players a platform to showcase their skills and support scouts in talent identification. 
 
-## Technology
-TBD
+## Technologies
+- **Swift** – used to develop the iOS application.
+- **Python** – used to build and run the AI models for player detection, tracking, action detection and player's performance analysis.
 
 ## Launching Instructions
 TBD
