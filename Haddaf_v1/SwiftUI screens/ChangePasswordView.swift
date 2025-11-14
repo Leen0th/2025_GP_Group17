@@ -219,7 +219,7 @@ struct ChangePasswordView: View {
             showErrorAlert = true
             return
         }
-        // 2. Validate that the new password matches the confirm password.
+        // 2. Validate that the New password matches the confirm password.
         guard newPass == confirm else {
             alertMessage = "New passwords do not match."
             showErrorAlert = true

@@ -28,7 +28,7 @@ struct PlayerProfileView: View {
             .fullScreenCover(isPresented: $showVideoUpload) {
                 VideoUploadView()
             }
-        // After a post is created, switch to the Profile tab and close the upload screen.
+        // After a post is created, switch to the Profile tab and close the Upload screen.
             .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
                 selectedTab = .profile
                 showVideoUpload = false

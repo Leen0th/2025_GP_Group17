@@ -417,13 +417,13 @@ struct SignUpView: View {
             // 3) Store the registration draft locally only.
             let draft = ProfileDraft(fullName: name, phone: fullPhone, role: role.rawValue.lowercased(), dob: dob, email: mail)
             DraftStore.save(draft)
-
-            // 4) Send the verification email.
+            
+            // 4) Send the Verification email.
             try await sendVerificationEmail(to: authResult.user)
             markVerificationSentNow()
             startResendCooldown(seconds: resendCooldownSeconds)
 
-            // 5) Show the verification sheet and start the watcher.
+            // 5) Show the verification Sheet and start the watcher.
             await MainActor.run { showVerifyPrompt = true }
             startVerificationWatcher()
 
@@ -709,3 +709,4 @@ struct SimpleVerifySheet: View {
         .allowsHitTesting(true)
     }
 }
+

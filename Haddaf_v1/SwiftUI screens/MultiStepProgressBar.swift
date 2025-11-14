@@ -105,6 +105,6 @@ struct MultiStepProgressBar: View {
                 .fontWeight(isCurrent ? .bold : .regular)
                 .foregroundColor(isCurrent || isCompleted ? activeTextColor : inactiveTextColor)
         }
-        .frame(width: 65) // Give each step a consistent width
+        .frame(width: 65) 
     }
 }

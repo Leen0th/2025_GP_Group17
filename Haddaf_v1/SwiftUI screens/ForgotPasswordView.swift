@@ -108,7 +108,7 @@ struct ForgotPasswordView: View {
 
         isLoading = true
         
-        // Firebase Auth handles sending the actual password reset email to the user.
+        // Firebase Auth handles Sending the ctual password reset email to the user.
         do {
             try await Auth.auth().sendPasswordReset(withEmail: value)
             presentAlert(

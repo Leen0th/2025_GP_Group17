@@ -350,7 +350,7 @@ struct PlayerSetupView: View {
                 self.isUploading = false // Finish uploading state
             }
             
-            // Save the URL to Firestore
+            // Save the URL To Firestore
             try await Firestore.firestore().collection("users").document(uid)
                 .setData(["profilePic": url.absoluteString], merge: true)
             

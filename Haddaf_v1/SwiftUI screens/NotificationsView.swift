@@ -5,7 +5,7 @@ struct NotificationsView: View {
     private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.12)
 
-    // Default values for notification settings
+    // Default Values for notification settings
     @State private var newChallenge = true
     @State private var upcomingMatch = true
     @State private var personalMilestones = false

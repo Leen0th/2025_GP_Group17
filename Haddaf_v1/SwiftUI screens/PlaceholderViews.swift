@@ -39,7 +39,7 @@ struct VideoUploadView: View {
     @State private var showDurationAlert = false
     @State private var isCheckingDuration = false
 
-    // MODIFIED:new BrandColors
+    // MODIFIED:BrandColors
     let accentColor = BrandColors.darkTeal
 
     var body: some View {
