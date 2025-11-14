@@ -664,13 +664,13 @@ struct FiltersSheetView: View {
                 }
                 // MARK: - Location Filter
                 Section {
-                    Picker("Location", selection: $location) {
+                    Picker("Residence", selection: $location) {
                         Text("Any").tag(String?.none)
                         ForEach(locations, id: \.self) { loc in Text(loc).tag(String?.some(loc)) }
                     }
                 } header: {
                     HStack {
-                        Text("Location")
+                        Text("Residence")
                         Button {
                             showLocationInfo = true
                         } label: {
