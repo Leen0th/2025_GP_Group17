@@ -1,23 +1,15 @@
-//
-//  ProfileNotificationsListView.swift
-//  Haddaf_v1
-//
-//  Created by Leen Thamer on 24/10/2025.
-//
-
 import SwiftUI
 
 struct ProfileNotificationsListView: View {
+    // The environment object for dismissing the view
     @Environment(\.dismiss) private var dismiss
     
-    // MODIFIED: Use new BrandColors
     private let primary = BrandColors.darkTeal
 
-    // The filter category selected at the top
+    // The currently selected notification filter category. Defaults to `.all`.
     @State private var selectedFilter: AppNotificationType = .all
 
     // Mock data for demonstration
-    // --- MODIFIED: Set to empty by default to show the new empty state ---
     @State private var allNotifications: [AppNotification] = [
         // .init(type: .likes, title: "New Like", message: "Ahmed liked your latest video.", date: .now.addingTimeInterval(-300)),
         // .init(type: .comments, title: "New Comment", message: "Sara commented: 'Great skills!'", date: .now.addingTimeInterval(-1800)),
@@ -29,7 +21,7 @@ struct ProfileNotificationsListView: View {
         // .init(type: .comments, title: "New Comment", message: "Ali replied to your comment.", date: .now.addingTimeInterval(-100000))
     ]
 
-    // Computed property to filter the list based on the selection
+    // Filters `allNotifications` list based on the `selectedFilter`
     private var filteredNotifications: [AppNotification] {
         if selectedFilter == .all {
             return allNotifications
@@ -39,15 +31,12 @@ struct ProfileNotificationsListView: View {
 
     var body: some View {
         NavigationStack {
-            // MODIFIED: Use new gradient background
             ZStack {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // Header
                     ZStack {
                         Text("Notifications")
-                            // MODIFIED: Use new font
                             .font(.system(size: 28, weight: .medium, design: .rounded))
                             .foregroundColor(primary)
 
@@ -56,7 +45,6 @@ struct ProfileNotificationsListView: View {
                             Button("Done") {
                                 dismiss()
                             }
-                            // MODIFIED: Use new font
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(primary)
                         }
@@ -65,8 +53,8 @@ struct ProfileNotificationsListView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 14)
                     
+                    // Filter buttons
                     if !allNotifications.isEmpty {
-                        // Filter Pills
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 ForEach(AppNotificationType.allCases) { type in
@@ -87,13 +75,12 @@ struct ProfileNotificationsListView: View {
                         notificationRow(notification: notification)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                            // MODIFIED: Make list rows transparent
                             .listRowBackground(Color.clear)
                     }
                     .listStyle(.plain)
-                    // MODIFIED: Make list background transparent
                     .scrollContentBackground(.hidden)
                     .overlay {
+                        // Empty States
                         if allNotifications.isEmpty {
                             EmptyStateView(
                                 imageName: "bell.badge",
@@ -114,34 +101,30 @@ struct ProfileNotificationsListView: View {
     @ViewBuilder
     private func notificationRow(notification: AppNotification) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            // Icon
             Image(systemName: notification.type.iconName)
                 .font(.title3)
                 .foregroundColor(primary)
                 .frame(width: 30, alignment: .center)
                 .padding(.top, 2)
 
-            // Text content
             VStack(alignment: .leading, spacing: 4) {
                 Text(notification.title)
-                    // MODIFIED: Use new font
                     .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .foregroundColor(BrandColors.darkGray) // MODIFIED
+                    .foregroundColor(BrandColors.darkGray)
                 
                 Text(notification.message)
-                    // MODIFIED: Use new font
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                 
                 Text(notification.timeAgo)
-                    // MODIFIED: Use new font
                     .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary.opacity(0.8))
             }
             
             Spacer()
             
+            // Unread indicator
             if !notification.isRead {
                 Circle()
                     .fill(primary)
@@ -150,7 +133,6 @@ struct ProfileNotificationsListView: View {
             }
         }
         .padding(12)
-        // MODIFIED: Use new card style
         .background(BrandColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -158,25 +140,24 @@ struct ProfileNotificationsListView: View {
 }
 
 private struct FilterPill: View {
+    // The notification category this button represents
     let type: AppNotificationType
+    // A boolean indicating if this button is the currently selected
     let isSelected: Bool
+    // The closure to execute when the button is tappedreturn allNotifications.filter { $0.type == selectedFilter }
     let action: () -> Void
     
-    // MODIFIED: Use new BrandColors
     private let primary = BrandColors.darkTeal
 
     var body: some View {
         Button(action: action) {
             Text(type.rawValue)
-                // MODIFIED: Use new font
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                // MODIFIED: Use new colors
                 .background(isSelected ? primary : BrandColors.lightGray)
                 .foregroundColor(isSelected ? .white : BrandColors.darkGray)
                 .clipShape(Capsule())
-                // MODIFIED: Add shadow to selected
                 .shadow(color: isSelected ? primary.opacity(0.3) : .clear, radius: 8, y: 4)
         }
     }

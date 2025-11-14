@@ -3,32 +3,31 @@ import FirebaseAuth
 import FirebaseMessaging
 
 struct SettingsView: View {
+    // The environment object for dismissing the view
     @Environment(\.dismiss) private var dismiss
-    
-    // --- ADDED: To pass to EditProfileView ---
+    // The user's profile data to be used by `EditProfileView`
     @ObservedObject var userProfile: UserProfile
 
-    // MODIFIED: Use new BrandColors
     private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.15)
-
+    
+    // Controls the visibility of the logout confirmation popup
     @State private var showLogoutPopup = false
+    // Triggers the `navigationDestination` to the `WelcomeView` after a successful logout
     @State private var goToWelcome = false
 
-    // UI states for logout
+    // Show a loading indicator while the logout process is active
     @State private var isSigningOut = false
+    // String to display any error that occurs during the sign-out process
     @State private var signOutError: String?
 
     var body: some View {
        ZStack {
-           // MODIFIED: Use new gradient background
            BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
            VStack(spacing: 0) {
-               // Header
                ZStack {
                    Text("Settings")
-                       // MODIFIED: Use new font
                        .font(.system(size: 28, weight: .medium, design: .rounded))
                        .foregroundColor(primary)
                        .frame(maxWidth: .infinity, alignment: .center)
@@ -39,7 +38,6 @@ struct SettingsView: View {
                                .font(.system(size: 18, weight: .semibold))
                                .foregroundColor(primary)
                                .padding(10)
-                               // MODIFIED: Use new background
                                .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                        }
                        Spacer()
@@ -49,7 +47,7 @@ struct SettingsView: View {
                .padding(.top, 8)
                .padding(.bottom, 14)
 
-               // List
+               // MARK: - Settings List
                VStack(spacing: 0) {
                    NavigationLink {
                        EditProfileView(userProfile: userProfile)
@@ -79,7 +77,6 @@ struct SettingsView: View {
                                    iconColor: primary, showChevron: false, showDivider: false)
                    }
                }
-               // MODIFIED: Use new card style
                .background(BrandColors.background)
                .clipShape(RoundedRectangle(cornerRadius: 16))
                .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -88,7 +85,7 @@ struct SettingsView: View {
                Spacer()
            }
 
-           // Logout Popup (centered)
+           // MARK: - Logout Popup
            if showLogoutPopup {
                Color.black.opacity(0.4)
                    .ignoresSafeArea()
@@ -99,60 +96,57 @@ struct SettingsView: View {
                        Spacer()
                        VStack(spacing: 20) {
                            Text("Logout?")
-                               // MODIFIED: Use new font
                                .font(.system(size: 20, weight: .semibold, design: .rounded))
                                .foregroundColor(.primary)
                                .multilineTextAlignment(.center)
 
                            Text("Are you sure you want to log out from this device?")
-                               // MODIFIED: Use new font
                                .font(.system(size: 14, design: .rounded))
                                .foregroundColor(.secondary)
                                .multilineTextAlignment(.center)
                                .padding(.horizontal, 24)
 
+                           // Loading spinner
                            if isSigningOut {
-                               ProgressView().tint(primary).padding(.top, 4) // MODIFIED
+                               ProgressView().tint(primary).padding(.top, 4)
                            }
 
+                           // Error message
                            if let signOutError {
                                Text(signOutError)
-                                   // MODIFIED: Use new font
                                    .font(.system(size: 13, design: .rounded))
                                    .foregroundColor(.red)
                                    .multilineTextAlignment(.center)
                                    .padding(.horizontal, 16)
                            }
 
-                           HStack(spacing: 16) { // MODIFIED
+                           // Action Buttons
+                           HStack(spacing: 16) {
                                Button("No") {
                                    withAnimation { showLogoutPopup = false }
                                }
-                               // MODIFIED: Use new font and style
                                .font(.system(size: 17, weight: .semibold, design: .rounded))
                                .foregroundColor(BrandColors.darkGray)
-                               .frame(maxWidth: .infinity) // MODIFIED
-                               .padding(.vertical, 12) // MODIFIED
-                               .background(BrandColors.lightGray) // MODIFIED
-                               .cornerRadius(12) // MODIFIED
+                               .frame(maxWidth: .infinity)
+                               .padding(.vertical, 12)
+                               .background(BrandColors.lightGray)
+                               .cornerRadius(12)
 
                                Button("Yes") {
                                    performLogout()
                                }
-                               // MODIFIED: Use new font and style
                                .font(.system(size: 17, weight: .semibold, design: .rounded))
                                .foregroundColor(.red)
-                               .frame(maxWidth: .infinity) // MODIFIED
-                               .padding(.vertical, 12) // MODIFIED
-                               .background(Color.red.opacity(0.1)) // MODIFIED
-                               .cornerRadius(12) // MODIFIED
+                               .frame(maxWidth: .infinity)
+                               .padding(.vertical, 12)
+                               .background(Color.red.opacity(0.1))
+                               .cornerRadius(12)
                                .disabled(isSigningOut)
                            }
                            .padding(.top, 4)
                        }
-                       .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24)) // MODIFIED
+                       .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
                        .frame(width: 320)
-                       // MODIFIED: Use new background
                        .background(BrandColors.background)
                        .cornerRadius(20)
                        .shadow(radius: 12)
@@ -164,20 +158,23 @@ struct SettingsView: View {
            }
        }
        .animation(.easeInOut, value: showLogoutPopup)
+        // Navigation destination to go back to Welcome screen after logout
        .navigationDestination(isPresented: $goToWelcome) {
            WelcomeView()
        }
        .navigationBarBackButtonHidden(true)
    }
 
-    // MARK: - Logout logic (يشمل حذف FCM token)
+    // MARK: - Logout Logic
     private func performLogout() {
         isSigningOut = true
         signOutError = nil
 
         clearLocalCaches()
 
+        // Delete the FCM token so this device no longer receives push notifications for the user who is logging out.
         Messaging.messaging().deleteToken { _ in
+            // proceed with signing the user out.
             self.signOutFirebase()
         }
     }
@@ -185,43 +182,47 @@ struct SettingsView: View {
     private func signOutFirebase() {
         do {
             try Auth.auth().signOut()
+            // Success: trigger navigation
             withAnimation {
                 isSigningOut = false
                 showLogoutPopup = false
-                goToWelcome = true
+                goToWelcome = true // This triggers the .navigationDestination
             }
         } catch {
+            // Failure: show error
             isSigningOut = false
             signOutError = "Failed to sign out: \(error.localizedDescription)"
         }
     }
 
+    // Removes sensitive or user-specific data from `UserDefaults` during logout
+    // Clears any saved profile drafts or cached user profile information
     private func clearLocalCaches() {
         UserDefaults.standard.removeObject(forKey: "signup_profile_draft")
         UserDefaults.standard.removeObject(forKey: "current_user_profile")
         UserDefaults.standard.synchronize()
     }
 
+    // MARK: - View Builders
     private func settingsRow(icon: String, title: String,
                                  iconColor: Color, showChevron: Bool, showDivider: Bool) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) { // MODIFIED: Increased spacing
+            HStack(spacing: 16) {
                 Image(systemName: icon)
                     .font(.system(size: 18))
                     .foregroundColor(iconColor)
                     .frame(width: 28, height: 28)
 
                 Text(title)
-                    // MODIFIED: Use new font
                     .font(.system(size: 17, design: .rounded))
-                    .foregroundColor(BrandColors.darkGray) // MODIFIED
+                    .foregroundColor(BrandColors.darkGray)
 
                 Spacer()
 
                 if showChevron {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.7)) // MODIFIED
+                        .foregroundColor(.secondary.opacity(0.7))
                 }
             }
             .padding(.horizontal, 16)
@@ -231,7 +232,7 @@ struct SettingsView: View {
                 Rectangle()
                     .fill(dividerColor)
                     .frame(height: 1)
-                    .padding(.leading, 60) // MODIFIED: Increased padding
+                    .padding(.leading, 60)
             }
         }
     }

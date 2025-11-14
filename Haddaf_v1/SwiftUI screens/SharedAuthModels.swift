@@ -1,9 +1,9 @@
-// SharedAuthModels.swift
 import SwiftUI
 import Foundation
 import FirebaseFirestore
 
 // MARK: - Shared models used by SignUp/SignIn
+// A temporary data structure used to hold user profile information during the signup process
 struct ProfileDraft: Codable {
     let fullName: String
     let phone: String
@@ -12,29 +12,42 @@ struct ProfileDraft: Codable {
     let email: String
 }
 
+// A utility for saving, loading, and clearing a `ProfileDraft` from local `UserDefaults`
+// A local cache so if the user quits the app mid-signup, their progress is not lost
 enum DraftStore {
+    // The `UserDefaults` key for storing the draft data.
     private static let key = "signup_profile_draft"
 
+    // Saves a `ProfileDraft` to `UserDefaults` by encoding it as JSON data
+    // Parameter draft the `ProfileDraft` object to save
     static func save(_ draft: ProfileDraft) {
         if let data = try? JSONEncoder().encode(draft) {
             UserDefaults.standard.set(data, forKey: key)
         }
     }
 
+    // Loads and decodes a `ProfileDraft` from `UserDefaults`
+    // Returns the saved `ProfileDraft`, or `nil` if no draft is found or decoding fails
     static func load() -> ProfileDraft? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(ProfileDraft.self, from: data)
     }
 
+    // Removes the saved `ProfileDraft` from `UserDefaults`
     static func clear() {
         UserDefaults.standard.removeObject(forKey: key)
     }
 }
 
 // MARK: - Remote (Firestore) pending storage
+// A utility for saving, loading, and clearing a `ProfileDraft` from Firestore "pendingSignups" collection
+// This is used when a user has created an account but not yet verified their email.
+// The data is held here until verification is complete, at which point it's moved to the main "users" collection.
 enum PendingDraftStoreRemote {
+    // A computed property for the Firestore `pendingSignups` collection reference.
     private static var col: CollectionReference { Firestore.firestore().collection("pendingSignups") }
 
+    // Asynchronously saves a `ProfileDraft` to Firestore, using the user's `uid` as the document ID
     static func save(uid: String, draft: ProfileDraft) async throws {
         var data: [String: Any] = [
             "fullName": draft.fullName,
@@ -47,6 +60,8 @@ enum PendingDraftStoreRemote {
         try await col.document(uid).setData(data, merge: true)
     }
 
+    // Asynchronously loads a `ProfileDraft` from the Firestore `pendingSignups` collection
+    // Returns the decoded `ProfileDraft`, or `nil` if the document doesn't exist
     static func load(uid: String) async throws -> ProfileDraft? {
         let snap = try await col.document(uid).getDocument()
         guard let d = snap.data() else { return nil }
@@ -58,20 +73,23 @@ enum PendingDraftStoreRemote {
         return ProfileDraft(fullName: fullName, phone: phone, role: role, dob: dobTS?.dateValue(), email: email)
     }
 
+    // Asynchronously deletes a pending draft document from Firestore
     static func clear(uid: String) async {
         do { try await col.document(uid).delete() } catch { /* ignore */ }
     }
 }
 
-// MARK: - Neutral Verify Email Modal (optional shared component)
+// MARK: - Verify Email popup
 public struct VerifyEmailModal: View {
     let title: String
     let message: String
-    let leftTitle: String
-    let rightTitle: String
+    let leftTitle: String // "Resend Email"
+    let rightTitle: String // "OK"
+    
     let onLeft: () -> Void
     let onRight: () -> Void
     let onDismiss: () -> Void
+    
     var leftDisabled: Bool = false
     var errorText: String? = nil
 
@@ -103,6 +121,7 @@ public struct VerifyEmailModal: View {
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 14) {
                     HStack {
+                        // Dismiss Button
                         Button(action: onDismiss) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 22, weight: .semibold))
@@ -113,6 +132,7 @@ public struct VerifyEmailModal: View {
                     .padding(.horizontal, 8)
                     .padding(.top, 6)
 
+                    // Text Content
                     Text(title)
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.primary)
@@ -123,6 +143,7 @@ public struct VerifyEmailModal: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 12)
 
+                    // Action Buttons
                     HStack(spacing: 16) {
                         Button(action: onLeft) {
                             Text(leftTitle)
@@ -147,6 +168,7 @@ public struct VerifyEmailModal: View {
                     }
                     .padding(.horizontal, 12)
 
+                    // Error Message
                     if let errorText, !errorText.isEmpty {
                         Text(errorText)
                             .font(.system(size: 13))
