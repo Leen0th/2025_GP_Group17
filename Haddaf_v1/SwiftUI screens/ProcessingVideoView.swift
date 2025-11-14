@@ -2,6 +2,7 @@ import SwiftUI
 import AVKit
 import PhotosUI
 struct ProcessingVideoView: View {
+    // Holds a single ViewModel instance so it survives view redraws.
     @StateObject private var viewModel: VideoProcessingViewModel
     @Environment(\.dismiss) private var dismiss
     let videoURL: URL
@@ -15,7 +16,6 @@ struct ProcessingVideoView: View {
         self.frameHeight = frameHeight
         _viewModel = StateObject(wrappedValue: VideoProcessingViewModel())
     }
-    // ألوان الهوية
     private let accentColor = BrandColors.darkTeal
     @State private var navigateToFeedback = false
     var body: some View {
@@ -23,10 +23,8 @@ struct ProcessingVideoView: View {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             VStack(spacing: 20) {
                 ZStack {
-                    // حلقة خلفية باهتة
                     Circle()
                         .stroke(BrandColors.lightGray, lineWidth: 12)
-                    // الحلقة الخضراء الدوارة (تظهر فقط أثناء المعالجة)
                     if viewModel.isProcessing && !viewModel.showingAnalysisFailure {
                         SpinningArc(
                             color: accentColor,
@@ -42,12 +40,12 @@ struct ProcessingVideoView: View {
                 .frame(width: 150, height: 150)
                 Text("Please Wait")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
+                // Shows dynamic processing messages like uploading or analyzing.
                 Text(viewModel.processingStateMessage)
                     .font(.system(size: 16, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
-                // شريط التقدم
                 ProgressView(value: viewModel.progress)
                     .tint(accentColor)
                     .padding(.horizontal, 50)
@@ -61,6 +59,7 @@ struct ProcessingVideoView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationBarBackButtonHidden(true)
+        // Runs once on appear to start video processing with URL, pinpoint, and frame size.
         .task {
             await viewModel.processVideo(
                 url: videoURL,
@@ -69,13 +68,14 @@ struct ProcessingVideoView: View {
                 frameHeight: frameHeight
             )
         }
+        // When processingComplete becomes true, trigger navigation to the Feedback screen.
+
         .onChange(of: viewModel.processingComplete) { _, done in
             if done { navigateToFeedback = true }
         }
         .navigationDestination(isPresented: $navigateToFeedback) {
             PerformanceFeedbackView(viewModel: viewModel)
         }
-        // نافذة الخطأ
         .alert("Analysis Failed", isPresented: $viewModel.showingAnalysisFailure) {
             Button("Retry", role: .none) {
                 Task { await viewModel.retryAnalysis() }
@@ -92,7 +92,7 @@ struct ProcessingVideoView: View {
 private struct SpinningArc: View {
     let color: Color
     let lineWidth: CGFloat
-    let trimEnd: CGFloat   // 0..1 (مثلاً 0.75)
+    let trimEnd: CGFloat
     @State private var rotation: Double = 0
     var body: some View {
         Circle()
@@ -101,14 +101,12 @@ private struct SpinningArc: View {
             .foregroundColor(color)
             .rotationEffect(.degrees(rotation))
             .onAppear {
-                // نطلق الانيميشن كلما ظهرت الحلقة
                 rotation = 0
                 withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }
             }
             .onDisappear {
-                // نوقفها عند الاختفاء (اختياري)
                 rotation = 0
             }
             .accessibilityHidden(true)
