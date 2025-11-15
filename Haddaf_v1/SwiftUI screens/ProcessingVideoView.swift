@@ -19,73 +19,76 @@ struct ProcessingVideoView: View {
     private let accentColor = BrandColors.darkTeal
     @State private var navigateToFeedback = false
     var body: some View {
-        ZStack {
-            BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            VStack(spacing: 20) {
-                ZStack {
-                    Circle()
-                        .stroke(BrandColors.lightGray, lineWidth: 12)
-                    if viewModel.isProcessing && !viewModel.showingAnalysisFailure {
-                        SpinningArc(
-                            color: accentColor,
-                            lineWidth: 10,
-                            trimEnd: 0.75
-                        )
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                VStack(spacing: 20) {
+                    ZStack {
+                        Circle()
+                            .stroke(BrandColors.lightGray, lineWidth: 12)
+                        if viewModel.isProcessing && !viewModel.showingAnalysisFailure {
+                            SpinningArc(
+                                color: accentColor,
+                                lineWidth: 10,
+                                trimEnd: 0.75
+                            )
+                        }
+                        Image("Haddaf_logo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 80, height: 80)
                     }
-                    Image("Haddaf_logo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 80, height: 80)
+                    .frame(width: 150, height: 150)
+                    Text("Please Wait")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                    // Shows dynamic processing messages like uploading or analyzing.
+                    Text(viewModel.processingStateMessage)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    ProgressView(value: viewModel.progress)
+                        .tint(accentColor)
+                        .padding(.horizontal, 50)
+                        .opacity(viewModel.isProcessing || viewModel.progress > 0.0 ? 1 : 0)
+                        .animation(.linear, value: viewModel.progress)
+                    Text(String(format: "%.0f%%", viewModel.progress * 100))
+                        .font(.system(size: 20, design: .rounded))
+                        .foregroundColor(accentColor)
+                        .animation(nil, value: viewModel.progress)
                 }
-                .frame(width: 150, height: 150)
-                Text("Please Wait")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                // Shows dynamic processing messages like uploading or analyzing.
-                Text(viewModel.processingStateMessage)
-                    .font(.system(size: 16, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                ProgressView(value: viewModel.progress)
-                    .tint(accentColor)
-                    .padding(.horizontal, 50)
-                    .opacity(viewModel.isProcessing || viewModel.progress > 0.0 ? 1 : 0)
-                    .animation(.linear, value: viewModel.progress)
-                Text(String(format: "%.0f%%", viewModel.progress * 100))
-                    .font(.system(size: 20, design: .rounded))
-                    .foregroundColor(accentColor)
-                    .animation(nil, value: viewModel.progress)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationBarBackButtonHidden(true)
-        // Runs once on appear to start video processing with URL, pinpoint, and frame size.
-        .task {
-            await viewModel.processVideo(
-                url: videoURL,
-                pinpoint: pinpoint,
-                frameWidth: frameWidth,
-                frameHeight: frameHeight
-            )
-        }
-        // When processingComplete becomes true, trigger navigation to the Feedback screen.
-
-        .onChange(of: viewModel.processingComplete) { _, done in
-            if done { navigateToFeedback = true }
-        }
-        .navigationDestination(isPresented: $navigateToFeedback) {
-            PerformanceFeedbackView(viewModel: viewModel)
-        }
-        .alert("Analysis Failed", isPresented: $viewModel.showingAnalysisFailure) {
-            Button("Retry", role: .none) {
-                Task { await viewModel.retryAnalysis() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationBarBackButtonHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
+            // Runs once on appear to start video processing with URL, pinpoint, and frame size.
+            .task {
+                await viewModel.processVideo(
+                    url: videoURL,
+                    pinpoint: pinpoint,
+                    frameWidth: frameWidth,
+                    frameHeight: frameHeight
+                )
             }
-            Button("Cancel", role: .cancel) {
-                viewModel.resetAfterPosting()
-                dismiss()
+            // When processingComplete becomes true, trigger navigation to the Feedback screen.
+            
+            .onChange(of: viewModel.processingComplete) { _, done in
+                if done { navigateToFeedback = true }
             }
-        } message: {
-            Text("Analysis failed. Please ensure you have a stable connection and try again.")
+            .navigationDestination(isPresented: $navigateToFeedback) {
+                PerformanceFeedbackView(viewModel: viewModel)
+            }
+            .alert("Analysis Failed", isPresented: $viewModel.showingAnalysisFailure) {
+                Button("Retry", role: .none) {
+                    Task { await viewModel.retryAnalysis() }
+                }
+                Button("Cancel", role: .cancel) {
+                    viewModel.resetAfterPosting()
+                    dismiss()
+                }
+            } message: {
+                Text("Analysis failed. Please ensure you have a stable connection and try again.")
+            }
         }
     }
 }
