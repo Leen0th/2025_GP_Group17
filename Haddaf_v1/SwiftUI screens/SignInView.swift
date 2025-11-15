@@ -50,9 +50,15 @@ struct SignInView: View {
                         .padding(.top, 12)
 
                     VStack(alignment: .leading) {
-                        Text("Email")
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(.gray)
+                        HStack(spacing: 3) {
+                            Text("Email")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.gray)
+
+                            Text("*")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.red)
+                        }
                         
                         TextField("", text: $email)
                             .keyboardType(.emailAddress)
@@ -76,9 +82,16 @@ struct SignInView: View {
                     }
 
                     VStack(alignment: .leading) {
-                        Text("Password")
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(.gray)
+                        HStack(spacing: 3) {
+                              Text("Password")
+                                  .font(.system(size: 14, design: .rounded))
+                                  .foregroundColor(.gray)
+
+                              Text("*")
+                                  .font(.system(size: 14, design: .rounded))
+                                  .foregroundColor(.red)
+                          }
+                        
                         
                         HStack {
                             if isHidden {

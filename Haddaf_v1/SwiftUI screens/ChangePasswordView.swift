@@ -154,9 +154,15 @@ struct ChangePasswordView: View {
 
     // MARK: - UI Parts
     private func fieldLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 14, weight: .medium, design: .rounded))
-            .foregroundColor(.gray)
+        HStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.gray)
+
+            Text("*")
+                .foregroundColor(.red)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+        }
     }
 
     private func requirementRow(_ text: String, met: Bool) -> some View {
