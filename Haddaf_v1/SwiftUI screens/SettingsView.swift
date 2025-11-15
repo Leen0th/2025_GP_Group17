@@ -136,10 +136,10 @@ struct SettingsView: View {
                                    performLogout()
                                }
                                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                               .foregroundColor(.red)
+                               .foregroundColor(.white)
                                .frame(maxWidth: .infinity)
                                .padding(.vertical, 12)
-                               .background(Color.red.opacity(0.1))
+                               .background(Color.red)
                                .cornerRadius(12)
                                .disabled(isSigningOut)
                            }
