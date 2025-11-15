@@ -105,8 +105,11 @@ struct PostDetailView: View {
             }
             
             if showDeleteConfirmation {
-                DeleteConfirmationOverlay(
+                StyledConfirmationOverlay(
                     isPresented: $showDeleteConfirmation,
+                    title: "Delete Post",
+                    message: "Deleting this post will remove it and reduce your performance score accordingly. Are you sure you want to proceed?",
+                    confirmButtonTitle: "Delete",
                     onConfirm: { Task { await deletePost() } }
                 )
             }
@@ -126,7 +129,7 @@ struct PostDetailView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        // --- ADDED: Sheet for reporting ---
+        // --- Sheet for reporting ---
         .sheet(item: $itemToReport) { item in
             ReportView(item: item) { reportedID in
                 // On complete, tell the shared service to report the post
@@ -764,16 +767,7 @@ struct CommentsView: View {
                 }
             }
             
-            .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
-                Button("Cancel", role: .cancel) { }
-                Button("Delete", role: .destructive) {
-                    Task {
-                        await viewModel.deleteComment(comment, from: postId)
-                    }
-                }
-            } message: { _ in
-                Text("Are you sure you want to delete this comment?")
-            }
+            // --- MODIFIED: Removed .alert() modifier ---
 
             // --- Comment Input Area ---
             HStack(spacing: 12) {
@@ -807,6 +801,27 @@ struct CommentsView: View {
             .padding()
             .background(BrandColors.background)
         }
+        // --- Custom overlay for delete confirmation ---
+        .overlay(
+            ZStack {
+                if showDeleteAlert {
+                    StyledConfirmationOverlay(
+                        isPresented: $showDeleteAlert,
+                        title: "Delete Comment?",
+                        message: "Are you sure you want to delete this comment?",
+                        confirmButtonTitle: "Delete",
+                        onConfirm: {
+                            if let comment = commentToDelete {
+                                Task {
+                                    await viewModel.deleteComment(comment, from: postId)
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .animation(.easeInOut, value: showDeleteAlert)
+        )
         // Add listener for character limit on in-place editor
         .onChange(of: editingCommentText) { _, newVal in
             if newVal.count > commentLimit {
@@ -830,9 +845,8 @@ struct CommentsView: View {
 }
 
 
-// ===================================================================
 // MARK: - Comments View Model
-// ===================================================================
+
 final class CommentsViewModel: ObservableObject {
     @Published var comments: [Comment] = []
     @Published var isLoading = true
@@ -1286,16 +1300,22 @@ struct PrivacyWarningPopupView: View {
     }
 }
 
-struct DeleteConfirmationOverlay: View {
+struct StyledConfirmationOverlay: View {
     @Binding var isPresented: Bool
+    let title: String
+    let message: String
+    let confirmButtonTitle: String
     let onConfirm: () -> Void
+    
     var body: some View {
         ZStack {
             Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { isPresented = false }
+            
             VStack(spacing: 20) {
-                Text("Delete Post")
+                Text(title)
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
-                Text("Deleting this post will remove it and reduce your performance score accordingly. Are you sure you want to proceed?")
+                
+                Text(message)
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
                 
@@ -1308,7 +1328,7 @@ struct DeleteConfirmationOverlay: View {
                         .background(BrandColors.lightGray)
                         .cornerRadius(12)
                     
-                    Button("Delete") { onConfirm(); isPresented = false }
+                    Button(confirmButtonTitle) { onConfirm(); isPresented = false }
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -1322,5 +1342,6 @@ struct DeleteConfirmationOverlay: View {
             .background(BrandColors.background)
             .cornerRadius(20).shadow(radius: 12)
         }
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 }
