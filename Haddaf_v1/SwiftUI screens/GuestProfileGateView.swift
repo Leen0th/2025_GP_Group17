@@ -2,9 +2,6 @@ import SwiftUI
 
 struct GuestProfileGateView: View {
     @EnvironmentObject var session: AppSession
-    @State private var showSignIn = false
-    @State private var showSignUp = false
-
     private let primary = BrandColors.darkTeal
 
     var body: some View {
@@ -15,13 +12,12 @@ struct GuestProfileGateView: View {
                 .multilineTextAlignment(.center)
                 .font(.system(size: 24, weight: .medium, design: .rounded))
                 .foregroundColor(primary)
-                .foregroundColor(.primary)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 30)
 
             // Sign In
-            Button {
-                showSignIn = true
+            NavigationLink {
+                SignInView()
             } label: {
                 Text("Sign In")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
@@ -34,9 +30,9 @@ struct GuestProfileGateView: View {
                     .padding(.horizontal, 20)
             }
 
-            // Sign Up (outline)
-            Button {
-                showSignUp = true
+            // Sign Up
+            NavigationLink {
+                SignUpView()
             } label: {
                 Text("Sign Up")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
@@ -55,20 +51,6 @@ struct GuestProfileGateView: View {
             }
 
             Spacer()
-        }
-        // نفتح الشاشات كـ fullScreenCover بغضّ النظر عن الـ NavigationStack الخارجي
-        .fullScreenCover(isPresented: $showSignIn) {
-            NavigationStack { SignInView() }
-        }
-        .fullScreenCover(isPresented: $showSignUp) {
-            NavigationStack { SignUpView() }
-        }
-        // لو تغيّر حال المستخدم (سجّل دخول) نقفل أي شاشات مفتوحة
-        .onChange(of: session.isGuest) { _, isGuest in
-            if !isGuest {
-                showSignIn = false
-                showSignUp = false
-            }
         }
     }
 }

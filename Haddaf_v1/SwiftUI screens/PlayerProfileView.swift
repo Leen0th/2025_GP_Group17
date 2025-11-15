@@ -15,7 +15,9 @@ struct PlayerProfileView: View {
                     case .challenge: ChallengeView()
                         // If the user is a guest, show the gate instead of the real profile.
                     case .profile: if session.isGuest {
-                        GuestProfileGateView()
+                        NavigationStack {
+                            GuestProfileGateView()
+                        }
                     } else {
                         PlayerProfileContentView()
                     }

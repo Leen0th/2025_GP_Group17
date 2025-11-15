@@ -131,7 +131,7 @@ struct SignInView: View {
                     }
 
                     Button { Task { await handleSignIn() } } label: {
-                        Text("Log in")
+                        Text("Sign in")
                             .foregroundColor(.white)
                             .font(.system(size: 18, weight: .medium, design: .rounded))
                             .padding()
@@ -187,7 +187,20 @@ struct SignInView: View {
         }
         .onAppear { restoreCooldownIfAny() }
         .onDisappear { cleanupTasks() }
-    }
+        .toolbar {
+                   ToolbarItem(placement: .topBarLeading) {
+                       Button {
+                           dismiss()
+                       } label: {
+                           Image(systemName: "chevron.left")
+                               .font(.system(size: 20, weight: .semibold))
+                               .foregroundColor(primary)
+                       }
+                   }
+               }
+        .navigationBarBackButtonHidden(true)
+           }
+    
 
     // MARK: - Sign In Logic
     private func handleSignIn() async {
@@ -315,7 +328,7 @@ struct SignInView: View {
                 do {
                     try await user.reload()
                     if user.isEmailVerified {
-                        // بعد التفعيل: حدّث التوكن، روّج المسودة، فعّل الجلسة ووجّه
+                        
                         _ = try? await user.getIDTokenResult(forcingRefresh: true)
                         await promoteSignupDraftIfNeeded(for: user)
                         await MainActor.run {

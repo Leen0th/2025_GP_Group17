@@ -35,6 +35,11 @@ struct ChangePasswordView: View {
     private var passwordsDontMatch: Bool {
         !confirm.isEmpty && !newPass.isEmpty && newPass != confirm
     }
+    // NEW: Check if new password exceeds 30 characters
+    private var isNewPasswordTooLong: Bool {
+        newPass.count > 30
+    }
+
 
     var body: some View {
         ZStack {
@@ -62,7 +67,7 @@ struct ChangePasswordView: View {
                                   contentType: .password)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        requirementRow("At least 8 characters", met: hasMinLength(newPass))
+                        requirementRow("At least 8 characters, max 30", met: hasMinLength(newPass))
                         requirementRow("At least one uppercase letter (A-Z)", met: hasUppercase(newPass))
                         requirementRow("At least one lowercase letter (a-z)", met: hasLowercase(newPass))
                         requirementRow("At least one number (0-9)", met: hasDigit(newPass))
@@ -70,6 +75,13 @@ struct ChangePasswordView: View {
                     }
                     .padding(.horizontal, 4)
                     .padding(.top, 6)
+                    if isNewPasswordTooLong {
+                        Text("Password must be 30 characters or less.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 4)
+                    }
 
                     // Confirm
                     fieldLabel("Confirm Password")
@@ -138,7 +150,7 @@ struct ChangePasswordView: View {
 
     // MARK: - Password Validation
     private func isValidPassword(_ pass: String) -> Bool {
-        guard pass.count >= 8 else { return false }
+        guard pass.count >= 8 && pass.count <= 30 else { return false }
         let hasUpper   = pass.range(of: "[A-Z]", options: .regularExpression) != nil
         let hasLower   = pass.range(of: "[a-z]", options: .regularExpression) != nil
         let hasDigit   = pass.range(of: "[0-9]", options: .regularExpression) != nil
@@ -146,7 +158,9 @@ struct ChangePasswordView: View {
         return hasUpper && hasLower && hasDigit && hasSpecial
     }
 
-    private func hasMinLength(_ pass: String) -> Bool { pass.count >= 8 }
+    private func hasMinLength(_ pass: String) -> Bool {
+        pass.count >= 8 && pass.count <= 30
+    }
     private func hasUppercase(_ pass: String) -> Bool { pass.range(of: "[A-Z]", options: .regularExpression) != nil }
     private func hasLowercase(_ pass: String) -> Bool { pass.range(of: "[a-z]", options: .regularExpression) != nil }
     private func hasDigit(_ pass: String) -> Bool { pass.range(of: "[0-9]", options: .regularExpression) != nil }

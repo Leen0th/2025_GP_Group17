@@ -312,7 +312,6 @@ struct PlayerSetupView: View {
 
     // MARK: - Upload profile photo
     private func uploadProfilePhoto() async throws {
-        // 🔄 حدّث التوكن قبل الرفع/الكتابة
             if let u = Auth.auth().currentUser {
                 try? await u.reload()
                 _ = try? await u.getIDTokenResult(forcingRefresh: true)

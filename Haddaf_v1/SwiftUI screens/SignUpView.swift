@@ -54,7 +54,8 @@ struct SignUpView: View {
     @State private var emailCheckTask: Task<Void, Never>? = nil
 
     // Password criteria
-    private var pHasLen: Bool { password.count >= 8 }
+    private var pHasLen: Bool { password.count >= 8 && password.count <= 30 }
+    private var isPasswordTooLong: Bool { password.count > 30 }
     private var pHasUpper: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
     private var pHasLower: Bool { password.range(of: "[a-z]", options: .regularExpression) != nil }
     private var pHasDigit: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
@@ -260,13 +261,20 @@ struct SignUpView: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        passwordRuleRow("At least 8 characters", satisfied: pHasLen)
+                        passwordRuleRow("At least 8 characters, max 30", satisfied: pHasLen)
                         passwordRuleRow("At least one uppercase letter (A–Z)", satisfied: pHasUpper)
                         passwordRuleRow("At least one lowercase letter (a–z)", satisfied: pHasLower)
                         passwordRuleRow("At least one number (0–9)", satisfied: pHasDigit)
                         passwordRuleRow("At least one special symbol", satisfied: pHasSpec)
                     }
                     .padding(.top, -8)
+                    if isPasswordTooLong {
+                        Text("Password must be 30 characters or less.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
+                            .padding(.top, 4)
+                    }
+
 
                     // Submit
                     Button { Task { await handleSignUp() } } label: {
@@ -367,8 +375,8 @@ struct SignUpView: View {
             }
         }
         if parts.count >= 3 { return "Please enter only your first and last name." }
-        if trimmed.replacingOccurrences(of: " ", with: "").count > 60 {
-            return "Full name must be ≤ 60 characters."
+        if trimmed.replacingOccurrences(of: " ", with: "").count > 25 {
+            return "Full name must be ≤ 25 characters."
         }
         return nil
     }
