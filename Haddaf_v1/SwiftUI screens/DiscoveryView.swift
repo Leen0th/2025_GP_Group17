@@ -18,6 +18,12 @@ struct DiscoveryView: View {
     @StateObject private var reportService = ReportStateService.shared
     // The text entered into the search bar
     @State private var searchText = ""
+    
+    // to check for guest
+    @EnvironmentObject var session: AppSession
+
+    // --- for auth prompt ---
+    @State private var showAuthSheet = false
 
     // MARK: - Filters
     @State private var filterPosition: String? = nil
@@ -110,9 +116,15 @@ struct DiscoveryView: View {
                         }
                     }
                 }
+                
+                // --- Show auth prompt as a popup overlay ---
+                if showAuthSheet {
+                    AuthPromptSheet(isPresented: $showAuthSheet)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)
+            .animation(.easeInOut, value: showAuthSheet)
             // Load the leaderboard data when the view appears, if it hasn't been loaded
             .onAppear { lbViewModel.loadLeaderboardIfNeeded() }
             // MARK: - Sheets
@@ -144,8 +156,10 @@ struct DiscoveryView: View {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 navigationTrigger = true
                             }
-                        }
+                        },
+                        showAuthSheet: $showAuthSheet
                     )
+                    .environmentObject(session)
                     .presentationBackground(BrandColors.background)
                 }
             }
@@ -156,6 +170,7 @@ struct DiscoveryView: View {
                     reportService.reportPost(id: reportedID)
                 }
             }
+            
             // MARK: - Notification Listener
             .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
                 // Listens for updates (likes/comments) from other views and updates the local view model to keep data in sync.
@@ -238,7 +253,7 @@ struct DiscoveryView: View {
                                 }
                             } else {
                                 // If not hidden, show the post card
-                                NavigationLink(destination: PostDetailView(post: post)) {
+                                NavigationLink(destination: PostDetailView(post: post, showAuthSheet: $showAuthSheet)) {
                                     // get the author's profile from the cache
                                     let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
                                     DiscoveryPostCardView(
@@ -257,8 +272,10 @@ struct DiscoveryView: View {
                                                 contentPreview: post.caption
                                             )
                                         },
-                                        reportService: reportService
+                                        reportService: reportService,
+                                        showAuthSheet: $showAuthSheet
                                     )
+                                    .environmentObject(session)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -302,6 +319,10 @@ struct DiscoveryPostCardView: View {
     let onReport: () -> Void
     
     @ObservedObject var reportService: ReportStateService
+    // to check for guest
+    @EnvironmentObject var session: AppSession
+    // --- for auth prompt ---
+    @Binding var showAuthSheet: Bool
     
     // Check if the current user is the owner of the post
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
@@ -334,7 +355,14 @@ struct DiscoveryPostCardView: View {
                 if !isOwner {
                     let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
                     
-                    Button(action: onReport) {
+                    // --- Report Button Action ---
+                    Button {
+                        if session.isGuest {
+                            showAuthSheet = true
+                        } else {
+                            onReport()
+                        }
+                    } label: {
                         Image(systemName: isReported ? "flag.fill" : "flag")
                             .font(.caption)
                             .foregroundColor(.red)
@@ -342,7 +370,8 @@ struct DiscoveryPostCardView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(isReported) // Disable if already reported
+                    // --- Disable only if already reported ---
+                    .disabled(isReported)
                 }
             }
             
@@ -368,10 +397,13 @@ struct DiscoveryPostCardView: View {
 
             // MARK: - Action Buttons (Like, Comment)
             HStack(spacing: 16) {
-                // --- LIKE BUTTON ---
+                // --- LIKE BUTTON Action ---
                 Button {
-                    // Perform the like/unlike action asynchronously
-                    Task { await viewModel.toggleLike(post: post) }
+                    if session.isGuest {
+                        showAuthSheet = true
+                    } else {
+                        Task { await viewModel.toggleLike(post: post) }
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
@@ -381,9 +413,13 @@ struct DiscoveryPostCardView: View {
                 }
                 .buttonStyle(.plain)
 
-                // --- COMMENT BUTTON ---
+                // --- COMMENT BUTTON Action ---
                 Button {
-                    onCommentTapped() // Trigger the comment sheet
+                    if session.isGuest {
+                        showAuthSheet = true
+                    } else {
+                        onCommentTapped()
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "message")
@@ -741,5 +777,53 @@ struct FiltersSheetView: View {
                 scoreMaxString = scoreMax.map { String($0) } ?? ""
             }
         }
+    }
+}
+
+// MARK: - Auth Prompt Popup
+// A simple popup to prompt guest users to sign up or log in.
+struct AuthPromptSheet: View {
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        ZStack {
+            // Dimming background
+            Color.black.opacity(0.4).ignoresSafeArea()
+                .onTapGesture { withAnimation { isPresented = false } }
+                .transition(.opacity)
+
+            // Popup content card
+            VStack(spacing: 20) {
+                Image(systemName: "person.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundColor(BrandColors.darkTeal)
+                    .padding(.top, 10)
+                
+                Text("Join Haddaf!")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                
+                Text("To do this action you need to be part of Haddaf. Please sign up or sign in to get started.")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                Button { withAnimation { isPresented = false } } label: {
+                    Text("Got It")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(BrandColors.darkTeal)
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(EdgeInsets(top: 20, leading: 30, bottom: 20, trailing: 30))
+            .background(BrandColors.background)
+            .cornerRadius(20)
+            .shadow(radius: 12)
+            .padding(.horizontal, 40)
+            .transition(.scale.combined(with: .opacity))
+        }
+        .zIndex(2)
     }
 }

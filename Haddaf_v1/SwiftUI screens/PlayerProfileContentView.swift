@@ -36,6 +36,12 @@ struct PlayerProfileContentView: View {
     // Controls the presentation of the `ProfileNotificationsListView` full-screen cover
     @State private var showNotificationsList = false
     
+    // --- Session for guest-checking ---
+    @EnvironmentObject var session: AppSession
+    
+    // --- State to manage the auth prompt sheet ---
+    @State private var showAuthSheet = false
+    
     // A boolean indicating if this profile belongs to the currently logged-in user
     private var isCurrentUser: Bool
     
@@ -145,12 +151,17 @@ struct PlayerProfileContentView: View {
                             showNotifications: $showNotificationsList,
                             isCurrentUser: isCurrentUser,
                             onReport: {
-                                // Set the item to report (this profile)
-                                itemToReport = ReportableItem(
-                                    id: viewModel.userProfile.email,
-                                    type: .profile,
-                                    contentPreview: viewModel.userProfile.name
-                                )
+                                // --- Check for guest ---
+                                if session.isGuest {
+                                    showAuthSheet = true
+                                } else {
+                                    // Set the item to report (this profile)
+                                    itemToReport = ReportableItem(
+                                        id: viewModel.userProfile.email,
+                                        type: .profile,
+                                        contentPreview: viewModel.userProfile.name
+                                    )
+                                }
                             },
                             reportService: reportService,
                             reportedID: viewModel.userProfile.email
@@ -271,9 +282,12 @@ struct PlayerProfileContentView: View {
             .fullScreenCover(isPresented: $showNotificationsList) {
                 ProfileNotificationsListView()
             }
-            // Open Post Detail view
+            // --- Open Post Detail view ---
             .fullScreenCover(item: $selectedPost) { post in
-                NavigationStack { PostDetailView(post: post) }
+                NavigationStack {
+                    PostDetailView(post: post, showAuthSheet: $showAuthSheet)
+                        .environmentObject(session)
+                }
             }
             // Open Report view
             .sheet(item: $itemToReport) { item in
@@ -284,13 +298,21 @@ struct PlayerProfileContentView: View {
                     showReportAlert = true
                 }
             }
+            
+            
             // MARK: - Popups
             if showScoreInfoAlert {
                 ScoreInfoPopupView(isPresented: $showScoreInfoAlert)
             }
             
+            // --- Show auth prompt as a popup overlay ---
+            if showAuthSheet {
+                AuthPromptSheet(isPresented: $showAuthSheet)
+            }
+            
         }
         .animation(.easeInOut, value: showScoreInfoAlert)
+        .animation(.easeInOut, value: showAuthSheet)
         .navigationBarBackButtonHidden(true)
     }
     

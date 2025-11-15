@@ -8,8 +8,13 @@ import AVKit
 // Define a SwiftUI view that shows the full details of a single post.
 struct PostDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    // to check for guest
+    @EnvironmentObject var session: AppSession
+    
     // Hold a mutable copy of the post so the UI can react to changes.
     @State var post: Post
+    // --- for auth prompt ---
+    @Binding var showAuthSheet: Bool
     
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
@@ -115,6 +120,10 @@ struct PostDetailView: View {
                     .background(BrandColors.background.opacity(0.6))
                     .cornerRadius(12)
             }
+            
+            if showAuthSheet {
+                AuthPromptSheet(isPresented: $showAuthSheet)
+            }
         }
         .navigationBarBackButtonHidden(true)
         // --- ADDED: Sheet for reporting ---
@@ -135,8 +144,10 @@ struct PostDetailView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             navigationTrigger = true
                         }
-                    }
+                    },
+                    showAuthSheet: $showAuthSheet
                 )
+                .environmentObject(session)
                 .presentationBackground(BrandColors.background)
             }
         }
@@ -161,6 +172,8 @@ struct PostDetailView: View {
         .animation(.easeInOut, value: showPrivacyAlert)
         .animation(.easeInOut, value: showDeleteConfirmation)
         .animation(.easeInOut, value: isEditingCaption)
+        .animation(.easeInOut, value: showAuthSheet)
+        
         // --- Task to fetch the fresh profile on appear ---
         .task {
             // Load the author's profile from Firestore and update the header.
@@ -196,12 +209,17 @@ struct PostDetailView: View {
                         // It checks the *permanent* reported list.
                         let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
                         
+                        // --- Report Button Action ---
                         Button {
-                            itemToReport = ReportableItem(
-                                id: post.id ?? "",
-                                type: .post,
-                                contentPreview: post.caption
-                            )
+                            if session.isGuest {
+                                showAuthSheet = true
+                            } else {
+                                itemToReport = ReportableItem(
+                                    id: post.id ?? "",
+                                    type: .post,
+                                    contentPreview: post.caption
+                                )
+                            }
                         } label: {
                             Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
                                 .font(.system(size: 18, weight: .semibold))
@@ -391,7 +409,14 @@ struct PostDetailView: View {
             
             Spacer()
             
-            Button(action: { Task { await toggleLike() } }) {
+            // --- Like Button Action ---
+            Button {
+                if session.isGuest {
+                    showAuthSheet = true
+                } else {
+                    Task { await toggleLike() }
+                }
+            } label: {
                 HStack(spacing: 4) {
                     Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
                     Text(formatNumber(post.likeCount))
@@ -400,7 +425,14 @@ struct PostDetailView: View {
                 .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
             }
             
-            Button(action: { showCommentsSheet = true }) {
+            // --- Comment Button Action ---
+            Button {
+                if session.isGuest {
+                    showAuthSheet = true
+                } else {
+                    showCommentsSheet = true
+                }
+            } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "message")
                     Text("\(post.commentCount)")
@@ -503,7 +535,9 @@ struct PostDetailView: View {
     }
 
     private func toggleLike() async {
-        guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
+        // --- Guard for guest users ---
+        guard let postId = post.id, let uid = Auth.auth().currentUser?.uid, !session.isGuest else { return }
+        
         let isLiking = !post.isLikedByUser
         let delta: Int64 = isLiking ? 1 : -1
         let firestoreAction = isLiking ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])
@@ -596,13 +630,18 @@ struct PostDetailView: View {
 
 // MARK: - Comments Sheet View (Lifecycle Fix)
 
-// --- MODIFICATION: In-place editing state ---
 struct CommentsView: View {
     let postId: String
     var onProfileTapped: (String) -> Void
     
     @StateObject private var viewModel = CommentsViewModel()
     @Environment(\.dismiss) private var dismiss
+    // To check for guests
+    @EnvironmentObject var session: AppSession
+    
+    // --- for auth prompt ---
+    @Binding var showAuthSheet: Bool
+    
     @State private var newCommentText = ""
     private let accentColor = BrandColors.darkTeal
     
@@ -699,8 +738,10 @@ struct CommentsView: View {
                                         )
                                     },
                                     // Pass the shared report service so the row can read report state.
-                                    reportService: reportService
+                                    reportService: reportService,
+                                    showAuthSheet: $showAuthSheet
                                 )
+                                .environmentObject(session)
                             }
                         }
                     }
@@ -715,14 +756,14 @@ struct CommentsView: View {
             .onDisappear {
                 viewModel.stopListening()
             }
-            // --- ADDED: Sheet for reporting ---
+            // --- Sheet for reporting ---
             .sheet(item: $itemToReport) { item in
                 ReportView(item: item) { reportedID in
                     // On complete, tell the shared service to report the comment
                     reportService.reportComment(id: reportedID)
                 }
             }
-           
+            
             .alert("Delete Comment?", isPresented: $showDeleteAlert, presenting: commentToDelete) { comment in
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
@@ -736,18 +777,33 @@ struct CommentsView: View {
 
             // --- Comment Input Area ---
             HStack(spacing: 12) {
-                TextField("Write Comment...", text: $newCommentText)
-                    .font(.system(size: 15, design: .rounded))
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(BrandColors.lightGray).clipShape(Capsule())
-                    .tint(accentColor)
+                ZStack {
+                    TextField(session.isGuest ? "Sign in to comment" : "Write Comment...", text: $newCommentText)
+                        .font(.system(size: 15, design: .rounded))
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(BrandColors.lightGray).clipShape(Capsule())
+                        .tint(accentColor)
+                        .disabled(session.isGuest) // Keep text field disabled
+                    
+                    if session.isGuest {
+                        // Overlay a clear button to catch taps and show the prompt
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showAuthSheet = true
+                            }
+                    }
+                }
 
                 Button(action: addComment) {
                     Image(systemName: "paperplane.fill")
                         .font(.title2).foregroundColor(accentColor)
                 }
-                .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty)
+                // --- Disable for guests ---
+                .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty || session.isGuest)
             }
+            // --- Visually dim if guest ---
+            .opacity(session.isGuest ? 0.7 : 1.0)
             .padding()
             .background(BrandColors.background)
         }
@@ -760,6 +816,9 @@ struct CommentsView: View {
     }
 
     private func addComment() {
+        // --- Guard for guest users ---
+        guard !session.isGuest else { return }
+        
         let trimmed = newCommentText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         Task {
@@ -827,6 +886,7 @@ final class CommentsViewModel: ObservableObject {
     // Add a new comment document under the specified post in Firestore.
     func addComment(text: String, for postId: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // --- This guard protects against guests (uid will be nil) ---
         guard !trimmed.isEmpty, let uid = Auth.auth().currentUser?.uid else { return }
         do {
 
@@ -975,6 +1035,10 @@ fileprivate struct CommentRowView: View {
     var onReport: () -> Void
     
     @ObservedObject var reportService: ReportStateService
+    // To check for guests
+    @EnvironmentObject var session: AppSession
+    // --- for auth prompt ---
+    @Binding var showAuthSheet: Bool
     
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
     private var isOwner: Bool { comment.userId == currentUserID }
@@ -1089,14 +1153,22 @@ fileprivate struct CommentRowView: View {
                 // It checks the *permanent* reported list.
                 let isReported = (comment.id != nil && reportService.reportedCommentIDs.contains(comment.id!))
                 
-                Button(action: onReport) {
-                    Image(systemName: isReported ? "flag.fill" : "flag") // Dynamic icon
+                // --- Report Button Action ---
+                Button {
+                    if session.isGuest {
+                        showAuthSheet = true
+                    } else {
+                        onReport()
+                    }
+                } label: {
+                    Image(systemName: isReported ? "flag.fill" : "flag")
                         .font(.caption)
                         .foregroundColor(.red) // Always red
                         .padding(8)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // --- Disable only if already reported ---
                 .disabled(isReported)
             }
         }
