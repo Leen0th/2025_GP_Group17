@@ -45,6 +45,9 @@ struct PlayerProfileContentView: View {
     // A boolean indicating if this profile belongs to the currently logged-in user
     private var isCurrentUser: Bool
     
+    // A boolean to track if this is the root profile (from the tab bar)
+    private var isRootProfileView: Bool
+    
     // An enum defining the filter options for the post grid (only visible to the current user)
     enum PostFilter: String, CaseIterable {
         case all = "All"
@@ -80,6 +83,7 @@ struct PlayerProfileContentView: View {
     init() {
         _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: nil))
         self.isCurrentUser = true
+        self.isRootProfileView = true
     }
     
     // Initializes the view for a specific user
@@ -87,6 +91,7 @@ struct PlayerProfileContentView: View {
     init(userID: String) {
         _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: userID))
         self.isCurrentUser = (userID == Auth.auth().currentUser?.uid)
+        self.isRootProfileView = false
     }
 
     // Filters the posts by `searchText` and `postFilter` then sorts them based on `postSort` preferences
@@ -150,6 +155,7 @@ struct PlayerProfileContentView: View {
                             goToSettings: $goToSettings,
                             showNotifications: $showNotificationsList,
                             isCurrentUser: isCurrentUser,
+                            isRootProfileView: isRootProfileView,
                             onReport: {
                                 // --- Check for guest ---
                                 if session.isGuest {
@@ -1020,6 +1026,8 @@ struct TopNavigationBar: View {
     
     // `true` if this profile is for the current user.
     var isCurrentUser: Bool
+    // `true` if this is the root profile (from the tab bar).
+    var isRootProfileView: Bool
     // The unique ID of the profile being viewed (for reporting).
     var onReport: () -> Void
 
@@ -1028,8 +1036,9 @@ struct TopNavigationBar: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            if !isCurrentUser {
-                // "Back" button for other users' profiles
+            // --- 1. Left Back Button ---
+            // Show the "Back" button if this is NOT the root profile view.
+            if !isRootProfileView {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
@@ -1038,11 +1047,14 @@ struct TopNavigationBar: View {
                         .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                 }
             }
-            
+
             Spacer()
             
+            // --- 2. Right Buttons ---
             if isCurrentUser {
-                // "Notifications" button for current user
+                // It's the current user. Always show Settings/Notifications on right
+                
+                // "Notifications" button
                 Button { showNotifications = true } label: {
                     Image(systemName: "bell")
                         .font(.title2)
@@ -1052,7 +1064,7 @@ struct TopNavigationBar: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
 
-                // "Settings" button for current user
+                // "Settings" button
                 Button { goToSettings = true } label: {
                     Image(systemName: "gearshape")
                         .font(.title2)
@@ -1061,8 +1073,10 @@ struct TopNavigationBar: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
+                
             } else {
-                // "Report" button for other users' profiles
+                // It's another user. (!isRootProfileView is true)
+                // Show the "Report" button insted
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)
                 
                 Button(action: onReport) {
