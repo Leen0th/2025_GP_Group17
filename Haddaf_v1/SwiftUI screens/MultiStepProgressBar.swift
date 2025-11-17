@@ -3,16 +3,14 @@ import SwiftUI
 // MARK: - Step Definition
 /// Defines the steps in the video upload and analysis process.
 enum UploadStep: Int, CaseIterable {
-    case upload = 0      // NEW: The user selects a video
-    case selectScene = 1 // "Select Scene" in PinpointPlayerView
-    case pinpoint = 2    // "Pinpoint" in PinpointPlayerView
-    case processing = 3  // ProcessingVideoView
-    case feedback = 4    // PerformanceFeedbackView
+    case upload = 0      // The user selects a video
+    case pinpoint = 1    // Player pinpoints themselves in the frame
+    case processing = 2  // ProcessingVideoView
+    case feedback = 3    // PerformanceFeedbackView
 
     var title: String {
         switch self {
         case .upload: return "Upload"
-        case .selectScene: return "Scene"
         case .pinpoint: return "Pinpoint"
         case .processing: return "Process"
         case .feedback: return "Feedback"
@@ -41,7 +39,6 @@ struct MultiStepProgressBar: View {
                         isCurrent: currentStep == step,
                         isCompleted: currentStep.rawValue > step.rawValue
                     )
-
                     
                     if step != UploadStep.allCases.last {
                         Rectangle()
@@ -67,7 +64,6 @@ struct MultiStepProgressBar: View {
                     .fill(isCompleted ? activeColor : (isCurrent ? BrandColors.backgroundGradientEnd : BrandColors.background))
                     .frame(width: 30, height: 30)
                 
-                
                 if !isCompleted && !isCurrent {
                     Circle()
                         .stroke(BrandColors.lightGray, lineWidth: 1)
@@ -91,7 +87,7 @@ struct MultiStepProgressBar: View {
                         .foregroundColor(activeColor)
                 } else {
                     // Future Step: Number
-                     Text("\(step.rawValue + 1)")
+                    Text("\(step.rawValue + 1)")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundColor(inactiveTextColor)
                 }
@@ -105,6 +101,6 @@ struct MultiStepProgressBar: View {
                 .fontWeight(isCurrent ? .bold : .regular)
                 .foregroundColor(isCurrent || isCompleted ? activeTextColor : inactiveTextColor)
         }
-        .frame(width: 65) 
+        .frame(width: 65)
     }
 }
