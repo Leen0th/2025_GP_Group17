@@ -802,7 +802,7 @@ struct AuthPromptSheet: View {
                 Text("Join Haddaf!")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                 
-                Text("To do this action you need to be part of Haddaf. Please sign up or sign in to get started.")
+                Text("To perform this action, you need to be part of Haddaf. Please go to the Profile tab and sign up or sign in to get started.")
                     .font(.system(size: 16, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

@@ -8,9 +8,15 @@ struct TeamsView: View {
         ZStack {
             // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            Text("Teams Page")
-                .font(.system(size: 32, design: .rounded))
-                .foregroundColor(.secondary)
+            VStack(spacing: 8) { // Use VStack to stack the texts
+                Text("Teams Page")
+                    .font(.system(size: 32, design: .rounded))
+                    .foregroundColor(.secondary)
+                
+                Text("To be developed in upcoming sprints")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.gray)
+            }
         }
     }
 }
@@ -20,9 +26,15 @@ struct ChallengeView: View {
         ZStack {
             // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            Text("Challenge Page")
-                .font(.system(size: 32, design: .rounded))
-                .foregroundColor(.secondary)
+            VStack(spacing: 8) { // Use VStack to stack the texts
+                Text("Challenge Page")
+                    .font(.system(size: 32, design: .rounded))
+                    .foregroundColor(.secondary)
+                
+                Text("To be developed in upcoming sprints")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.gray)
+            }
         }
     }
 }

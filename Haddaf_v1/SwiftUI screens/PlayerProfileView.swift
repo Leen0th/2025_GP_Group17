@@ -5,6 +5,7 @@ struct PlayerProfileView: View {
     @EnvironmentObject var session: AppSession
     @State private var selectedTab: Tab = .discovery
     @State private var showVideoUpload = false
+    @State private var showAuthSheet = false
     
     var body: some View {
             ZStack(alignment: .bottom) {
@@ -24,7 +25,12 @@ struct PlayerProfileView: View {
                     default: DiscoveryView()
                     }
                 }
-                CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload)
+                CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload, showAuthSheet: $showAuthSheet)
+                
+                if showAuthSheet {
+                    AuthPromptSheet(isPresented: $showAuthSheet)
+                        .animation(.easeInOut, value: showAuthSheet) // Animation applied here
+                }
             }
             .ignoresSafeArea(.all, edges: .bottom)
             .fullScreenCover(isPresented: $showVideoUpload) {
@@ -44,6 +50,9 @@ struct PlayerProfileView: View {
 struct CustomTabBar: View {
     @Binding var selectedTab: Tab
     @Binding var showVideoUpload: Bool
+    @Binding var showAuthSheet: Bool
+    
+    @EnvironmentObject var session: AppSession
     
     // MODIFIED:new BrandColors
     let accentColor = BrandColors.darkTeal
@@ -73,7 +82,13 @@ struct CustomTabBar: View {
             .padding(.horizontal, 20)
             .frame(height: 80)
             .frame(maxHeight: .infinity, alignment: .bottom)
-            Button(action: { showVideoUpload = true }) {
+            Button(action: {
+                if session.isGuest {
+                    showAuthSheet = true
+                } else {
+                    showVideoUpload = true
+                }
+            }) {
                 ZStack {
                     Circle()
                         .fill(BrandColors.background)
