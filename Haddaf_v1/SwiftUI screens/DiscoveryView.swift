@@ -491,7 +491,7 @@ struct FiltersSheetView: View {
 
     // `true` if age values are outside the logical range (0-100)
     private var ageValuesInvalid: Bool {
-        if let min = ageMin, (min < 4 || min > 100) {
+        if let min = ageMin, (min < 7 || min > 100) {
             return true
         }
         if let max = ageMax, (max < 0 || max > 100) {
@@ -604,7 +604,7 @@ struct FiltersSheetView: View {
                         // Show range/value errors only if there are no text input errors
                         if !ageMinNotNumber && !ageMaxNotNumber && !isAgeSectionValid {
                             if ageValuesInvalid {
-                                Text("Age values must be between 4 and 100.")
+                                Text("Age values must be between 7 and 100.")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }

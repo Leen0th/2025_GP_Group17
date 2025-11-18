@@ -76,7 +76,7 @@ struct SignUpView: View {
     // --- Date range properties ---
     /// The latest date a user can select (4 years ago from today).
     private var minAgeDate: Date {
-        Calendar.current.date(byAdding: .year, value: -4, to: Date())!
+        Calendar.current.date(byAdding: .year, value: -7, to: Date())!
     }
     /// The earliest date a user can select (100 years ago from today).
     private var maxAgeDate: Date {
@@ -342,14 +342,13 @@ struct SignUpView: View {
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
         .onDisappear { verifyTask?.cancel(); resendTimerTask?.cancel(); emailCheckTask?.cancel() }
-        // --- NEW: Add .onChange listener for DOB ---
         .onChange(of: dob) { _, newDOB in
             guard let newDOB = newDOB else {
                 ageWarning = nil // Clear warning if DOB is cleared
                 return
             }
             let age = calculateAge(from: newDOB)
-            if (4...12).contains(age) {
+            if (7...12).contains(age) {
                 ageWarning = "You are recommended to use this app with parental supervision."
             } else {
                 ageWarning = nil // Clear warning if age is 13+
@@ -357,7 +356,7 @@ struct SignUpView: View {
         }
     }
     
-    // --- NEW: Helper function to calculate age ---
+    // --- Helper function to calculate age ---
     private func calculateAge(from dob: Date) -> Int {
         return Calendar.current.dateComponents([.year], from: dob, to: Date()).year ?? 0
     }

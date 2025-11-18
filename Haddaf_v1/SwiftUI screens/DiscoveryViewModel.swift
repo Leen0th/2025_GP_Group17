@@ -179,7 +179,7 @@ final class DiscoveryViewModel: ObservableObject {
             profile.email = (data["email"] as? String) ?? ""
             profile.phoneNumber = (data["phone"] as? String) ?? ""
             profile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
-            profile.isPhoneNumberVisible = (p["contactVisibility"] as? Bool) ?? false
+            profile.isPhoneNumberVisible = (p["isPhoneNumberVisible"] as? Bool) ?? false
 
             // Calculate age from Date of Birth
             if let dobTimestamp = data["dob"] as? Timestamp {

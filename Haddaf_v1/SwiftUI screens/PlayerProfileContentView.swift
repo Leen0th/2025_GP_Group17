@@ -883,7 +883,7 @@ struct EditProfileView: View {
                 "height": Int(height) ?? 0,
                 "location": location,
                 "isEmailVisible": isEmailVisible,
-                "contactVisibility": isPhoneNumberVisible,
+                "isPhoneNumberVisible": isPhoneNumberVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             

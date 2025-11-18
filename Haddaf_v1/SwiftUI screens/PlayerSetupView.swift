@@ -382,7 +382,7 @@ struct PlayerSetupView: View {
             "weight": weightInt ?? NSNull(),
             "height": heightInt ?? NSNull(),
             "location": location,
-            "contactVisibility": false,
+            "isPhoneNumberVisible": false,
             "isEmailVisible": false,
             "updatedAt": FieldValue.serverTimestamp()
         ]

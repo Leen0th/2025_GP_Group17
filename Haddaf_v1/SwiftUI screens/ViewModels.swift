@@ -149,7 +149,7 @@ final class PlayerProfileViewModel: ObservableObject {
             userProfile.isEmailVisible = (p["isEmailVisible"] as? Bool) ?? false
             
            
-            userProfile.isPhoneNumberVisible = (p["contactVisibility"] as? Bool) ?? false
+            userProfile.isPhoneNumberVisible = (p["isPhoneNumberVisible"] as? Bool) ?? false
 
            
             if let dobTimestamp = data["dob"] as? Timestamp {
