@@ -651,15 +651,15 @@ struct CommentsView: View {
     // Use the shared reporting service and observe its changes
     @StateObject private var reportService = ReportStateService.shared
     
-    // --- 2. ADDED In-Place Editing State ---
+    // --- In-Place Editing State ---
     @State private var editingCommentID: String? = nil
     @State private var editingCommentText: String = ""
-    private let commentLimit = 280 // Set a reasonable limit
+    private let commentLimit = 100 // Set a reasonable limit
     
     @State private var showDeleteAlert = false
     @State private var commentToDelete: Comment?
     
-    // --- ADDED: State for reporting ---
+    // --- State for reporting ---
     @State private var itemToReport: ReportableItem?
 
     var body: some View {
@@ -767,8 +767,6 @@ struct CommentsView: View {
                 }
             }
             
-            // --- MODIFIED: Removed .alert() modifier ---
-
             // --- Comment Input Area ---
             HStack(spacing: 12) {
                 ZStack {

@@ -6,9 +6,8 @@ import AVKit
 struct TeamsView: View {
     var body: some View {
         ZStack {
-            // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            VStack(spacing: 8) { // Use VStack to stack the texts
+            VStack(spacing: 8) {
                 Text("Teams Page")
                     .font(.system(size: 32, design: .rounded))
                     .foregroundColor(.secondary)
@@ -24,9 +23,8 @@ struct TeamsView: View {
 struct ChallengeView: View {
     var body: some View {
         ZStack {
-            // MODIFIED:new background
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            VStack(spacing: 8) { // Use VStack to stack the texts
+            VStack(spacing: 8) {
                 Text("Challenge Page")
                     .font(.system(size: 32, design: .rounded))
                     .foregroundColor(.secondary)
@@ -51,13 +49,11 @@ struct VideoUploadView: View {
     @State private var showDurationAlert = false
     @State private var isCheckingDuration = false
 
-    // MODIFIED:BrandColors
     let accentColor = BrandColors.darkTeal
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // MODIFIED: Use background
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -83,11 +79,11 @@ struct VideoUploadView: View {
                     .padding(.top, 20)
                     .padding(.bottom, 20)
                     
-                    // --- MODIFIED: Timeline ---
+                    // --- Timeline ---
                     MultiStepProgressBar(currentStep: .upload)
                         .padding(.bottom, 30)
                     
-                    // --- ADDED GUIDELINES ---
+                    // --- GUIDELINES ---
                     VStack(alignment: .leading, spacing: 16) {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "checkmark.circle.fill")
@@ -118,7 +114,7 @@ struct VideoUploadView: View {
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
-                        // --- ADDED DISCLAIMER ---
+                        // --- DISCLAIMER ---
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
@@ -138,12 +134,10 @@ struct VideoUploadView: View {
                                 .font(.system(size: 16, design: .rounded))
                                 .foregroundColor(.secondary)
                         }
-                        // --- END ADDED DISCLAIMER ---
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 30)
                     .padding(.vertical, 20)
-                    // --- END ADDED GUIDELINES ---
 
                     Spacer()
 

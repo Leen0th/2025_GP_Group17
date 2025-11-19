@@ -25,7 +25,7 @@ struct ReportOption: Identifiable, Hashable {
 @MainActor
 final class ReportViewModel: ObservableObject {
     @Published var options: [ReportOption] = []
-    @Published var selectedOption: ReportOption? // This will now start as nil
+    @Published var selectedOption: ReportOption? // This will start as nil
     @Published var isSubmitting = false
     @Published var showSuccessAlert = false
     

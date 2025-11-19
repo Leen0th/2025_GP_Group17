@@ -123,7 +123,7 @@ class VideoProcessingViewModel: ObservableObject {
         }
     }
     
-    // New: Retry analysis using the last stored parameters
+    // Retry analysis using the last stored parameters
     func retryAnalysis() async {
         guard let url = lastVideoURL,
               let pinpoint = lastPinpoint,

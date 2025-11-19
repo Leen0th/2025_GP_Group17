@@ -358,9 +358,9 @@ final class PlayerProfileViewModel: ObservableObject {
 
         // Weights are now Integers
         let weights: [String: [String: Int]] = [
-            "Attacker": ["PASS": 3, "DRIBBLE": 8, "SHOOT": 10],
-            "Midfielder": ["PASS": 8, "DRIBBLE": 7, "SHOOT": 6],
-            "Defender": ["PASS": 9, "DRIBBLE": 3, "SHOOT": 1],
+            "Attacker": ["PASS": 1, "DRIBBLE": 5, "SHOOT": 10],
+            "Midfielder": ["PASS": 10, "DRIBBLE": 5, "SHOOT": 1],
+            "Defender": ["PASS": 5, "DRIBBLE": 10, "SHOOT": 1],
             "Default": ["PASS": 1, "DRIBBLE": 1, "SHOOT": 1]
         ]
         

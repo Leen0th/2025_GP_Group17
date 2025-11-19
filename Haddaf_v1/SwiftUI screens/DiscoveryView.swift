@@ -751,9 +751,9 @@ struct FiltersSheetView: View {
                 
                    Pos.   Pass   Drib   Shoot
                    -------------------------
-                   ATK     3      8      10
-                   MID     8      7       6
-                   DEF     9      3       1
+                   ATK     1      5      10
+                   MID     10     5       1
+                   DEF     5     10       1
                 
                 2. Score calculated for each post.
                 

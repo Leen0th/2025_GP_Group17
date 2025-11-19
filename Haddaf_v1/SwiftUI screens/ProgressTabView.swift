@@ -38,7 +38,6 @@ struct ProgressTabView: View {
         .init(label: "SHOOT", value: 3, maxValue: 10)
     ]
 
-    // MODIFIED: Removed gradients from dummy data
     let trendDataSets: [TrendDataSet] = [
         .init(metricName: "DRIBBLE", dataPoints: [
             .init(month: "Jan", score: 20), .init(month: "Feb", score: 28), .init(month: "Mar", score: 22),
@@ -132,7 +131,6 @@ struct ProgressTabView: View {
         .cornerRadius(20)
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
-    // --- END REVERT ---
 }
 
 

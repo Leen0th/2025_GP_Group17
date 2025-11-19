@@ -6,6 +6,7 @@ struct ReportedContentView: View {
     var onShow: () -> Void
     
     // Check if it's the compact comment version
+    // to use smaller version of the placeholder when the hidden item is a comment
     private var isComment: Bool {
         type == .comment
     }

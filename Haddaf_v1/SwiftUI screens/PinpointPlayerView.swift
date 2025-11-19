@@ -70,7 +70,7 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
 }
 
-// MARK: - Time Label (still here if احتجتيه في مكان ثاني)
+// MARK: - Time Label
 fileprivate struct TimeLabel: View {
     let time: TimeInterval
     private static let formatter: DateComponentsFormatter = {
@@ -93,12 +93,10 @@ struct PinpointPlayerView: View {
     @StateObject private var viewModel: PlayerViewModel
     
     // MARK: - UI State
-    // الحين مافي اختيار مشهد، بس يحدد نفسه مباشرة
     @State private var selectedPoint: CGPoint?
     @State private var navigateToProcessing = false
     @State private var frameWidth: CGFloat = 1920
     @State private var frameHeight: CGFloat = 1080
-    // هذه الشاشة تعتبر خطوة Pinpoint مباشرة
     @State private var step: UploadStep = .pinpoint
     
     private let accentColor = BrandColors.darkTeal
@@ -143,7 +141,7 @@ struct PinpointPlayerView: View {
                         print("⚠️ Error loading video dimensions: \(error)")
                     }
                 }
-                // نتأكد أنه واقف على أول فريم
+                // first fram of the video
                 viewModel.seek(to: 0)
                 viewModel.player.pause()
             }

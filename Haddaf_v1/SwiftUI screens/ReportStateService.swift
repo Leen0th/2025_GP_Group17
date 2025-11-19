@@ -23,7 +23,7 @@ final class ReportStateService: ObservableObject {
     @Published private(set) var hiddenPostIDs: Set<String> = []
     @Published private(set) var hiddenCommentIDs: Set<String> = []
     
-    // Private init to ensure it's only used as a singleton.
+    // Private init to ensure it's only use one instance
     private init() {}
     
     // MARK: - Public Methods
