@@ -1,4 +1,6 @@
 import Foundation
+import FirebaseAuth
+import FirebaseFirestore
 
 /// The type of content that can be reported.
 enum ReportableItemType: String {
@@ -9,9 +11,9 @@ enum ReportableItemType: String {
 
 /// A struct to identify the item being reported, used to launch the sheet.
 struct ReportableItem: Identifiable {
-    let id: String // The Firestore ID of the item
+    let id: String
     let type: ReportableItemType
-    let contentPreview: String // e.g., username, post caption, or comment text
+    let contentPreview: String
 }
 
 /// A single radio button option in the report view.
@@ -30,6 +32,7 @@ final class ReportViewModel: ObservableObject {
     @Published var showSuccessAlert = false
     
     private let item: ReportableItem
+    private let db = Firestore.firestore()
 
     init(item: ReportableItem) {
         self.item = item
@@ -48,7 +51,7 @@ final class ReportViewModel: ObservableObject {
             self.options = [
                 .init(title: "Video isn't about football", description: "This post contains video unrelated to football."),
                 .init(title: "Video doesn't belong to user", description: "This user may have stolen this video."),
-                .init(title: "Other", description: "video title contain hate speech, or spam.")
+                .init(title: "Abusive Content", description: "Hate speech, violence, or spam.")
             ]
         case .comment:
             self.options = [
@@ -59,19 +62,45 @@ final class ReportViewModel: ObservableObject {
         }
     }
 
-    /// Simulates submitting the report to a backend.
+    // Submits the report
     func submitReport(completion: @escaping () -> Void) {
-        guard selectedOption != nil else { return }
+        // 1. Validate selection
+        guard let selectedOption = selectedOption else { return }
+        
+        // 2. Get current user (Reporter)
+        guard let uid = Auth.auth().currentUser?.uid else {
+            print("Error: No logged-in user found to submit report.")
+            return
+        }
         
         isSubmitting = true
         
-        Task {
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+        // 3. Create a DocumentReference to the reporter's profile
+        let reporterRef = db.collection("users").document(uid)
+        
+        // 4. Prepare the data payload
+        let reportData: [String: Any] = [
+            "reportedItemId": item.id,
+            "itemType": item.type.rawValue,
+            "contentPreview": item.contentPreview,
+            "reasonTitle": selectedOption.title,
+            "reasonDescription": selectedOption.description,
+            "reporterId": reporterRef,
+            "timestamp": FieldValue.serverTimestamp(),
+            "status": "Pending" // Default status for admin review
+        ]
+        
+        // 5. Write to Firestore
+        db.collection("reports").addDocument(data: reportData) { [weak self] error in
+            guard let self = self else { return }
             
-            await MainActor.run {
-                isSubmitting = false
-                showSuccessAlert = true
-                // The alert's "OK" button will trigger the completion
+            if let error = error {
+                print("Error submitting report: \(error.localizedDescription)")
+                self.isSubmitting = false
+            } else {
+                print("Report successfully submitted.")
+                self.isSubmitting = false
+                self.showSuccessAlert = true
             }
         }
     }
