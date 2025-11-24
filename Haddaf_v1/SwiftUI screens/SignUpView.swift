@@ -375,7 +375,7 @@ struct SignUpView: View {
         }
         if parts.count >= 3 { return "Please enter only your first and last name." }
         if trimmed.replacingOccurrences(of: " ", with: "").count > 25 {
-            return "Full name must be ≤ 25 characters."
+            return "Full name must not exceed 25 characters"
         }
         return nil
     }
