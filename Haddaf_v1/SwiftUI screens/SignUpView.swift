@@ -140,7 +140,7 @@ struct SignUpView: View {
 
                     Group {
                         if !email.isEmpty && !isEmailValid {
-                            Text("Please enter a valid email address.")
+                            Text("Please enter a valid email address (name@domain).")
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         } else if emailExists {
