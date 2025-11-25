@@ -360,8 +360,7 @@ final class PlayerProfileViewModel: ObservableObject {
         let weights: [String: [String: Int]] = [
             "Attacker": ["PASS": 1, "DRIBBLE": 5, "SHOOT": 10],
             "Midfielder": ["PASS": 10, "DRIBBLE": 5, "SHOOT": 1],
-            "Defender": ["PASS": 5, "DRIBBLE": 10, "SHOOT": 1],
-            "Default": ["PASS": 1, "DRIBBLE": 1, "SHOOT": 1]
+            "Defender": ["PASS": 5, "DRIBBLE": 10, "SHOOT": 1]
         ]
         
         // 1. Get the player's position
@@ -387,10 +386,10 @@ final class PlayerProfileViewModel: ObservableObject {
                         "cumulativeScore": "0"
                     ], merge: true)
                     
-                    print("✅ Successfully updated cumulativeScore: 0 (No public posts)")
+                    print("Successfully updated cumulativeScore: 0 (No public posts)")
                     
                 } catch {
-                    print("❌ Error saving cumulativeScore (0) to Firestore: \(error.localizedDescription)")
+                    print("Error saving cumulativeScore (0) to Firestore: \(error.localizedDescription)")
                 }
             }
             return
@@ -414,11 +413,11 @@ final class PlayerProfileViewModel: ObservableObject {
         // 5. Calculate the average
         let averageScore = totalScore / Double(scoredPosts.count)
         
-        // --- MODIFIED: Round to nearest whole number and convert to String ---
+        // --- Round to nearest whole number and convert to String ---
         let roundedScore = Int(averageScore.rounded())
         let scoreString = String(roundedScore)
 
-        // 6. Update the UI *immediately*
+        // 6. Update the UI score
         self.userProfile.score = scoreString
 
         // 7. Save the new score back to Firestore
@@ -432,12 +431,13 @@ final class PlayerProfileViewModel: ObservableObject {
                     "cumulativeScore": scoreString
                 ], merge: true)
                 
-                print("✅ Successfully updated cumulativeScore: \(scoreString)")
+                print("Successfully updated cumulativeScore: \(scoreString)")
                 
             } catch {
-                print("❌ Error saving cumulativeScore to Firestore: \(error.localizedDescription)")
+                print("Error saving cumulativeScore to Firestore: \(error.localizedDescription)")
             }
         }
 
     }
 }
+

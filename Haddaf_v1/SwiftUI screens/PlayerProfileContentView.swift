@@ -164,6 +164,7 @@ struct PlayerProfileContentView: View {
                                     // Set the item to report (this profile)
                                     itemToReport = ReportableItem(
                                         id: viewModel.userProfile.email,
+                                        parentId: nil,
                                         type: .profile,
                                         contentPreview: viewModel.userProfile.name
                                     )

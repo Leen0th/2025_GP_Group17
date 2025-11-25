@@ -268,6 +268,7 @@ struct DiscoveryView: View {
                                             // Set the item to trigger the report sheet
                                             itemToReport = ReportableItem(
                                                 id: post.id ?? "",
+                                                parentId: nil,
                                                 type: .post,
                                                 contentPreview: post.caption
                                             )

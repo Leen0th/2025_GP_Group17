@@ -37,6 +37,7 @@ class VideoProcessingViewModel: ObservableObject {
     
     //  Railway API URL
     private let apiURL = "https://footballanalysis-production.up.railway.app/analyze"
+    
     // MARK: - Processing pipeline
     func processVideo(url: URL, pinpoint: CGPoint, frameWidth: CGFloat, frameHeight: CGFloat) async {
         isProcessing = true

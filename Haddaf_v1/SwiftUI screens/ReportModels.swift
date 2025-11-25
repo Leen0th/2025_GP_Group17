@@ -12,6 +12,7 @@ enum ReportableItemType: String {
 /// A struct to identify the item being reported, used to launch the sheet.
 struct ReportableItem: Identifiable {
     let id: String
+    let parentId: String?
     let type: ReportableItemType
     let contentPreview: String
 }
@@ -64,33 +65,46 @@ final class ReportViewModel: ObservableObject {
 
     // Submits the report
     func submitReport(completion: @escaping () -> Void) {
-        // 1. Validate selection
         guard let selectedOption = selectedOption else { return }
-        
-        // 2. Get current user (Reporter)
-        guard let uid = Auth.auth().currentUser?.uid else {
-            print("Error: No logged-in user found to submit report.")
-            return
-        }
+        guard let uid = Auth.auth().currentUser?.uid else { return }
         
         isSubmitting = true
         
-        // 3. Create a DocumentReference to the reporter's profile
+        // 1. Create the Reporter Reference
         let reporterRef = db.collection("users").document(uid)
         
-        // 4. Prepare the data payload
+        // 2. Create the Reported Item Reference
+        var itemRef: DocumentReference?
+        
+        switch item.type {
+        case .profile:
+            itemRef = db.collection("users").document(item.id)
+            
+        case .post:
+            itemRef = db.collection("videoPosts").document(item.id)
+            
+        case .comment:
+            // For comments, we need the parent path
+            if let parentId = item.parentId {
+                itemRef = db.collection("videoPosts").document(parentId).collection("comments").document(item.id)
+            } else {
+                print("Error: Cannot create reference for comment without parentId")
+            }
+        }
+        
+        // 3. Prepare Data
         let reportData: [String: Any] = [
-            "reportedItemId": item.id,
+            "reportedItem": itemRef as Any,
             "itemType": item.type.rawValue,
             "contentPreview": item.contentPreview,
             "reasonTitle": selectedOption.title,
             "reasonDescription": selectedOption.description,
             "reporterId": reporterRef,
             "timestamp": FieldValue.serverTimestamp(),
-            "status": "Pending" // Default status for admin review
+            "status": "pending"
         ]
         
-        // 5. Write to Firestore
+        // 4. Write to Firestore
         db.collection("reports").addDocument(data: reportData) { [weak self] error in
             guard let self = self else { return }
             
