@@ -4,73 +4,113 @@ import FirebaseAuth
 struct ForgotPasswordView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // UI state
-    @State private var email: String = ""
-    @State private var isLoading: Bool = false
-
-    // Alert state
-    @State private var showAlert: Bool = false
-    @State private var alertTitle: String = ""
-    @State private var alertMessage: String = ""
-
-    // MODIFIED: Use new BrandColors
+    // MARK: - Theme
     private let primary = BrandColors.darkTeal
+    private let bg = BrandColors.backgroundGradientEnd
+
+    // MARK: - Fields
+    @State private var email = ""
+    @State private var isSubmitting = false
+    
+    // MARK: - Alerts / Success State
+    @State private var alertMessage = ""
+    @State private var showAlert = false
+    @State private var showSuccess = false
+
+    // MARK: - Validation Logic
+    private func isValidEmail(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.contains("..") { return false }
+        let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
+        return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
+    }
+
+    // Form is valid only if email passes regex
+    private var isFormValid: Bool {
+        isValidEmail(email)
+    }
 
     var body: some View {
         ZStack {
-            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            bg.ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-
-                    Text("Forgot password")
+                VStack(alignment: .leading, spacing: 22) {
+                    
+                    // Title
+                    Text("Reset Password")
                         .font(.system(size: 34, weight: .medium, design: .rounded))
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 8)
+                        .padding(.top, 12)
+                    
+                    Text("Enter the email associated with your account and we'll send you a link to reset your password.")
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 10)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Email")
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(.gray)
-
-                        TextField("", text: $email)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .font(.system(size: 16, design: .rounded))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(BrandColors.background)
-                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
-                            )
+                    // Email Field
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel("Email", required: true)
+                        
+                        roundedField {
+                            TextField("", text: $email)
+                                .keyboardType(.emailAddress)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(primary)
+                                .tint(primary)
+                        }
+                        
+                        // REAL-TIME VALIDATION
+                        if !email.isEmpty && !isValidEmail(email) {
+                            Text("Please enter a valid email address (name@domain).")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.red)
+                                .transition(.opacity)
+                        }
                     }
 
+                    // Submit Button
                     Button {
-                        Task { await sendResetEmail() }
+                        Task { await handlePasswordReset() }
                     } label: {
-                        HStack {
-                            if isLoading { ProgressView().tint(.white) }
-                            Text("Request Reset Code")
+                        HStack(spacing: 10) {
+                            Text("Send Reset Link")
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                                .foregroundColor(.white)
+                            
+                            if isSubmitting {
+                                ProgressView().colorInvert().scaleEffect(0.9)
+                            }
                         }
-                        .font(.system(size: 18, weight: .medium, design: .rounded))
-                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
+                        .padding(.vertical, 16)
                         .background(primary)
                         .clipShape(Capsule())
                         .shadow(color: primary.opacity(0.3), radius: 10, y: 5)
                     }
-                    .disabled(isLoading || emailTrimmed.isEmpty)
-                    .opacity((isLoading || emailTrimmed.isEmpty) ? 0.6 : 1)
-
-                    Spacer(minLength: 40)
+                    .disabled(!isFormValid || isSubmitting)
+                    .opacity((isFormValid && !isSubmitting) ? 1.0 : 0.5)
+                    .padding(.top, 12)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 22)
+            }
+            
+            // Success Overlay
+            if showSuccess {
+                SuccessOverlay(
+                    primary: primary,
+                    title: "Reset link sent!",
+                    okAction: {
+                        dismiss() // Go back to Login
+                    }
+                )
+                .transition(.opacity.combined(with: .scale))
+                .zIndex(1)
             }
         }
         .toolbar {
@@ -83,72 +123,56 @@ struct ForgotPasswordView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .alert(alertTitle, isPresented: $showAlert) {
+        .alert("Error", isPresented: $showAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(alertMessage)
         }
     }
 
-    // MARK: - Computed
-
-    private var emailTrimmed: String {
-        email.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    // MARK: - Reset Logic
-
-    /// Sends a password reset email and shows result in a popup alert.
-    private func sendResetEmail() async {
-        let value = emailTrimmed
-        guard isValidEmail(value) else {
-            presentAlert(title: "Invalid Email", message: "Please enter a valid email address.")
-            return
-        }
-
-        isLoading = true
+    // MARK: - Actions
+    private func handlePasswordReset() async {
+        guard isFormValid else { return }
+        isSubmitting = true
         
         // Firebase Auth handles Sending the ctual password reset email to the user.
         do {
-            try await Auth.auth().sendPasswordReset(withEmail: value)
-            presentAlert(
-                title: "Email Sent",
-                message: "A reset link has been sent to your email. Please set a new password and try to sign in again."
-            )
+            try await Auth.auth().sendPasswordReset(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines))
+            withAnimation {
+                showSuccess = true
+            }
         } catch {
-            let ns = error as NSError
-            if ns.domain == AuthErrorDomain {
-                switch ns.code {
-                case AuthErrorCode.userNotFound.rawValue:
-                    presentAlert(title: "Reset Failed", message: "No account found with this email.")
-                case AuthErrorCode.invalidEmail.rawValue:
-                    presentAlert(title: "Reset Failed", message: "The email address is invalid.")
-                case AuthErrorCode.tooManyRequests.rawValue:
-                    presentAlert(title: "Too Many Attempts", message: "Please try again later.")
-                case AuthErrorCode.networkError.rawValue:
-                    presentAlert(title: "Network Error", message: "Please check your connection and try again.")
-                default:
-                    presentAlert(title: "Reset Failed", message: ns.localizedDescription)
-                }
-            } else {
-                presentAlert(title: "Reset Failed", message: ns.localizedDescription)
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
+        
+        isSubmitting = false
+    }
+
+    // MARK: - UI Helpers (Copied from SignUpView style)
+    private func fieldLabel(_ title: String, required: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(primary.opacity(0.75))
+            if required {
+                Text("*")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.red).padding(.top, -2)
             }
         }
-
-        isLoading = false
     }
-
-    // MARK: - Helpers
-
-    private func presentAlert(title: String, message: String) {
-        alertTitle = title
-        alertMessage = message
-        showAlert = true
-    }
-
-    /// Simple email validation.
-    private func isValidEmail(_ value: String) -> Bool {
-        let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
-        return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    
+    private func roundedField<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+            )
     }
 }
