@@ -378,7 +378,7 @@ struct DiscoveryPostCardView: View {
             
             // MARK: - Video post
             if let videoStr = post.videoURL, let url = URL(string: videoStr) {
-                VideoPlayer(player: AVPlayer(url: url))
+                FeedVideoPlayer(url: url)
                     .frame(height: 200)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
@@ -826,5 +826,22 @@ struct AuthPromptSheet: View {
             .transition(.scale.combined(with: .opacity))
         }
         .zIndex(2)
+    }
+}
+struct FeedVideoPlayer: View {
+    let url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear {
+                if player == nil {
+                    player = AVPlayer(url: url)
+                }
+            }
+            .onDisappear {
+                // Pause when scrolling away to save resources
+                player?.pause()
+            }
     }
 }
