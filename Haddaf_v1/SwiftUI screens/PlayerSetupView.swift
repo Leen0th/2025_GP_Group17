@@ -4,54 +4,44 @@ import FirebaseAuth
 import FirebaseStorage
 import FirebaseFirestore
 import UIKit
-
 struct PlayerSetupView: View {
-
     // MARK: - Fields (this screen only)
     @State private var position: String = ""
     @State private var weight: String = ""
     @State private var height: String = ""
     @State private var location: String = ""
-
     // MARK: - Position list (wheel)
     @State private var showPositionPicker = false
     private let positions = ["Attacker", "Midfielder", "Defender"]
-
     // MARK: - Location (dropdown with search)
     @State private var showLocationPicker = false
     @State private var locationSearch = ""
-
     // MARK: - Profile Picture
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var profileImage: Image?
     @State private var fileExt: String = "jpg"
     @State private var downloadURL: URL? // The URL after successful upload
-
     // MARK: - Upload & flow state
     @State private var isUploading = false // Tracks if photo upload is in progress
     @State private var showAlert = false
     @State private var alertMsg = ""
     @State private var goToProfile = false // Navigation trigger
-
     // MARK: - Theme
     // MODIFIED:new BrandColors
     private let primary = BrandColors.darkTeal
     private let bg = BrandColors.backgroundGradientEnd
-
     // MARK: - Validation (realistic ranges)
     private var weightInt: Int? { Int(weight) }
     private var heightInt: Int? { Int(height) }
-
     private var isWeightValid: Bool {
         guard let w = weightInt else { return false }
         return (15...200).contains(w)
     }
     private var isHeightValid: Bool {
         guard let h = heightInt else { return false }
-        return (100...230).contains(h)
+        return (100...200).contains(h)
     }
-
     /// Checks if all mandatory fields have valid input.
     private var allFieldsValidAndFilled: Bool {
         !position.isEmpty &&
@@ -59,12 +49,10 @@ struct PlayerSetupView: View {
         isWeightValid &&
         isHeightValid
     }
-
     /// Determines if the "Done" button should be enabled.
     private var canSubmit: Bool {
         // 1. All fields must be validly filled.
         guard allFieldsValidAndFilled else { return false }
-
         // 2. If an image was selected...
         if selectedImageData != nil {
             // ... the upload must NOT be in progress AND we must have received the download URL.
@@ -74,11 +62,9 @@ struct PlayerSetupView: View {
             return !isUploading
         }
     }
-
     var body: some View {
         ZStack {
             bg.ignoresSafeArea()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Set up your profile")
@@ -86,7 +72,6 @@ struct PlayerSetupView: View {
                         .foregroundColor(primary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 8)
-
                     PhotosPicker(selection: $selectedItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
                             if let image = profileImage {
@@ -112,7 +97,6 @@ struct PlayerSetupView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 6)
-
                     // ========= Position =========
                     fieldLabel("Position", required: true)
                     buttonLikeField(action: {
@@ -137,7 +121,6 @@ struct PlayerSetupView: View {
                         .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
-
                     // ========= Weight =========
                     fieldLabel("Weight (kg)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
@@ -162,14 +145,12 @@ struct PlayerSetupView: View {
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(!weight.isEmpty && !isWeightValid ? Color.red : Color.clear, lineWidth: 1)
                             )
-
                         if !weight.isEmpty && !isWeightValid {
                             Text("Enter a realistic weight between 15–200 kg.")
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
-
                     // ========= Height =========
                     fieldLabel("Height (cm)", required: true)
                     VStack(alignment: .leading, spacing: 6) {
@@ -194,14 +175,12 @@ struct PlayerSetupView: View {
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(!height.isEmpty && !isHeightValid ? Color.red : Color.clear, lineWidth: 1)
                             )
-
                         if !height.isEmpty && !isHeightValid {
-                            Text("Enter a realistic height between 100–230 cm.")
+                            Text("Enter a realistic height between 100–200 cm.")
                                 .font(.system(size: 13, design: .rounded))
                                 .foregroundColor(.red)
                         }
                     }
-
                     // ========= City =========
                     fieldLabel("City of Residence", required: true)
                     buttonLikeField(action: {
@@ -230,7 +209,6 @@ struct PlayerSetupView: View {
                         .presentationBackground(BrandColors.background)
                         .presentationCornerRadius(28)
                     }
-
                     // ========= Done =========
                     Button {
                         Task {
@@ -257,7 +235,6 @@ struct PlayerSetupView: View {
                     .disabled(!canSubmit)
                     .opacity(canSubmit ? 1 : 0.5)
                     .padding(.top)
-
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 20)
@@ -295,7 +272,6 @@ struct PlayerSetupView: View {
             }
         }
         .task {
-                   // 🔄 نحدّث الـ token بعد التفعيل أول ما تفتح الشاشة
                    if let u = Auth.auth().currentUser {
                        try? await u.reload()
                        _ = try? await u.getIDTokenResult(forcingRefresh: true)
@@ -309,7 +285,6 @@ struct PlayerSetupView: View {
             Button("OK", role: .cancel) {}
         } message: { Text(alertMsg) }
     }
-
     // MARK: - Upload profile photo
     private func uploadProfilePhoto() async throws {
             if let u = Auth.auth().currentUser {
@@ -324,7 +299,6 @@ struct PlayerSetupView: View {
             print("Upload attempt with no image data.")
             return
         }
-
         isUploading = true // Start uploading state
         // Creates a unique file name.
         let filename = "\(UUID().uuidString).\(fileExt)"
@@ -333,10 +307,8 @@ struct PlayerSetupView: View {
             .child("profile")
             .child(uid)
             .child(filename)
-
         let metadata = StorageMetadata()
         metadata.contentType = "image/\(fileExt == "jpg" ? "jpeg" : fileExt)"
-
         do {
             // Perform the upload
             _ = try await storageRef.putDataAsync(data, metadata: metadata)
@@ -362,7 +334,6 @@ struct PlayerSetupView: View {
             throw error
         }
     }
-
     // MARK: - Save Player Setup Data
     private func savePlayerSetupData() async throws {
           if let u = Auth.auth().currentUser {
@@ -374,9 +345,7 @@ struct PlayerSetupView: View {
         guard let uid = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
-
         let db = Firestore.firestore()
-
         var payload: [String: Any] = [
             "position": position,
             "weight": weightInt ?? NSNull(),
@@ -398,7 +367,6 @@ struct PlayerSetupView: View {
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
     }
-
     // MARK: - UI Helpers
     private func fieldLabel(_ title: String, required: Bool = false) -> some View {
         HStack(spacing: 2) {
@@ -412,7 +380,6 @@ struct PlayerSetupView: View {
             }
         }
     }
-
     private func buttonLikeField<Content: View>(
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content

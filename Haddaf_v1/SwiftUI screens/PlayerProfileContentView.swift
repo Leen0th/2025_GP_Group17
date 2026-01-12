@@ -225,7 +225,7 @@ struct PlayerProfileContentView: View {
                             // ProgressTabView() // <-- Placeholder commented out
                             EmptyStateView(
                                 imageName: "chart.bar.xaxis",
-                                message: "Your progress analytics will appear here once you start uploading videos."
+                                message: "To be developed in upcoming sprints"
                             )
                             .padding(.top, 40)
 
@@ -785,7 +785,7 @@ struct EndorsementsListView: View {
             if endorsements.isEmpty {
                 EmptyStateView(
                     imageName: "person.badge.shield.checkmark",
-                    message: "Endorsements from coaches will appear here once you receive them."
+                    message: "To be developed in upcoming sprints"
                 )
                 .padding(.top, 40)
             } else {

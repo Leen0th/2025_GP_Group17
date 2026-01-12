@@ -560,11 +560,18 @@ struct FiltersSheetView: View {
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
                                 .onChange(of: ageMinString) { newValue in
-                                    // Live validation as the user types
-                                    if newValue.isEmpty {
+                                    // 1. Enforce max 3 digits
+                                    if newValue.count > 3 {
+                                        ageMinString = String(newValue.prefix(3))
+                                    }
+                                    
+                                    // 2. Use the truncated value for validation
+                                    let actualValue = newValue.count > 3 ? String(newValue.prefix(3)) : newValue
+                                    
+                                    if actualValue.isEmpty {
                                         ageMinNotNumber = false
                                         ageMin = nil
-                                    } else if let number = Int(newValue) {
+                                    } else if let number = Int(actualValue) {
                                         ageMinNotNumber = false
                                         ageMin = number
                                     } else {
@@ -577,10 +584,18 @@ struct FiltersSheetView: View {
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
                                 .onChange(of: ageMaxString) { newValue in
-                                    if newValue.isEmpty {
+                                    // 1. Enforce max 3 digits
+                                    if newValue.count > 3 {
+                                        ageMaxString = String(newValue.prefix(3))
+                                    }
+                                    
+                                    // 2. Use the truncated value for validation
+                                    let actualValue = newValue.count > 3 ? String(newValue.prefix(3)) : newValue
+                                    
+                                    if actualValue.isEmpty {
                                         ageMaxNotNumber = false
                                         ageMax = nil
-                                    } else if let number = Int(newValue) {
+                                    } else if let number = Int(actualValue) {
                                         ageMaxNotNumber = false
                                         ageMax = number
                                     } else {
@@ -627,10 +642,18 @@ struct FiltersSheetView: View {
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
                                 .onChange(of: scoreMinString) { newValue in
-                                    if newValue.isEmpty {
+                                    // 1. Enforce max 4 digits
+                                    if newValue.count > 4 {
+                                        scoreMinString = String(newValue.prefix(4))
+                                    }
+                                    
+                                    // 2. Use the truncated value for validation
+                                    let actualValue = newValue.count > 4 ? String(newValue.prefix(4)) : newValue
+                                    
+                                    if actualValue.isEmpty {
                                         scoreMinNotNumber = false
                                         scoreMin = nil
-                                    } else if let number = Int(newValue) {
+                                    } else if let number = Int(actualValue) {
                                         scoreMinNotNumber = false
                                         scoreMin = number
                                     } else {
@@ -638,15 +661,25 @@ struct FiltersSheetView: View {
                                         scoreMin = nil
                                     }
                                 }
+                            
                             Text("-")
+                            
                             TextField("Max", text: $scoreMaxString)
                                 .keyboardType(.numberPad)
                                 .tint(BrandColors.darkTeal)
                                 .onChange(of: scoreMaxString) { newValue in
-                                    if newValue.isEmpty {
+                                    // 1. Enforce max 4 digits
+                                    if newValue.count > 4 {
+                                        scoreMaxString = String(newValue.prefix(4))
+                                    }
+                                    
+                                    // 2. Use the truncated value for validation
+                                    let actualValue = newValue.count > 4 ? String(newValue.prefix(4)) : newValue
+                                    
+                                    if actualValue.isEmpty {
                                         scoreMaxNotNumber = false
                                         scoreMax = nil
-                                    } else if let number = Int(newValue) {
+                                    } else if let number = Int(actualValue) {
                                         scoreMaxNotNumber = false
                                         scoreMax = number
                                     } else {

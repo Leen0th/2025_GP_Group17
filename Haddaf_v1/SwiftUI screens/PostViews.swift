@@ -770,33 +770,40 @@ struct CommentsView: View {
             }
             
             // --- Comment Input Area ---
-            HStack(spacing: 12) {
-                ZStack {
-                    TextField(session.isGuest ? "Sign in to comment" : "Write Comment...", text: $newCommentText)
-                        .font(.system(size: 15, design: .rounded))
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(BrandColors.lightGray).clipShape(Capsule())
-                        .tint(accentColor)
-                        .disabled(session.isGuest) // Keep text field disabled
-                    
-                    if session.isGuest {
-                        // Overlay a clear button to catch taps and show the prompt
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                showAuthSheet = true
-                            }
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        TextField(session.isGuest ? "Sign in to comment" : "Write Comment...", text: $newCommentText)
+                            .font(.system(size: 15, design: .rounded))
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(BrandColors.lightGray).clipShape(Capsule())
+                            .tint(accentColor)
+                            .disabled(session.isGuest)
+                        
+                        if session.isGuest {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { showAuthSheet = true }
+                        }
                     }
-                }
 
-                Button(action: addComment) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.title2).foregroundColor(accentColor)
+                    Button(action: addComment) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.title2).foregroundColor(accentColor)
+                    }
+                    // MODIFIED: Disable if empty OR exceeds limit
+                    .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty || newCommentText.count > commentLimit || session.isGuest)
+                    .opacity((newCommentText.count > commentLimit || session.isGuest) ? 0.5 : 1.0)
                 }
-                // --- Disable for guests ---
-                .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty || session.isGuest)
+                
+                // Character Counter for New Comment
+                if !newCommentText.isEmpty {
+                    Text("\(newCommentText.count)/\(commentLimit)")
+                        .font(.caption)
+                        .foregroundColor(newCommentText.count > commentLimit ? .red : .secondary)
+                        .padding(.trailing, 50) // Align roughly with text field
+                }
             }
-            // --- Visually dim if guest ---
             .opacity(session.isGuest ? 0.7 : 1.0)
             .padding()
             .background(BrandColors.background)
@@ -1130,8 +1137,8 @@ fileprivate struct CommentRowView: View {
                             .padding(.vertical, 8)
                             .background(accentColor)
                             .cornerRadius(20)
-                            .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty)
-                            .opacity(editingText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.7 : 1.0)
+                            .disabled(editingText.trimmingCharacters(in: .whitespaces).isEmpty || editingText.count > commentLimit)
+                            .opacity((editingText.trimmingCharacters(in: .whitespaces).isEmpty || editingText.count > commentLimit) ? 0.7 : 1.0)
                         }
                     }
                 } else {
@@ -1268,7 +1275,7 @@ struct PrivacyWarningPopupView: View {
             VStack(spacing: 20) {
                 Text("Change Visibility?")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
-                Text(isPrivate ? "Making this post public will allow everyone to see it." : "Making this post private will hide it from other users.")
+                Text(isPrivate ? "Making this post public will allow everyone to see it and increase your score." : "Making this post private will hide it from other users and reduce your score.")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
                 

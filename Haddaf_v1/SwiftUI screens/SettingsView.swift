@@ -201,6 +201,8 @@ struct SettingsView: View {
         UserDefaults.standard.removeObject(forKey: "signup_profile_draft")
         UserDefaults.standard.removeObject(forKey: "current_user_profile")
         UserDefaults.standard.synchronize()
+        // Clear the shared report state so the next user doesn't see old reports
+        ReportStateService.shared.reset()
     }
 
     // MARK: - View Builders

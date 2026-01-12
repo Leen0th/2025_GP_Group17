@@ -31,6 +31,7 @@ final class ReportViewModel: ObservableObject {
     @Published var selectedOption: ReportOption? // This will start as nil
     @Published var isSubmitting = false
     @Published var showSuccessAlert = false
+    @Published var customReason: String = ""
     
     private let item: ReportableItem
     private let db = Firestore.firestore()
@@ -45,20 +46,22 @@ final class ReportViewModel: ObservableObject {
         switch type {
         case .profile:
             self.options = [
-                .init(title: "Impersonation", description: "This profile is pretending to be someone else (e.g., a celebrity, friend, or other person)."),
-                .init(title: "Other", description: "Inappropriate content, or spam.")
+                .init(title: "Impersonation", description: "This profile is pretending to be someone else."),
+                .init(title: "Inappropriate Content", description: "Profile picture or bio contains offensive material."),
+                .init(title: "Other", description: "Please describe the issue below.") // Fixed Description
             ]
         case .post:
             self.options = [
                 .init(title: "Video isn't about football", description: "This post contains video unrelated to football."),
                 .init(title: "Video doesn't belong to user", description: "This user may have stolen this video."),
-                .init(title: "Abusive Content", description: "Hate speech, violence, or spam.")
+                .init(title: "Abusive Content", description: "Hate speech, violence, or spam."),
+                .init(title: "Other", description: "Please describe the issue below.") // Added Other
             ]
         case .comment:
             self.options = [
                 .init(title: "Hate Speech or Bullying", description: "This comment attacks a person or group."),
                 .init(title: "Spam or Scam", description: "This comment is irrelevant, a scam, or promotes a service."),
-                .init(title: "Other", description: "Violence, or other policy violations.")
+                .init(title: "Other", description: "Please describe the issue below.") // Fixed Description
             ]
         }
     }
@@ -67,6 +70,11 @@ final class ReportViewModel: ObservableObject {
     func submitReport(completion: @escaping () -> Void) {
         guard let selectedOption = selectedOption else { return }
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        
+        // Validation: If "Other" is selected, text must not be empty (handled in View, but good to check)
+        if selectedOption.title == "Other" && customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
         
         isSubmitting = true
         
@@ -93,12 +101,15 @@ final class ReportViewModel: ObservableObject {
         }
         
         // 3. Prepare Data
+        // Use customReason if "Other" is selected, otherwise use the option's description
+        let finalDescription = (selectedOption.title == "Other") ? customReason : selectedOption.description
+        
         let reportData: [String: Any] = [
             "reportedItem": itemRef as Any,
             "itemType": item.type.rawValue,
             "contentPreview": item.contentPreview,
             "reasonTitle": selectedOption.title,
-            "reasonDescription": selectedOption.description,
+            "reasonDescription": finalDescription, // Updated to use custom text
             "reporterId": reporterRef,
             "timestamp": FieldValue.serverTimestamp(),
             "status": "pending"

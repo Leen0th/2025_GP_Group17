@@ -81,7 +81,10 @@ final class PlayerProfileViewModel: ObservableObject {
                 let imgKeys: Set<String> = ["profilePic", "profileImage", "profilePicURL"]
                 if Set(fields).isSubset(of: imgKeys) { return }
             }
-            Task { await self?.calculateAndUpdateScore() }
+            Task {
+                await self?.fetchProfile()
+                await self?.calculateAndUpdateScore()
+            }
         }
         
         // Keep likes and comments in sync across the app.

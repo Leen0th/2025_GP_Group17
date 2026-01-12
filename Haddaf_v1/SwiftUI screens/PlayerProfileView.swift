@@ -7,6 +7,9 @@ struct PlayerProfileView: View {
     @State private var showVideoUpload = false
     @State private var showAuthSheet = false
     
+    // Track if the view has already appeared to prevent resetting the tab on back navigation
+    @State private var hasAppeared = false
+    
     var body: some View {
             ZStack(alignment: .bottom) {
                 VStack {
@@ -40,6 +43,17 @@ struct PlayerProfileView: View {
             .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
                 selectedTab = .profile
                 showVideoUpload = false
+            }
+        // Force the tab to Discovery on first launch
+            .onAppear {
+                if !hasAppeared {
+                    selectedTab = .discovery
+                    hasAppeared = true
+                }
+            }
+        // If the user changes, force reset to Discovery
+            .onChange(of: session.user) { _, _ in
+                selectedTab = .discovery
             }
         }
     }

@@ -97,10 +97,7 @@ struct WelcomeView: View {
         }
         .navigationBarBackButtonHidden(true)
         .fullScreenCover(isPresented: $showMainApp) {
-            NavigationStack {
-                // تقدر تغيّر الوجهة لاحقًا لـ MainTabs/Discovery.
-                PlayerProfileView()
-            }
+            PlayerProfileView()
         }
     }
 }

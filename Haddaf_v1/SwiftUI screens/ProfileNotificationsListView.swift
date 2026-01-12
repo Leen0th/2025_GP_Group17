@@ -84,7 +84,7 @@ struct ProfileNotificationsListView: View {
                         if allNotifications.isEmpty {
                             EmptyStateView(
                                 imageName: "bell.badge",
-                                message: "You have no notifications yet. We'll let you know when something important happens!"
+                                message: "To be developed in upcoming sprints"
                             )
                         } else if filteredNotifications.isEmpty {
                             EmptyStateView(

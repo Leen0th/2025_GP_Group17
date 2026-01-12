@@ -59,4 +59,13 @@ final class ReportStateService: ObservableObject {
     func unhideProfile(id: String) {
         reportedProfileIDs.remove(id)
     }
+    
+    /// Clears all reported and hidden state.
+    func reset() {
+        reportedPostIDs.removeAll()
+        reportedCommentIDs.removeAll()
+        reportedProfileIDs.removeAll()
+        hiddenPostIDs.removeAll()
+        hiddenCommentIDs.removeAll()
+    }
 }

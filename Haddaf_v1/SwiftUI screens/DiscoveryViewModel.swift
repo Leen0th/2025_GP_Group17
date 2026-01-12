@@ -284,11 +284,6 @@ final class DiscoveryViewModel: ObservableObject {
         guard let index = self.posts.firstIndex(where: { $0.id == updatedPostId }) else {
             return // This post isn't in our list
         }
-
-        // Check for comment updates
-        if userInfo["commentAdded"] as? Bool == true {
-            self.posts[index].commentCount += 1
-        }
         
         // Check for like updates
         if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {

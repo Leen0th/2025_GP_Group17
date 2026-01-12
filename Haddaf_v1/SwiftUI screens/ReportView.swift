@@ -37,16 +37,67 @@ struct ReportView: View {
                 Divider()
 
                 // 2. Options List
-                List(viewModel.options, id: \.self, selection: $viewModel.selectedOption) { option in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(option.title)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        
-                        Text(option.description)
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(.secondary)
+                List {
+                    ForEach(viewModel.options) { option in
+                        // Custom Row to handle selection look
+                        Button {
+                            withAnimation {
+                                viewModel.selectedOption = option
+                            }
+                        } label: {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(option.title)
+                                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.primary)
+                                    
+                                    Text(option.description)
+                                        .font(.system(size: 14, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                if viewModel.selectedOption == option {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(BrandColors.darkTeal)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 8)
+                    
+                    // NEW: Custom Text Input for "Other"
+                    if viewModel.selectedOption?.title == "Other" {
+                        Section {
+                            VStack(alignment: .trailing, spacing: 6) {
+                                TextField("Please describe the problem...", text: $viewModel.customReason, axis: .vertical)
+                                    .lineLimit(3...6)
+                                    .padding(12)
+                                    .background(BrandColors.lightGray.opacity(0.5))
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(BrandColors.darkTeal.opacity(0.3), lineWidth: 1)
+                                    )
+                                    // MARK: - Enforce Character Limit
+                                    .onChange(of: viewModel.customReason) { newValue in
+                                        if newValue.count > 500 {
+                                            viewModel.customReason = String(newValue.prefix(500))
+                                        }
+                                    }
+                                
+                                // Character Counter
+                                Text("\(viewModel.customReason.count)/500")
+                                    .font(.system(size: 12, design: .rounded))
+                                    // Turn red if they hit the limit
+                                    .foregroundColor(viewModel.customReason.count >= 500 ? .red : .secondary)
+                                    .padding(.trailing, 4)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .listRowSeparator(.hidden)
+                    }
                 }
                 .listStyle(.plain)
                 
@@ -71,8 +122,18 @@ struct ReportView: View {
                     .padding()
                     .background(BrandColors.darkTeal)
                     .clipShape(Capsule())
-                    .disabled(viewModel.selectedOption == nil || viewModel.isSubmitting)
-                    .opacity(viewModel.selectedOption == nil ? 0.7 : 1.0)
+                    // Disable if: No option selected OR (Option is "Other" AND input is empty) OR submitting
+                    .disabled(
+                        viewModel.selectedOption == nil ||
+                        viewModel.isSubmitting ||
+                        (viewModel.selectedOption?.title == "Other" && viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    )
+                    .opacity(
+                        (viewModel.selectedOption == nil ||
+                         viewModel.isSubmitting ||
+                         (viewModel.selectedOption?.title == "Other" && viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                        ? 0.7 : 1.0
+                    )
                 }
                 .padding()
                 
