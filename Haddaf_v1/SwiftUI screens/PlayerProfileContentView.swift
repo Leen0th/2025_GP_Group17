@@ -70,6 +70,10 @@ struct PlayerProfileContentView: View {
     
     // The text entered into the post search bar
     @State private var searchText = ""
+    
+    // Search Date Filters
+    @State private var searchDate: Date? = nil
+    @State private var showSearchDatePicker = false
 
     // Stores the item (profile or post) to be reported, triggering the `ReportView` sheet
     @State private var itemToReport: ReportableItem?
@@ -96,41 +100,50 @@ struct PlayerProfileContentView: View {
 
     // Filters the posts by `searchText` and `postFilter` then sorts them based on `postSort` preferences
     private var filteredAndSortedPosts: [Post] {
-        // 1. Filter by search text
-        let searched: [Post]
-        if searchText.isEmpty {
-            searched = viewModel.posts
-        } else {
-            searched = viewModel.posts.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
+        // Start with all posts
+        var result = viewModel.posts
+
+        // 1. Filter by Caption (Text)
+        if !searchText.isEmpty {
+            result = result.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
+        }
+        
+        // 2. Filter by Match Date (Calendar Picker)
+        if let targetDate = searchDate {
+            result = result.filter { post in
+                guard let pDate = post.matchDate else { return false }
+                // Compare Year, Month, Day (ignoring time)
+                return Calendar.current.isDate(pDate, inSameDayAs: targetDate)
+            }
         }
 
-        // 2. Filter by privacy (if current user)
-        let filtered: [Post]
+        // 3. Filter by Privacy (if current user)
+        let privacyFiltered: [Post]
         if isCurrentUser {
             switch postFilter {
-            case .all: filtered = searched
-            case .public: filtered = searched.filter { !$0.isPrivate }
-            case .private: filtered = searched.filter { $0.isPrivate }
+            case .all: privacyFiltered = result
+            case .public: privacyFiltered = result.filter { !$0.isPrivate }
+            case .private: privacyFiltered = result.filter { $0.isPrivate }
             }
         } else {
             // Other users can only see public posts
-            filtered = searched.filter { !$0.isPrivate }
+            privacyFiltered = result.filter { !$0.isPrivate }
         }
 
-        // 3. Sort the results
+        // 4. Sort the results
         switch postSort {
         case .newestFirst:
-            return filtered
+            return privacyFiltered
         case .oldestFirst:
-            return filtered.reversed()
+            return privacyFiltered.reversed()
         case .matchDateNewest:
-            return filtered.sorted {
+            return privacyFiltered.sorted {
                 guard let d1 = $0.matchDate else { return false }
                 guard let d2 = $1.matchDate else { return true }
                 return d1 > d2
             }
         case .matchDateOldest:
-            return filtered.sorted {
+            return privacyFiltered.sorted {
                 guard let d1 = $0.matchDate else { return false }
                 guard let d2 = $1.matchDate else { return true }
                 return d1 < d2
@@ -185,20 +198,45 @@ struct PlayerProfileContentView: View {
                         // MARK: - Tab Content
                         switch selectedContent {
                         case .posts:
-                            // Search Bar for posts
-                                HStack(spacing: 8) {
+                                // Search Bar with Calendar
+                                HStack(spacing: 12) {
+                                    // Magnifying Glass
                                     Image(systemName: "magnifyingglass")
                                         .foregroundColor(BrandColors.darkTeal)
                                         .padding(.leading, 12)
                                
+                                    // Text Field
                                     TextField("Search by title...", text: $searchText)
                                         .font(.system(size: 16, design: .rounded))
                                         .tint(BrandColors.darkTeal)
                                         .submitLabel(.search)
+                                    
+                                    // Vertical Divider
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(width: 1, height: 20)
+                                    
+                                    // Calendar Button
+                                    Button {
+                                        showSearchDatePicker = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "calendar")
+                                            // If date selected, show day/month
+                                            if let d = searchDate {
+                                                Text(d.formatted(.dateTime.day().month()))
+                                                    .font(.caption).bold()
+                                            }
+                                        }
+                                        .foregroundColor(searchDate == nil ? .secondary : BrandColors.darkTeal)
+                                        .padding(.vertical, 4)
+                                    }
                                
-                                    if !searchText.isEmpty {
+                                    // Clear Button (Clears both Text and Date)
+                                    if !searchText.isEmpty || searchDate != nil {
                                         Button {
                                             searchText = ""
+                                            searchDate = nil
                                             // Dismiss keyboard
                                             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                         } label: {
@@ -206,6 +244,8 @@ struct PlayerProfileContentView: View {
                                                 .foregroundColor(.secondary)
                                         }
                                         .padding(.trailing, 8)
+                                    } else {
+                                        Spacer().frame(width: 8)
                                     }
                                 }
                                 .padding(.vertical, 12)
@@ -218,8 +258,8 @@ struct PlayerProfileContentView: View {
                                 postControls(isCurrentUser: isCurrentUser)
                                     .padding(.horizontal)
                             
-                            postsGrid
-                                .padding(.horizontal)
+                                postsGrid
+                                    .padding(.horizontal)
                        
                         case .progress:
                             // ProgressTabView() // <-- Placeholder commented out
@@ -288,6 +328,45 @@ struct PlayerProfileContentView: View {
             }
             .fullScreenCover(isPresented: $showNotificationsList) {
                 ProfileNotificationsListView()
+            }
+            // Search Date Picker Sheet
+            .sheet(isPresented: $showSearchDatePicker) {
+                VStack(spacing: 20) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 40, height: 5)
+                        .padding(.top, 10)
+                    
+                    Text("Filter by Match Date")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.darkTeal)
+                        .padding(.top, 10)
+                    
+                    DatePicker("Select Date", selection: Binding(
+                        get: { searchDate ?? Date() },
+                        set: { searchDate = $0 }
+                    ), displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .tint(BrandColors.darkTeal)
+                    .padding(.horizontal)
+                    
+                    Button {
+                        showSearchDatePicker = false
+                    } label: {
+                        Text("Apply Filter")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(BrandColors.darkTeal)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                }
+                .presentationDetents([.medium])
+                .presentationCornerRadius(25)
+                .presentationBackground(BrandColors.background)
             }
             // --- Open Post Detail view ---
             .fullScreenCover(item: $selectedPost) { post in
