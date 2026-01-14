@@ -355,10 +355,10 @@ struct PostDetailView: View {
                     }
                 }
                 
-                // 2. Metadata Row (Dates/Position Left <-> Privacy Right)
+                // 2. Metadata Row
                 HStack(alignment: .center, spacing: 0) {
                     
-                    // Left: Scrollable Metadata (Dates & Position)
+                    // Left: Scrollable Metadata
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
                             // A. Post Date
@@ -400,13 +400,28 @@ struct PostDetailView: View {
                                 .background(accentColor.opacity(0.1))
                                 .cornerRadius(8)
                             }
+                            
+                            // D. NEW: Individual Post Score
+                            // We show this if it's the owner (viewing private/public) OR if it's public
+                            if isOwner || !post.isPrivate {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "bolt.fill")
+                                        .foregroundColor(BrandColors.gold)
+                                    Text("score = \(Int(post.postScore))")
+                                }
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(BrandColors.darkGray)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(BrandColors.gold.opacity(0.2))
+                                .cornerRadius(8)
+                            }
                         }
                     }
                     
-                    // Push Privacy Toggle to the far right
                     Spacer(minLength: 8)
                     
-                    // D. Privacy Toggle (Owner Only, Fixed Right)
+                    // E. Privacy Toggle (Owner Only, Fixed Right)
                     if isOwner {
                         Button(action: { showPrivacyAlert = true }) {
                             HStack(spacing: 4) {
