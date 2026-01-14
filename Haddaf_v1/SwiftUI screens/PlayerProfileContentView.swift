@@ -241,7 +241,7 @@ struct PlayerProfileContentView: View {
             .onChange(of: viewModel.userProfile.position) { _, _ in
                 // If the user's position changes (in EditProfile), recalculate the score
                 Task {
-                    await viewModel.calculateAndUpdateScore()
+                    await viewModel.fetchProfile()
                 }
             }
             // MARK: - Notification Listeners
@@ -586,13 +586,41 @@ struct ProfileHeaderView: View {
 struct StatsGridView: View {
     // The profile data to display.
     @ObservedObject var userProfile: UserProfile
-    // `true` to show the contact info (email/phone) dropdown.
+    
+    // --- Dropdown States ---
     @State private var showContactInfo = false
+    @State private var showOtherPositions = false // NEW: For past positions
+    
     // A binding to control the "Score Info" popup.
     @Binding var showScoreInfoAlert: Bool
     
     let accentColor = BrandColors.darkTeal
     let goldColor = BrandColors.gold
+
+    // --- LOGIC: Hero Score Calculation ---
+    // Calculates the score ONLY for the user's current position.
+    // Formula: TotalScore / PostCount
+    var currentPositionScore: String {
+        // Safe check: Do we have stats for the current position?
+        guard let stat = userProfile.positionStats[userProfile.position], stat.postCount > 0 else {
+            return "0"
+        }
+        // Calculate Average
+        let avg = stat.totalScore / Double(stat.postCount)
+        return String(format: "%.0f", avg)
+    }
+    
+    // --- LOGIC: Other Positions Calculation ---
+    // Finds all stats that do NOT match the current position.
+    var otherPositionStats: [(position: String, score: String)] {
+        userProfile.positionStats
+            .filter { $0.key != userProfile.position && $0.value.postCount > 0 }
+            .map { key, stat in
+                let avg = stat.totalScore / Double(stat.postCount)
+                return (key, String(format: "%.0f", avg))
+            }
+            .sorted { $0.0 < $1.0 } // Sort alphabetically
+    }
 
     // A small view for a single user-provided stat (e.g., Weight, Height).
     @ViewBuilder
@@ -628,7 +656,7 @@ struct StatsGridView: View {
     var body: some View {
         VStack(spacing: 18) {
 
-            // --- 1. Hero Stat (Score) ---
+            // --- 1. Hero Stat (Current Position Score) ---
             VStack(spacing: 8) {
                 
                 HStack(spacing: 8) {
@@ -646,15 +674,24 @@ struct StatsGridView: View {
                     }
                 }
 
-                Text(userProfile.score.isEmpty ? "0" : userProfile.score)
+                // CHANGED: Uses calculated 'currentPositionScore'
+                Text(currentPositionScore)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                     .foregroundColor(goldColor)
+                
+                // Optional: Show the position name below the score for clarity
+                if !userProfile.position.isEmpty {
+                    Text(userProfile.position)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundColor(accentColor.opacity(0.6))
+                }
             }
             .padding(.top, 10)
 
             // --- 2. User-Provided Stats ---
             HStack(alignment: .top) {
                 Spacer(minLength: 3)
+                // Note: Position is still shown here as per original design
                 UserStatItem(title: "POSITION", value: userProfile.position)
                 Spacer(minLength: 3)
                 UserStatItem(title: "AGE", value: userProfile.age)
@@ -679,12 +716,54 @@ struct StatsGridView: View {
                 Spacer()
             }
                .padding(.horizontal, 20)
+            
+            // --- 4. NEW: Past Positions Dropdown ---
+            // Only show if there are stats for other positions
+            if !otherPositionStats.isEmpty {
+                Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
+                    HStack(spacing: 4) {
+                        Text(showOtherPositions ? "Hide other positions" : "Show other positions")
+                        Image(systemName: showOtherPositions ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(accentColor)
+                    .padding(.top, 4)
+                }
 
-            // --- 4. Contact Info ---
+                if showOtherPositions {
+                    VStack(alignment: .center, spacing: 12) {
+                        ForEach(otherPositionStats, id: \.position) { item in
+                            HStack {
+                                // Position Name
+                                Text(item.position)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(BrandColors.darkGray)
+                                
+                                Spacer()
+                                
+                                // Position Score
+                                Text(item.score)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundColor(accentColor)
+                            }
+                            .padding(.horizontal, 40) // Indent slightly
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                
+                // Add a small divider if both dropdowns are visible
+                if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
+                    Divider().padding(.horizontal, 60).opacity(0.5)
+                }
+            }
+
+            // --- 5. Contact Info Dropdown ---
             if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
                 Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
                     HStack(spacing: 4) {
-                        Text(showContactInfo ? "Show less" : "Show contact info")
+                        Text(showContactInfo ? "Hide contact info" : "Show contact info")
                         Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
                     }
                     .font(.system(size: 13, weight: .bold, design: .rounded))

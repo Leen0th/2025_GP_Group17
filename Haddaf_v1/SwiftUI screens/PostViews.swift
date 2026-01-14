@@ -273,132 +273,163 @@ struct PostDetailView: View {
     }
 
     private var captionAndMetadata: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            
-            if isEditingCaption {
-                VStack(alignment: .leading, spacing: 8) {
-                    
-                    HStack(spacing: 6) {
-                        Text("Edit Caption")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(editedCaption.count)/\(captionLimit)")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(editedCaption.count > captionLimit ? .red : .secondary)
-                    }
-                    
-                    TextField("Edit Caption", text: $editedCaption)
-                        .font(.system(size: 16, design: .rounded))
-                        .textInputAutocapitalization(.sentences)
-                        .disableAutocorrection(true)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(BrandColors.lightGray.opacity(0.7))
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
-                        )
-                        .tint(accentColor)
-                    
-                    HStack(spacing: 12) {
-                        Spacer()
-                        Button("Cancel") {
-                            withAnimation {
-                                isEditingCaption = false
-                                editedCaption = ""
-                            }
-                        }
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(BrandColors.darkGray)
-                        
-                        Button {
-                            Task { await commitCaptionEdit() }
-                        } label: {
-                            if isSavingCaption {
-                                ProgressView()
-                                    .tint(.white)
-                                    .frame(height: 19)
-                            } else {
-                                Text("Save")
-                            }
-                        }
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(accentColor)
-                        .cornerRadius(20)
-                        .disabled(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .opacity(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty ? 0.7 : 1.0)
-                    }
-                }
-            } else {
-                HStack(alignment: .top) {
-                    Text(post.caption)
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundColor(BrandColors.darkGray)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    if isOwner {
-                        Button {
-                            editedCaption = post.caption
-                            withAnimation { isEditingCaption = true }
-                        } label: {
-                            Image(systemName: "pencil.line")
-                                .font(.caption)
+            VStack(alignment: .leading, spacing: 12) {
+                
+                // 1. Caption Area (Edit or Display)
+                if isEditingCaption {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text("Edit Caption")
+                                .font(.system(size: 12, design: .rounded))
                                 .foregroundColor(.secondary)
-                                .padding(8)
-                                .background(BrandColors.lightGray)
-                                .clipShape(Circle())
+                            Spacer()
+                            Text("\(editedCaption.count)/\(captionLimit)")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(editedCaption.count > captionLimit ? .red : .secondary)
                         }
-                        .buttonStyle(.plain)
+                        
+                        TextField("Edit Caption", text: $editedCaption)
+                            .font(.system(size: 16, design: .rounded))
+                            .textInputAutocapitalization(.sentences)
+                            .disableAutocorrection(true)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(BrandColors.lightGray.opacity(0.7))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
+                            .tint(accentColor)
+                        
+                        HStack(spacing: 12) {
+                            Spacer()
+                            Button("Cancel") {
+                                withAnimation {
+                                    isEditingCaption = false
+                                    editedCaption = ""
+                                }
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                            
+                            Button {
+                                Task { await commitCaptionEdit() }
+                            } label: {
+                                if isSavingCaption {
+                                    ProgressView().tint(.white).frame(height: 19)
+                                } else {
+                                    Text("Save")
+                                }
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(accentColor)
+                            .cornerRadius(20)
+                            .disabled(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .opacity(isSavingCaption || editedCaption.trimmingCharacters(in: .whitespaces).isEmpty ? 0.7 : 1.0)
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top) {
+                        Text(post.caption)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        if isOwner {
+                            Button {
+                                editedCaption = post.caption
+                                withAnimation { isEditingCaption = true }
+                            } label: {
+                                Image(systemName: "pencil.line")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(8)
+                                    .background(BrandColors.lightGray)
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
-            }
-            
-            if let matchDate = post.matchDate {
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                    Text("Match Date: \(formatMatchDate(matchDate))")
+                
+                // 2. Metadata Row (Dates/Position Left <-> Privacy Right)
+                HStack(alignment: .center, spacing: 0) {
+                    
+                    // Left: Scrollable Metadata (Dates & Position)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            // A. Post Date
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock")
+                                Text(formatTimestampString(post.timestamp))
+                            }
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(BrandColors.lightGray.opacity(0.5))
+                            .cornerRadius(8)
+                            
+                            // B. Match Date (Optional)
+                            if let matchDate = post.matchDate {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "calendar")
+                                    Text(formatMatchDate(matchDate))
+                                }
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(BrandColors.lightGray.opacity(0.5))
+                                .cornerRadius(8)
+                            }
+                            
+                            // C. Played Position (Optional)
+                            if !post.positionAtUpload.isEmpty {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "figure.soccer")
+                                    Text(post.positionAtUpload)
+                                }
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(accentColor)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(accentColor.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+                    
+                    // Push Privacy Toggle to the far right
+                    Spacer(minLength: 8)
+                    
+                    // D. Privacy Toggle (Owner Only, Fixed Right)
+                    if isOwner {
+                        Button(action: { showPrivacyAlert = true }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
+                                Text(post.isPrivate ? "Private" : "Public")
+                            }
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(post.isPrivate ? .red : accentColor)
+                        }
+                    }
                 }
-                .font(.system(size: 12, design: .rounded))
-                .foregroundColor(.secondary)
                 .padding(.top, 4)
             }
-            
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "pencil.and.outline")
-                    Text("Post Date: \(formatTimestampString(post.timestamp))")
-                }
-                
-                Spacer()
-                
-                if isOwner {
-                    Button(action: { showPrivacyAlert = true }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: post.isPrivate ? "lock.fill" : "lock.open.fill")
-                            Text(post.isPrivate ? "Private" : "Public")
-                        }
-                        .foregroundColor(post.isPrivate ? .red : accentColor)
-                    }
+            .padding()
+            .background(BrandColors.background)
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+            .onChange(of: editedCaption) { _, newVal in
+                if newVal.count > captionLimit {
+                    editedCaption = String(newVal.prefix(captionLimit))
                 }
             }
-            .font(.system(size: 12, design: .rounded))
-            .foregroundColor(.secondary)
-            .padding(.top, 4)
         }
-        .padding()
-        .background(BrandColors.background)
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
-        .onChange(of: editedCaption) { _, newVal in
-            if newVal.count > captionLimit {
-                editedCaption = String(newVal.prefix(captionLimit))
-            }
-        }
-    }
 
     private var authorInfoAndInteractions: some View {
         HStack {
@@ -569,16 +600,44 @@ struct PostDetailView: View {
     }
     
     private func toggleVisibility() {
+        // Optimistic update
         post.isPrivate.toggle()
+        
         Task {
-            guard let postId = post.id else { return }
+            guard let postId = post.id, let uid = Auth.auth().currentUser?.uid else { return }
+            let db = Firestore.firestore()
+            let postRef = db.collection("videoPosts").document(postId)
+            let profileRef = db.collection("users").document(uid).collection("player").document("profile")
+            
+            // Get data needed for logic
+            let score = post.postScore
+            let positionKey = post.positionAtUpload
+            // If position is missing (old posts), default to current profile position or skip
+            let key = positionKey.isEmpty ? (authorProfile.position.isEmpty ? "Unassigned" : authorProfile.position) : positionKey
+
             do {
-                // Update the `visibility` field to the inverse of isPrivate.
-                try await Firestore.firestore().collection("videoPosts").document(postId)
-                    .updateData(["visibility": !post.isPrivate])
+                try await db.runTransaction({ (transaction, errorPointer) -> Any? in
+                    // 1. Update Post Visibility
+                    transaction.updateData(["visibility": !post.isPrivate], forDocument: postRef)
+                    
+                    // 2. Update Profile Stats Atomically
+                    // If we just turned it PRIVATE (isPrivate is true), we SUBTRACT
+                    // If we just turned it PUBLIC (isPrivate is false), we ADD
+                    let multiplier: Double = post.isPrivate ? -1.0 : 1.0
+                    
+                    let fieldPathScore = "positionStats.\(key).totalScore"
+                    let fieldPathCount = "positionStats.\(key).postCount"
+                    
+                    transaction.updateData([
+                        fieldPathScore: FieldValue.increment(score * multiplier),
+                        fieldPathCount: FieldValue.increment(Int64(1 * Int(multiplier)))
+                    ], forDocument: profileRef)
+                    
+                    return nil
+                })
             } catch {
-                print("Error updating post visibility: \(error.localizedDescription)")
-                post.isPrivate.toggle()
+                print("Error toggling visibility: \(error.localizedDescription)")
+                post.isPrivate.toggle() // Revert on failure
             }
         }
     }

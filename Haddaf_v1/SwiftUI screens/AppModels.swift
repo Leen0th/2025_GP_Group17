@@ -59,6 +59,12 @@ struct VideoPickerTransferable: Transferable {
 
 // MARK: - Player View Model
 
+// Position Stats
+struct PositionStatData: Codable {
+    var totalScore: Double
+    var postCount: Int
+}
+
 // Holds all the data for a user's profile before retriving from database
 class UserProfile: ObservableObject {
     @Published var name = "Loading..."
@@ -69,7 +75,10 @@ class UserProfile: ObservableObject {
     @Published var height = ""
     @Published var team = ""
     @Published var rank = ""
+    // CHANGED: This is now the calculated average for the UI
     @Published var score = ""
+    // NEW: Stores the raw stats map from Firestore
+    @Published var positionStats: [String: PositionStatData] = [:]
     @Published var location = ""
     @Published var email = ""
     @Published var phoneNumber: String = ""
@@ -151,6 +160,9 @@ struct Post: Identifiable, Equatable {
     var isLikedByUser: Bool
     var stats: [PostStat]?
     var matchDate: Date?
+    // NEW
+    var postScore: Double = 0.0
+    var positionAtUpload: String = ""
 }
 
 // MARK: - Enums

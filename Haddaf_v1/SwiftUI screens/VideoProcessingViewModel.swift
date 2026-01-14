@@ -4,6 +4,7 @@ import AVFoundation
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
+
 @MainActor
 class VideoProcessingViewModel: ObservableObject {
     // UI state
@@ -38,6 +39,9 @@ class VideoProcessingViewModel: ObservableObject {
     //  Railway API URL
     private let apiURL = "https://footballanalysis-production.up.railway.app/analyze"
     
+    // Helper to store the user's current position for the default selection
+    static var sharedUserPosition: String?
+
     // MARK: - Processing pipeline
     func processVideo(url: URL, pinpoint: CGPoint, frameWidth: CGFloat, frameHeight: CGFloat) async {
         isProcessing = true
@@ -317,28 +321,38 @@ class VideoProcessingViewModel: ObservableObject {
             throw error
         }
     }
-    // MARK: - Create post
-    func createPost(title: String, isPrivate: Bool, matchDate: Date?) async throws {
+
+    // MARK: - Create post (Phase 1 Logic Applied)
+    func createPost(title: String, isPrivate: Bool, matchDate: Date?, positionAtUpload: String) async throws {
         // 1 Enter upload mode and reset the upload progress bar.
-        self.isUploading = true
-        self.uploadProgress = 0.0
+        await MainActor.run {
+            self.isUploading = true
+            self.uploadProgress = 0.0
+        }
+        
         // 2 Ensure there is a signed-in user before creating a post.
         guard let uid = Auth.auth().currentUser?.uid else {
-            self.isUploading = false
+            await MainActor.run { self.isUploading = false }
             throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
+        
         // 3 Ensure that both the analyzed video URL and thumbnail image are available.
         guard let localVideoURL = videoURL, let thumb = thumbnail else {
-            self.isUploading = false
+            await MainActor.run { self.isUploading = false }
             throw NSError(domain: "Upload", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing video or thumbnail data."])
         }
+        
         // 4 Move the progress bar slightly to indicate that the upload has started.
-        self.uploadProgress = 0.1
+        await MainActor.run { self.uploadProgress = 0.1 }
+        
         // 5 Generate a unique post ID that will be used for Storage and Firestore.
         let postID = UUID().uuidString
+        
         // 6 Upload the video and thumbnail to Firebase Storage and get their download URLs.
         let (videoDL, thumbDL) = try await uploadFiles(videoURL: localVideoURL, thumbnail: thumb, userID: uid, postID: postID)
-        self.uploadProgress = 0.6
+        
+        await MainActor.run { self.uploadProgress = 0.6 }
+        
         let userRef = db.collection("users").document(uid)
         let userDoc = try await userRef.getDocument()
         let data = userDoc.data() ?? [:]
@@ -346,7 +360,13 @@ class VideoProcessingViewModel: ObservableObject {
         let last  = (data["lastName"]  as? String) ?? ""
         let authorUsername = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
         let profilePic = (data["profilePic"] as? String) ?? ""
-        self.uploadProgress = 0.7
+        
+        await MainActor.run { self.uploadProgress = 0.7 }
+        
+        // PHASE 1: Score Calculation
+        // Calculate the score immediately using the stats and the position selected for this video
+        let calculatedScore = calculateScore(stats: self.performanceStats, position: positionAtUpload)
+        
         //Convert performanceStats into a Firestore-friendly dictionary array.
         let performanceFeedbackData = self.performanceStats.map { stat -> [String: Any] in
             return [
@@ -355,6 +375,11 @@ class VideoProcessingViewModel: ObservableObject {
                 "maxValue": stat.maxValue
             ]
         }
+        
+        // Use a Batch Write to ensure Post creation and Profile Stats update happen together
+        let batch = db.batch()
+        
+        // Prepare Post Data
         let postRef = db.collection("videoPosts").document(postID)
         var postData: [String: Any] = [
             "authorId": userRef,
@@ -363,21 +388,44 @@ class VideoProcessingViewModel: ObservableObject {
             "caption": title,
             "url": videoDL.absoluteString,
             "thumbnailURL": thumbDL.absoluteString,
-            "uploadDateTime": Timestamp(date: Date()),
+            "uploadDateTime": FieldValue.serverTimestamp(),
             "visibility": !isPrivate,
             "likeCount": 0,
             "commentCount": 0,
             "likedBy": [],
-            // --- Add the feedback data directly to the post document ---
-            "performanceFeedback": performanceFeedbackData
+            "performanceFeedback": performanceFeedbackData,
+            
+            // NEW FIELDS for Logic
+            "postScore": calculatedScore,
+            "positionAtUpload": positionAtUpload
         ]
         
         if let matchDate = matchDate {
             postData["matchDate"] = Timestamp(date: matchDate)
         }
         
-        try await postRef.setData(postData)
-        self.uploadProgress = 0.9
+        batch.setData(postData, forDocument: postRef)
+        
+        // PHASE 1: Atomic Increment (Only if Public)
+        if !isPrivate {
+            let profileRef = db.collection("users").document(uid)
+                .collection("player").document("profile")
+            
+            // Increment totalScore and postCount for the SPECIFIC position map key
+            // Note: We cast calculatedScore to Double just to be sure, though it is already Double.
+            let updates: [String: Any] = [
+                "positionStats.\(positionAtUpload).totalScore": FieldValue.increment(calculatedScore),
+                "positionStats.\(positionAtUpload).postCount": FieldValue.increment(Int64(1))
+            ]
+            // This creates the 'positionStats' map if it doesn't exist yet.
+            batch.setData(updates, forDocument: profileRef, merge: true)
+        }
+        
+        // Commit the batch
+        try await batch.commit()
+        
+        await MainActor.run { self.uploadProgress = 0.9 }
+        
         // --- Add maxValue to the PostStat initializer ---
         let postStats = self.performanceStats.map { s in
             // Create the PostStat model (for the notification) using all required fields
@@ -398,14 +446,48 @@ class VideoProcessingViewModel: ObservableObject {
             commentCount: 0,
             likedBy: [],
             isLikedByUser: false,
-            stats: postStats, // this 'postStats' object is correctly formed
-            matchDate: matchDate
+            stats: postStats,
+            matchDate: matchDate,
+            
+            // Local model update
+            postScore: calculatedScore,
+            positionAtUpload: positionAtUpload
         )
         NotificationCenter.default.post(name: .postCreated, object: nil, userInfo: ["post": newPost])
         
-        self.uploadProgress = 1.0
-        self.isUploading = false
+        await MainActor.run {
+            self.uploadProgress = 1.0
+            self.isUploading = false
+        }
     }
+    
+    // PHASE 1: Weight Matrix Logic
+    private func calculateScore(stats: [PFPostStat], position: String) -> Double {
+        var total = 0.0
+        
+        // Weights based on position
+        let passWeight: Double
+        let dribbleWeight: Double
+        let shootWeight: Double
+        
+        switch position {
+        case "Attacker":   (passWeight, dribbleWeight, shootWeight) = (1, 5, 10)
+        case "Midfielder": (passWeight, dribbleWeight, shootWeight) = (10, 5, 1)
+        case "Defender":   (passWeight, dribbleWeight, shootWeight) = (5, 10, 1)
+        default:           (passWeight, dribbleWeight, shootWeight) = (1, 1, 1) // Fallback
+        }
+        
+        for stat in stats {
+            switch stat.label.lowercased() {
+            case "pass": total += Double(stat.value) * passWeight
+            case "dribble": total += Double(stat.value) * dribbleWeight
+            case "shoot": total += Double(stat.value) * shootWeight
+            default: break
+            }
+        }
+        return total
+    }
+
     func resetAfterPosting() {
         processingComplete = false
         videoURL = nil
