@@ -9,6 +9,15 @@ extension Notification.Name {
     static let profileUpdated = Notification.Name("profileUpdated")
 }
 
+// MARK: - Score Filter Enum
+enum ScoreFilter: String, CaseIterable, Identifiable {
+    case `public` = "Public Score"
+    case `private` = "Private Score"
+    case both = "Total Score (All)"
+    
+    var id: String { rawValue }
+}
+
 // MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
     // The view model responsible for fetching and managing all profile data
@@ -17,6 +26,8 @@ struct PlayerProfileContentView: View {
     @State private var selectedContent: ContentType = .posts
     // Controls the visibility of the popup explaining the score calculation
     @State private var showScoreInfoAlert = false
+    // Score Filter State
+    @State private var selectedScoreFilter: ScoreFilter = .public
 
     // Defines the 3-column layout for the posts grid
     private let postColumns = [
@@ -190,8 +201,14 @@ struct PlayerProfileContentView: View {
                             .padding(.bottom, 0)
                             .zIndex(1)
 
-                        StatsGridView(userProfile: viewModel.userProfile, showScoreInfoAlert: $showScoreInfoAlert)
-                            .zIndex(0)
+                        StatsGridView(
+                            userProfile: viewModel.userProfile,
+                            posts: viewModel.posts,
+                            isCurrentUser: isCurrentUser,
+                            selectedFilter: $selectedScoreFilter,
+                            showScoreInfoAlert: $showScoreInfoAlert
+                        )
+                        .zIndex(0)
                        
                         ContentTabView(selectedContent: $selectedContent, isCurrentUser: isCurrentUser)
 
@@ -662,13 +679,19 @@ struct ProfileHeaderView: View {
 
 // MARK: - Stats Grid
 // The main grid of stats on the profile, including the hero score and user-provided details
+// MARK: - Stats Grid (UPDATED)
 struct StatsGridView: View {
     // The profile data to display.
     @ObservedObject var userProfile: UserProfile
     
+    // NEW Params for dynamic calculation
+    var posts: [Post]
+    var isCurrentUser: Bool
+    @Binding var selectedFilter: ScoreFilter
+    
     // --- Dropdown States ---
     @State private var showContactInfo = false
-    @State private var showOtherPositions = false // NEW: For past positions
+    @State private var showOtherPositions = false
     
     // A binding to control the "Score Info" popup.
     @Binding var showScoreInfoAlert: Bool
@@ -676,32 +699,83 @@ struct StatsGridView: View {
     let accentColor = BrandColors.darkTeal
     let goldColor = BrandColors.gold
 
-    // --- LOGIC: Hero Score Calculation ---
-    // Calculates the score ONLY for the user's current position.
-    // Formula: TotalScore / PostCount
+    // --- LOGIC: Dynamic Hero Score Calculation ---
     var currentPositionScore: String {
-        // Safe check: Do we have stats for the current position?
-        guard let stat = userProfile.positionStats[userProfile.position], stat.postCount > 0 else {
-            return "0"
+        // If not current user, default to standard public calculation from map
+        if !isCurrentUser {
+            guard let stat = userProfile.positionStats[userProfile.position], stat.postCount > 0 else {
+                return "0"
+            }
+            let avg = stat.totalScore / Double(stat.postCount)
+            return String(format: "%.0f", avg)
         }
-        // Calculate Average
-        let avg = stat.totalScore / Double(stat.postCount)
+        
+        // For current user, calculate dynamically from posts array
+        let currentPos = userProfile.position
+        if currentPos.isEmpty { return "0" }
+        
+        // 1. Filter posts
+        let relevantPosts = posts.filter { post in
+            guard post.positionAtUpload == currentPos else { return false }
+            switch selectedFilter {
+            case .public: return !post.isPrivate
+            case .private: return post.isPrivate
+            case .both: return true
+            }
+        }
+        
+        if relevantPosts.isEmpty { return "0" }
+        
+        // 2. Average Calculation
+        let totalScore = relevantPosts.reduce(0.0) { $0 + $1.postScore }
+        let avg = totalScore / Double(relevantPosts.count)
+        
         return String(format: "%.0f", avg)
     }
     
-    // --- LOGIC: Other Positions Calculation ---
-    // Finds all stats that do NOT match the current position.
-    var otherPositionStats: [(position: String, score: String)] {
-        userProfile.positionStats
-            .filter { $0.key != userProfile.position && $0.value.postCount > 0 }
-            .map { key, stat in
+    // --- LOGIC: Other Positions Calculation (Public & Private) ---
+    var otherPositionStats: [(position: String, publicScore: String, privateScore: String)] {
+        let postPositions = Set(posts.map { $0.positionAtUpload }.filter { !$0.isEmpty })
+        let mapPositions = Set(userProfile.positionStats.keys)
+        let allPositions = postPositions.union(mapPositions).filter { $0 != userProfile.position }
+        
+        return allPositions.compactMap { pos in
+            let posPosts = posts.filter { $0.positionAtUpload == pos }
+            
+            // Public
+            let publicPosts = posPosts.filter { !$0.isPrivate }
+            let pubScoreStr: String
+            if !publicPosts.isEmpty {
+                let total = publicPosts.reduce(0.0) { $0 + $1.postScore }
+                pubScoreStr = String(format: "%.0f", total / Double(publicPosts.count))
+            } else if let stat = userProfile.positionStats[pos], stat.postCount > 0 {
                 let avg = stat.totalScore / Double(stat.postCount)
-                return (key, String(format: "%.0f", avg))
+                pubScoreStr = String(format: "%.0f", avg)
+            } else {
+                pubScoreStr = "-"
             }
-            .sorted { $0.0 < $1.0 } // Sort alphabetically
+            
+            // Private
+            let privScoreStr: String
+            if isCurrentUser {
+                let privatePosts = posPosts.filter { $0.isPrivate }
+                if !privatePosts.isEmpty {
+                    let total = privatePosts.reduce(0.0) { $0 + $1.postScore }
+                    privScoreStr = String(format: "%.0f", total / Double(privatePosts.count))
+                } else {
+                    privScoreStr = "-"
+                }
+            } else {
+                privScoreStr = "-"
+            }
+            
+            if pubScoreStr == "-" && privScoreStr == "-" { return nil }
+            return (pos, pubScoreStr, privScoreStr)
+        }
+        .sorted { $0.position < $1.position }
     }
 
-    // A small view for a single user-provided stat (e.g., Weight, Height).
+    // --- Components ---
     @ViewBuilder
     private func UserStatItem(title: String, value: String) -> some View {
         VStack(spacing: 4) {
@@ -716,7 +790,6 @@ struct StatsGridView: View {
         }
     }
     
-    // A view for a system-provided stat (e.g., Team, Rank).
     @ViewBuilder
     private func SystemStatItem(title: String, value: String) -> some View {
         VStack(spacing: 2) {
@@ -735,30 +808,42 @@ struct StatsGridView: View {
     var body: some View {
         VStack(spacing: 18) {
 
-            // --- 1. Hero Stat (Current Position Score) ---
+            // 1. Hero Stat
             VStack(spacing: 8) {
-                
                 HStack(spacing: 8) {
-                    Text("Performance Score")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(accentColor)
+                    if isCurrentUser {
+                        Menu {
+                            Picker("Score Filter", selection: $selectedFilter) {
+                                ForEach(ScoreFilter.allCases) { filter in
+                                    Text(filter.rawValue).tag(filter)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(selectedFilter.rawValue)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(accentColor)
+                        }
+                    } else {
+                        Text("Performance Score")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(accentColor)
+                    }
                     
-                    // Info button to trigger the popup
-                    Button {
-                        showScoreInfoAlert = true
-                    } label: {
+                    Button { showScoreInfoAlert = true } label: {
                         Image(systemName: "info.circle")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundColor(accentColor)
                     }
                 }
 
-                // CHANGED: Uses calculated 'currentPositionScore'
                 Text(currentPositionScore)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                     .foregroundColor(goldColor)
                 
-                // Optional: Show the position name below the score for clarity
                 if !userProfile.position.isEmpty {
                     Text(userProfile.position)
                         .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -767,10 +852,9 @@ struct StatsGridView: View {
             }
             .padding(.top, 10)
 
-            // --- 2. User-Provided Stats ---
+            // 2. User-Provided Stats
             HStack(alignment: .top) {
                 Spacer(minLength: 3)
-                // Note: Position is still shown here as per original design
                 UserStatItem(title: "POSITION", value: userProfile.position)
                 Spacer(minLength: 3)
                 UserStatItem(title: "AGE", value: userProfile.age)
@@ -786,7 +870,7 @@ struct StatsGridView: View {
 
             Divider().padding(.horizontal)
 
-            // --- 3. System Stats ---
+            // 3. System Stats
             HStack(alignment: .top) {
                 Spacer()
                 SystemStatItem(title: "Team", value: userProfile.team)
@@ -794,76 +878,103 @@ struct StatsGridView: View {
                 SystemStatItem(title: "Challenge Rank", value: userProfile.rank)
                 Spacer()
             }
-               .padding(.horizontal, 20)
+            .padding(.horizontal, 20)
             
-            // --- 4. NEW: Past Positions Dropdown ---
-            // Only show if there are stats for other positions
-            if !otherPositionStats.isEmpty {
-                Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Text(showOtherPositions ? "Hide other positions" : "Show other positions")
-                        Image(systemName: showOtherPositions ? "chevron.up" : "chevron.down")
-                    }
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(accentColor)
-                    .padding(.top, 4)
-                }
-
-                if showOtherPositions {
-                    VStack(alignment: .center, spacing: 12) {
-                        ForEach(otherPositionStats, id: \.position) { item in
-                            HStack {
-                                // Position Name
-                                Text(item.position)
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(BrandColors.darkGray)
-                                
-                                Spacer()
-                                
-                                // Position Score
-                                Text(item.score)
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundColor(accentColor)
+            // 4. Horizontal Container for Dropdowns
+            HStack(alignment: .top, spacing: 0) {
+                
+                // --- Left Side: Past Positions ---
+                if !otherPositionStats.isEmpty {
+                    VStack(alignment: .center, spacing: 10) {
+                        Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
+                            HStack(spacing: 4) {
+                                Text(showOtherPositions ? "Hide Past" : "Past Positions")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                Image(systemName: showOtherPositions ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
                             }
-                            .padding(.horizontal, 40) // Indent slightly
+                            .foregroundColor(accentColor)
+                        }
+                        
+                        if showOtherPositions {
+                            VStack(spacing: 12) {
+                                ForEach(otherPositionStats, id: \.position) { item in
+                                    VStack(spacing: 4) {
+                                        // Position Name
+                                        Text(item.position)
+                                            .font(.system(size: 12, weight: .medium, design: .rounded)) // MATCHES CONTACT FONT
+                                            .foregroundColor(BrandColors.darkGray)
+                                        
+                                        // Score Pills
+                                        HStack(spacing: 6) {
+                                            // Public
+                                            if item.publicScore != "-" {
+                                                Text("Pub: \(item.publicScore)")
+                                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                    .foregroundColor(BrandColors.darkGray)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(goldColor.opacity(0.3))
+                                                    .cornerRadius(6)
+                                            }
+                                            
+                                            // Private
+                                            if item.privateScore != "-" {
+                                                Text("Pvt: \(item.privateScore)")
+                                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(accentColor.opacity(0.8))
+                                                    .cornerRadius(6)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 4)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
+                }
+
+                // Vertical Divider
+                if !otherPositionStats.isEmpty && (userProfile.isEmailVisible || userProfile.isPhoneNumberVisible) {
+                    Divider()
+                        .frame(height: 20)
+                        .padding(.top, 4)
                 }
                 
-                // Add a small divider if both dropdowns are visible
+                // --- Right Side: Contact Info ---
                 if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
-                    Divider().padding(.horizontal, 60).opacity(0.5)
-                }
-            }
-
-            // --- 5. Contact Info Dropdown ---
-            if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
-                Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Text(showContactInfo ? "Hide contact info" : "Show contact info")
-                        Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
-                    }
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(accentColor)
-                    .padding(.top, 8)
-                }
-
-                if showContactInfo {
-                    VStack(alignment: .center, spacing: 12) {
-                        if userProfile.isEmailVisible {
-                            contactItem(icon: "envelope.fill", value: userProfile.email)
+                    VStack(alignment: .center, spacing: 10) {
+                        Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
+                            HStack(spacing: 4) {
+                                Text(showContactInfo ? "Hide Contact" : "Contact Info")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(accentColor)
                         }
-                        if userProfile.isPhoneNumberVisible {
-                            contactItem(icon: "phone.fill", value: userProfile.phoneNumber)
+                        
+                        if showContactInfo {
+                            VStack(spacing: 8) {
+                                if userProfile.isEmailVisible {
+                                    contactItem(icon: "envelope.fill", value: userProfile.email)
+                                }
+                                if userProfile.isPhoneNumberVisible {
+                                    contactItem(icon: "phone.fill", value: userProfile.phoneNumber)
+                                }
+                            }
+                            .padding(.bottom, 4)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
                 }
             }
+            .padding(.top, 4)
+            .padding(.horizontal)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 25)
@@ -875,16 +986,18 @@ struct StatsGridView: View {
         .padding(.horizontal)
     }
 
-    // A small view for displaying a contact detail (email or phone) with an icon.
+    // A small view for displaying a contact detail
     private func contactItem(icon: String, value: String) -> some View {
         HStack {
             Image(systemName: icon)
-                .font(.system(size: 14, design: .rounded))
+                .font(.system(size: 12, design: .rounded))
                 .foregroundColor(accentColor)
-                .frame(width: 20)
+                .frame(width: 16)
             Text(value)
-                .font(.system(size: 14, design: .rounded))
+                .font(.system(size: 12, weight: .medium, design: .rounded)) // UNIFIED FONT
                 .foregroundColor(BrandColors.darkGray)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 }
