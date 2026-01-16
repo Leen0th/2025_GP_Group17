@@ -9,6 +9,15 @@ extension Notification.Name {
     static let profileUpdated = Notification.Name("profileUpdated")
 }
 
+// MARK: - Score Filter Enum
+enum ScoreFilter: String, CaseIterable, Identifiable {
+    case `public` = "Public Score"
+    case `private` = "Private Score"
+    case both = "Total Score (All)"
+    
+    var id: String { rawValue }
+}
+
 // MARK: - Main Profile Content View
 struct PlayerProfileContentView: View {
     // The view model responsible for fetching and managing all profile data
@@ -17,6 +26,8 @@ struct PlayerProfileContentView: View {
     @State private var selectedContent: ContentType = .posts
     // Controls the visibility of the popup explaining the score calculation
     @State private var showScoreInfoAlert = false
+    // Score Filter State
+    @State private var selectedScoreFilter: ScoreFilter = .public
 
     // Defines the 3-column layout for the posts grid
     private let postColumns = [
@@ -70,6 +81,10 @@ struct PlayerProfileContentView: View {
     
     // The text entered into the post search bar
     @State private var searchText = ""
+    
+    // Search Date Filters
+    @State private var searchDate: Date? = nil
+    @State private var showSearchDatePicker = false
 
     // Stores the item (profile or post) to be reported, triggering the `ReportView` sheet
     @State private var itemToReport: ReportableItem?
@@ -96,41 +111,50 @@ struct PlayerProfileContentView: View {
 
     // Filters the posts by `searchText` and `postFilter` then sorts them based on `postSort` preferences
     private var filteredAndSortedPosts: [Post] {
-        // 1. Filter by search text
-        let searched: [Post]
-        if searchText.isEmpty {
-            searched = viewModel.posts
-        } else {
-            searched = viewModel.posts.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
+        // Start with all posts
+        var result = viewModel.posts
+
+        // 1. Filter by Caption (Text)
+        if !searchText.isEmpty {
+            result = result.filter { $0.caption.localizedCaseInsensitiveContains(searchText) }
+        }
+        
+        // 2. Filter by Match Date (Calendar Picker)
+        if let targetDate = searchDate {
+            result = result.filter { post in
+                guard let pDate = post.matchDate else { return false }
+                // Compare Year, Month, Day (ignoring time)
+                return Calendar.current.isDate(pDate, inSameDayAs: targetDate)
+            }
         }
 
-        // 2. Filter by privacy (if current user)
-        let filtered: [Post]
+        // 3. Filter by Privacy (if current user)
+        let privacyFiltered: [Post]
         if isCurrentUser {
             switch postFilter {
-            case .all: filtered = searched
-            case .public: filtered = searched.filter { !$0.isPrivate }
-            case .private: filtered = searched.filter { $0.isPrivate }
+            case .all: privacyFiltered = result
+            case .public: privacyFiltered = result.filter { !$0.isPrivate }
+            case .private: privacyFiltered = result.filter { $0.isPrivate }
             }
         } else {
             // Other users can only see public posts
-            filtered = searched.filter { !$0.isPrivate }
+            privacyFiltered = result.filter { !$0.isPrivate }
         }
 
-        // 3. Sort the results
+        // 4. Sort the results
         switch postSort {
         case .newestFirst:
-            return filtered
+            return privacyFiltered
         case .oldestFirst:
-            return filtered.reversed()
+            return privacyFiltered.reversed()
         case .matchDateNewest:
-            return filtered.sorted {
+            return privacyFiltered.sorted {
                 guard let d1 = $0.matchDate else { return false }
                 guard let d2 = $1.matchDate else { return true }
                 return d1 > d2
             }
         case .matchDateOldest:
-            return filtered.sorted {
+            return privacyFiltered.sorted {
                 guard let d1 = $0.matchDate else { return false }
                 guard let d2 = $1.matchDate else { return true }
                 return d1 < d2
@@ -177,28 +201,59 @@ struct PlayerProfileContentView: View {
                             .padding(.bottom, 0)
                             .zIndex(1)
 
-                        StatsGridView(userProfile: viewModel.userProfile, showScoreInfoAlert: $showScoreInfoAlert)
-                            .zIndex(0)
+                        StatsGridView(
+                            userProfile: viewModel.userProfile,
+                            posts: viewModel.posts,
+                            isCurrentUser: isCurrentUser,
+                            selectedFilter: $selectedScoreFilter,
+                            showScoreInfoAlert: $showScoreInfoAlert
+                        )
+                        .zIndex(0)
                        
                         ContentTabView(selectedContent: $selectedContent, isCurrentUser: isCurrentUser)
 
                         // MARK: - Tab Content
                         switch selectedContent {
                         case .posts:
-                            // Search Bar for posts
-                                HStack(spacing: 8) {
+                                // Search Bar with Calendar
+                                HStack(spacing: 12) {
+                                    // Magnifying Glass
                                     Image(systemName: "magnifyingglass")
                                         .foregroundColor(BrandColors.darkTeal)
                                         .padding(.leading, 12)
                                
+                                    // Text Field
                                     TextField("Search by title...", text: $searchText)
                                         .font(.system(size: 16, design: .rounded))
                                         .tint(BrandColors.darkTeal)
                                         .submitLabel(.search)
+                                    
+                                    // Vertical Divider
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(width: 1, height: 20)
+                                    
+                                    // Calendar Button
+                                    Button {
+                                        showSearchDatePicker = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "calendar")
+                                            // If date selected, show day/month
+                                            if let d = searchDate {
+                                                Text(d.formatted(.dateTime.day().month()))
+                                                    .font(.caption).bold()
+                                            }
+                                        }
+                                        .foregroundColor(searchDate == nil ? .secondary : BrandColors.darkTeal)
+                                        .padding(.vertical, 4)
+                                    }
                                
-                                    if !searchText.isEmpty {
+                                    // Clear Button (Clears both Text and Date)
+                                    if !searchText.isEmpty || searchDate != nil {
                                         Button {
                                             searchText = ""
+                                            searchDate = nil
                                             // Dismiss keyboard
                                             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                         } label: {
@@ -206,6 +261,8 @@ struct PlayerProfileContentView: View {
                                                 .foregroundColor(.secondary)
                                         }
                                         .padding(.trailing, 8)
+                                    } else {
+                                        Spacer().frame(width: 8)
                                     }
                                 }
                                 .padding(.vertical, 12)
@@ -218,8 +275,8 @@ struct PlayerProfileContentView: View {
                                 postControls(isCurrentUser: isCurrentUser)
                                     .padding(.horizontal)
                             
-                            postsGrid
-                                .padding(.horizontal)
+                                postsGrid
+                                    .padding(.horizontal)
                        
                         case .progress:
                             // ProgressTabView() // <-- Placeholder commented out
@@ -241,7 +298,7 @@ struct PlayerProfileContentView: View {
             .onChange(of: viewModel.userProfile.position) { _, _ in
                 // If the user's position changes (in EditProfile), recalculate the score
                 Task {
-                    await viewModel.calculateAndUpdateScore()
+                    await viewModel.fetchProfile()
                 }
             }
             // MARK: - Notification Listeners
@@ -288,6 +345,45 @@ struct PlayerProfileContentView: View {
             }
             .fullScreenCover(isPresented: $showNotificationsList) {
                 ProfileNotificationsListView()
+            }
+            // Search Date Picker Sheet
+            .sheet(isPresented: $showSearchDatePicker) {
+                VStack(spacing: 20) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 40, height: 5)
+                        .padding(.top, 10)
+                    
+                    Text("Filter by Match Date")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.darkTeal)
+                        .padding(.top, 10)
+                    
+                    DatePicker("Select Date", selection: Binding(
+                        get: { searchDate ?? Date() },
+                        set: { searchDate = $0 }
+                    ), displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .tint(BrandColors.darkTeal)
+                    .padding(.horizontal)
+                    
+                    Button {
+                        showSearchDatePicker = false
+                    } label: {
+                        Text("Apply Filter")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(BrandColors.darkTeal)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                }
+                .presentationDetents([.medium])
+                .presentationCornerRadius(25)
+                .presentationBackground(BrandColors.background)
             }
             // --- Open Post Detail view ---
             .fullScreenCover(item: $selectedPost) { post in
@@ -583,18 +679,103 @@ struct ProfileHeaderView: View {
 
 // MARK: - Stats Grid
 // The main grid of stats on the profile, including the hero score and user-provided details
+// MARK: - Stats Grid (UPDATED)
 struct StatsGridView: View {
     // The profile data to display.
     @ObservedObject var userProfile: UserProfile
-    // `true` to show the contact info (email/phone) dropdown.
+    
+    // NEW Params for dynamic calculation
+    var posts: [Post]
+    var isCurrentUser: Bool
+    @Binding var selectedFilter: ScoreFilter
+    
+    // --- Dropdown States ---
     @State private var showContactInfo = false
+    @State private var showOtherPositions = false
+    
     // A binding to control the "Score Info" popup.
     @Binding var showScoreInfoAlert: Bool
     
     let accentColor = BrandColors.darkTeal
     let goldColor = BrandColors.gold
 
-    // A small view for a single user-provided stat (e.g., Weight, Height).
+    // --- LOGIC: Dynamic Hero Score Calculation ---
+    var currentPositionScore: String {
+        // If not current user, default to standard public calculation from map
+        if !isCurrentUser {
+            guard let stat = userProfile.positionStats[userProfile.position], stat.postCount > 0 else {
+                return "0"
+            }
+            let avg = stat.totalScore / Double(stat.postCount)
+            return String(format: "%.0f", avg)
+        }
+        
+        // For current user, calculate dynamically from posts array
+        let currentPos = userProfile.position
+        if currentPos.isEmpty { return "0" }
+        
+        // 1. Filter posts
+        let relevantPosts = posts.filter { post in
+            guard post.positionAtUpload == currentPos else { return false }
+            switch selectedFilter {
+            case .public: return !post.isPrivate
+            case .private: return post.isPrivate
+            case .both: return true
+            }
+        }
+        
+        if relevantPosts.isEmpty { return "0" }
+        
+        // 2. Average Calculation
+        let totalScore = relevantPosts.reduce(0.0) { $0 + $1.postScore }
+        let avg = totalScore / Double(relevantPosts.count)
+        
+        return String(format: "%.0f", avg)
+    }
+    
+    // --- LOGIC: Other Positions Calculation (Public & Private) ---
+    var otherPositionStats: [(position: String, publicScore: String, privateScore: String)] {
+        let postPositions = Set(posts.map { $0.positionAtUpload }.filter { !$0.isEmpty })
+        let mapPositions = Set(userProfile.positionStats.keys)
+        let allPositions = postPositions.union(mapPositions).filter { $0 != userProfile.position }
+        
+        return allPositions.compactMap { pos in
+            let posPosts = posts.filter { $0.positionAtUpload == pos }
+            
+            // Public
+            let publicPosts = posPosts.filter { !$0.isPrivate }
+            let pubScoreStr: String
+            if !publicPosts.isEmpty {
+                let total = publicPosts.reduce(0.0) { $0 + $1.postScore }
+                pubScoreStr = String(format: "%.0f", total / Double(publicPosts.count))
+            } else if let stat = userProfile.positionStats[pos], stat.postCount > 0 {
+                let avg = stat.totalScore / Double(stat.postCount)
+                pubScoreStr = String(format: "%.0f", avg)
+            } else {
+                pubScoreStr = "-"
+            }
+            
+            // Private
+            let privScoreStr: String
+            if isCurrentUser {
+                let privatePosts = posPosts.filter { $0.isPrivate }
+                if !privatePosts.isEmpty {
+                    let total = privatePosts.reduce(0.0) { $0 + $1.postScore }
+                    privScoreStr = String(format: "%.0f", total / Double(privatePosts.count))
+                } else {
+                    privScoreStr = "-"
+                }
+            } else {
+                privScoreStr = "-"
+            }
+            
+            if pubScoreStr == "-" && privScoreStr == "-" { return nil }
+            return (pos, pubScoreStr, privScoreStr)
+        }
+        .sorted { $0.position < $1.position }
+    }
+
+    // --- Components ---
     @ViewBuilder
     private func UserStatItem(title: String, value: String) -> some View {
         VStack(spacing: 4) {
@@ -609,7 +790,6 @@ struct StatsGridView: View {
         }
     }
     
-    // A view for a system-provided stat (e.g., Team, Rank).
     @ViewBuilder
     private func SystemStatItem(title: String, value: String) -> some View {
         VStack(spacing: 2) {
@@ -628,31 +808,51 @@ struct StatsGridView: View {
     var body: some View {
         VStack(spacing: 18) {
 
-            // --- 1. Hero Stat (Score) ---
+            // 1. Hero Stat
             VStack(spacing: 8) {
-                
                 HStack(spacing: 8) {
-                    Text("Performance Score")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(accentColor)
+                    if isCurrentUser {
+                        Menu {
+                            Picker("Score Filter", selection: $selectedFilter) {
+                                ForEach(ScoreFilter.allCases) { filter in
+                                    Text(filter.rawValue).tag(filter)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(selectedFilter.rawValue)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(accentColor)
+                        }
+                    } else {
+                        Text("Performance Score")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(accentColor)
+                    }
                     
-                    // Info button to trigger the popup
-                    Button {
-                        showScoreInfoAlert = true
-                    } label: {
+                    Button { showScoreInfoAlert = true } label: {
                         Image(systemName: "info.circle")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundColor(accentColor)
                     }
                 }
 
-                Text(userProfile.score.isEmpty ? "0" : userProfile.score)
+                Text(currentPositionScore)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                     .foregroundColor(goldColor)
+                
+                if !userProfile.position.isEmpty {
+                    Text(userProfile.position)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundColor(accentColor.opacity(0.6))
+                }
             }
             .padding(.top, 10)
 
-            // --- 2. User-Provided Stats ---
+            // 2. User-Provided Stats
             HStack(alignment: .top) {
                 Spacer(minLength: 3)
                 UserStatItem(title: "POSITION", value: userProfile.position)
@@ -670,7 +870,7 @@ struct StatsGridView: View {
 
             Divider().padding(.horizontal)
 
-            // --- 3. System Stats ---
+            // 3. System Stats
             HStack(alignment: .top) {
                 Spacer()
                 SystemStatItem(title: "Team", value: userProfile.team)
@@ -678,34 +878,103 @@ struct StatsGridView: View {
                 SystemStatItem(title: "Challenge Rank", value: userProfile.rank)
                 Spacer()
             }
-               .padding(.horizontal, 20)
-
-            // --- 4. Contact Info ---
-            if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
-                Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
-                    HStack(spacing: 4) {
-                        Text(showContactInfo ? "Show less" : "Show contact info")
-                        Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
+            .padding(.horizontal, 20)
+            
+            // 4. Horizontal Container for Dropdowns
+            HStack(alignment: .top, spacing: 0) {
+                
+                // --- Left Side: Past Positions ---
+                if !otherPositionStats.isEmpty {
+                    VStack(alignment: .center, spacing: 10) {
+                        Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
+                            HStack(spacing: 4) {
+                                Text(showOtherPositions ? "Hide Past" : "Past Positions")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                Image(systemName: showOtherPositions ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(accentColor)
+                        }
+                        
+                        if showOtherPositions {
+                            VStack(spacing: 12) {
+                                ForEach(otherPositionStats, id: \.position) { item in
+                                    VStack(spacing: 4) {
+                                        // Position Name
+                                        Text(item.position)
+                                            .font(.system(size: 12, weight: .medium, design: .rounded)) // MATCHES CONTACT FONT
+                                            .foregroundColor(BrandColors.darkGray)
+                                        
+                                        // Score Pills
+                                        HStack(spacing: 6) {
+                                            // Public
+                                            if item.publicScore != "-" {
+                                                Text("Pub: \(item.publicScore)")
+                                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                    .foregroundColor(BrandColors.darkGray)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(goldColor.opacity(0.3))
+                                                    .cornerRadius(6)
+                                            }
+                                            
+                                            // Private
+                                            if item.privateScore != "-" {
+                                                Text("Pvt: \(item.privateScore)")
+                                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(accentColor.opacity(0.8))
+                                                    .cornerRadius(6)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 4)
+                        }
                     }
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(accentColor)
-                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
                 }
 
-                if showContactInfo {
-                    VStack(alignment: .center, spacing: 12) {
-                        if userProfile.isEmailVisible {
-                            contactItem(icon: "envelope.fill", value: userProfile.email)
+                // Vertical Divider
+                if !otherPositionStats.isEmpty && (userProfile.isEmailVisible || userProfile.isPhoneNumberVisible) {
+                    Divider()
+                        .frame(height: 20)
+                        .padding(.top, 4)
+                }
+                
+                // --- Right Side: Contact Info ---
+                if userProfile.isEmailVisible || userProfile.isPhoneNumberVisible {
+                    VStack(alignment: .center, spacing: 10) {
+                        Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
+                            HStack(spacing: 4) {
+                                Text(showContactInfo ? "Hide Contact" : "Contact Info")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(accentColor)
                         }
-                        if userProfile.isPhoneNumberVisible {
-                            contactItem(icon: "phone.fill", value: userProfile.phoneNumber)
+                        
+                        if showContactInfo {
+                            VStack(spacing: 8) {
+                                if userProfile.isEmailVisible {
+                                    contactItem(icon: "envelope.fill", value: userProfile.email)
+                                }
+                                if userProfile.isPhoneNumberVisible {
+                                    contactItem(icon: "phone.fill", value: userProfile.phoneNumber)
+                                }
+                            }
+                            .padding(.bottom, 4)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
                 }
             }
+            .padding(.top, 4)
+            .padding(.horizontal)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 25)
@@ -717,16 +986,18 @@ struct StatsGridView: View {
         .padding(.horizontal)
     }
 
-    // A small view for displaying a contact detail (email or phone) with an icon.
+    // A small view for displaying a contact detail
     private func contactItem(icon: String, value: String) -> some View {
         HStack {
             Image(systemName: icon)
-                .font(.system(size: 14, design: .rounded))
+                .font(.system(size: 12, design: .rounded))
                 .foregroundColor(accentColor)
-                .frame(width: 20)
+                .frame(width: 16)
             Text(value)
-                .font(.system(size: 14, design: .rounded))
+                .font(.system(size: 12, weight: .medium, design: .rounded)) // UNIFIED FONT
                 .foregroundColor(BrandColors.darkGray)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 }

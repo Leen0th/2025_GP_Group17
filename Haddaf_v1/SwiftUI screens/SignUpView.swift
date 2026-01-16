@@ -154,7 +154,7 @@ struct SignUpView: View {
                                 .foregroundColor(.red)
                         }
                         
-                        // Email 
+                        // Email
                         if !requiresParentConsent {
                             fieldLabel("Email", required: true)
                             roundedField {

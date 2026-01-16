@@ -83,7 +83,6 @@ final class PlayerProfileViewModel: ObservableObject {
             }
             Task {
                 await self?.fetchProfile()
-                await self?.calculateAndUpdateScore()
             }
         }
         
@@ -178,8 +177,30 @@ final class PlayerProfileViewModel: ObservableObject {
             userProfile.team  = "Unassigned"
             userProfile.rank  = "0"
             
-           
-            userProfile.score = (p["cumulativeScore"] as? String) ?? "0"
+            // PHASE 2 Logic: Read positionStats map and calculate average
+            if let rawStats = p["positionStats"] as? [String: [String: Any]] {
+                var newStats: [String: PositionStatData] = [:]
+                for (key, val) in rawStats {
+                    let total = (val["totalScore"] as? Double) ?? 0.0
+                    let count = (val["postCount"] as? Int) ?? 0
+                    newStats[key] = PositionStatData(totalScore: total, postCount: count)
+                }
+                userProfile.positionStats = newStats
+            }
+            
+            // Display Logic: If stats exist for the current position, calculate Average
+            let currentPos = userProfile.position
+            if let stat = userProfile.positionStats[currentPos], stat.postCount > 0 {
+                let average = stat.totalScore / Double(stat.postCount)
+                userProfile.score = String(format: "%.0f", average)
+            } else {
+                userProfile.score = "0"
+            }
+            
+            // Helper for VideoProcessingViewModel default
+            if self.targetUserID == nil { // Only if this is the current user
+                VideoProcessingViewModel.sharedUserPosition = userProfile.position
+            }
             
         } catch {
             print("fetchProfile error: \(error)")
@@ -288,6 +309,10 @@ final class PlayerProfileViewModel: ObservableObject {
                         
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
+                        
+                        // NEW: Read stored score/position data for local model
+                        let postScore = (d["postScore"] as? Double) ?? 0.0
+                        let posAtUpload = (d["positionAtUpload"] as? String) ?? ""
 
                         return Post(
                             authorUid: uid, // Pass the author's ID
@@ -305,19 +330,17 @@ final class PlayerProfileViewModel: ObservableObject {
                             commentCount: (d["commentCount"] as? Int) ?? 0,
                             likedBy: likedBy,
                             isLikedByUser: likedBy.contains(currentUserID), // Use correct ID
-                            stats: postStats, // <-- Pass the correctly parsed stats
-                            matchDate: matchDate
+                            stats: postStats,
+                            matchDate: matchDate,
+                            
+                            // NEW: Populate local model
+                            postScore: postScore,
+                            positionAtUpload: posAtUpload
                         )
                     }
                     
                     await MainActor.run {
                         self.posts = mappedPosts
-                        
-                        // Recompute cumulative score after posts change.
-                        Task {
-                            await self.calculateAndUpdateScore()
-                        }
-                        
                     }
                 }
             }
@@ -351,96 +374,4 @@ final class PlayerProfileViewModel: ObservableObject {
             self.posts[index].likeCount = likeCount
         }
     }
-    /// Calculate and persist the player's cumulative score from public AI-scored posts.
-    @MainActor
-    func calculateAndUpdateScore() async {
-        guard let uid = uidToFetch else {
-            print("Error: No user ID found.")
-            return
-        }
-
-        // Weights are now Integers
-        let weights: [String: [String: Int]] = [
-            "Attacker": ["PASS": 1, "DRIBBLE": 5, "SHOOT": 10],
-            "Midfielder": ["PASS": 10, "DRIBBLE": 5, "SHOOT": 1],
-            "Defender": ["PASS": 5, "DRIBBLE": 10, "SHOOT": 1]
-        ]
-        
-        // 1. Get the player's position
-        let position = self.userProfile.position
-        
-        // 2. Select the correct weights
-        let positionWeights = weights[position] ?? weights["Default"]!
-
-        // 3. Filter for posts that actually have AI data AND ARE PUBLIC
-        let scoredPosts = self.posts.filter { !($0.stats?.isEmpty ?? true) && !$0.isPrivate }
-
-        if scoredPosts.isEmpty {
-            // No posts with scores yet, set score to 0
-            self.userProfile.score = "0"
-            // Also save '0' to Firebase if there are no public posts ---
-            Task(priority: .background) {
-                do {
-                    let profileRef = Firestore.firestore()
-                        .collection("users").document(uid)
-                        .collection("player").document("profile")
-                    
-                    try await profileRef.setData([
-                        "cumulativeScore": "0"
-                    ], merge: true)
-                    
-                    print("Successfully updated cumulativeScore: 0 (No public posts)")
-                    
-                } catch {
-                    print("Error saving cumulativeScore (0) to Firestore: \(error.localizedDescription)")
-                }
-            }
-            return
-        }
-
-        // 4. Loop, calculate score for each post, and get the sum
-        let totalScore = scoredPosts.reduce(0.0) { (accumulator, post) in
-            
-            let passValue = post.stats?.first { $0.label.uppercased() == "PASS" }?.value ?? 0.0
-            let dribbleValue = post.stats?.first { $0.label.uppercased() == "DRIBBLE" }?.value ?? 0.0
-            let shootValue = post.stats?.first { $0.label.uppercased() == "SHOOT" }?.value ?? 0.0
-
-            // Apply weights (we cast the Int weight to Double for the math)
-            let passScore = passValue * Double(positionWeights["PASS"] ?? 1)
-            let dribbleScore = dribbleValue * Double(positionWeights["DRIBBLE"] ?? 1)
-            let shootScore = shootValue * Double(positionWeights["SHOOT"] ?? 1)
-            
-            return accumulator + passScore + dribbleScore + shootScore
-        }
-        
-        // 5. Calculate the average
-        let averageScore = totalScore / Double(scoredPosts.count)
-        
-        // --- Round to nearest whole number and convert to String ---
-        let roundedScore = Int(averageScore.rounded())
-        let scoreString = String(roundedScore)
-
-        // 6. Update the UI score
-        self.userProfile.score = scoreString
-
-        // 7. Save the new score back to Firestore
-        Task(priority: .background) {
-            do {
-                let profileRef = Firestore.firestore()
-                    .collection("users").document(uid)
-                    .collection("player").document("profile")
-                
-                try await profileRef.setData([
-                    "cumulativeScore": scoreString
-                ], merge: true)
-                
-                print("Successfully updated cumulativeScore: \(scoreString)")
-                
-            } catch {
-                print("Error saving cumulativeScore to Firestore: \(error.localizedDescription)")
-            }
-        }
-
-    }
 }
-
