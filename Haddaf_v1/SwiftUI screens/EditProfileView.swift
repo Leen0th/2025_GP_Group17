@@ -25,6 +25,9 @@ struct EditProfileView: View {
     @State private var phoneNonDigitError = false
     @State private var isPhoneNumberVisible: Bool
     
+    //past positions score
+    @State private var isPastPositionsVisible: Bool
+    
     // MARK: - Sheets & Pickers
     @State private var showDOBPicker = false
     @State private var tempDOB = Date()
@@ -134,7 +137,10 @@ struct EditProfileView: View {
         _phoneLocal = State(initialValue: parsedLocal)
         
         _isPhoneNumberVisible = State(initialValue: userProfile.isPhoneNumberVisible)
+        
+        _isPastPositionsVisible = State(initialValue: userProfile.isPastPositionsVisible)
     }
+    
     private func confirmEmailUpdateWithPassword() {
         guard let user = Auth.auth().currentUser, let userEmail = user.email else { return }
         guard !reauthPassword.isEmpty else { return }
@@ -571,6 +577,15 @@ struct EditProfileView: View {
                     .labelsHidden()
                     .tint(primary)
             }
+            HStack {
+                Text("Show Past Positions")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                Spacer()
+                Toggle("", isOn: $isPastPositionsVisible)
+                    .labelsHidden()
+                    .tint(primary)
+            }
         }
         .padding(.top, 10)
     }
@@ -740,6 +755,7 @@ struct EditProfileView: View {
                 "location": location,
                 "isEmailVisible": isEmailVisible,
                 "isPhoneNumberVisible": isPhoneNumberVisible,
+                "isPastPositionsVisible": isPastPositionsVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             try await db.collection("users").document(uid)

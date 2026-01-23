@@ -85,6 +85,8 @@ class UserProfile: ObservableObject {
     
     @Published var isEmailVisible = false
     @Published var isPhoneNumberVisible: Bool = false
+    
+    @Published var isPastPositionsVisible: Bool = true
 
     @Published var profileImage: UIImage? = UIImage(systemName: "person.circle.fill")
     

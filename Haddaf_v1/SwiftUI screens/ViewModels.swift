@@ -152,6 +152,8 @@ final class PlayerProfileViewModel: ObservableObject {
             
            
             userProfile.isPhoneNumberVisible = (p["isPhoneNumberVisible"] as? Bool) ?? false
+            
+            userProfile.isPastPositionsVisible = (p["isPastPositionsVisible"] as? Bool) ?? true
 
            
             if let dobTimestamp = data["dob"] as? Timestamp {

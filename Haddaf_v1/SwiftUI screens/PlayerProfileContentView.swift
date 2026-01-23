@@ -354,7 +354,7 @@ struct PlayerProfileContentView: View {
                         .frame(width: 40, height: 5)
                         .padding(.top, 10)
                     
-                    Text("Filter by Match Date")
+                    Text("Search by Match Date")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(BrandColors.darkTeal)
                         .padding(.top, 10)
@@ -884,7 +884,8 @@ struct StatsGridView: View {
             HStack(alignment: .top, spacing: 0) {
                 
                 // --- Left Side: Past Positions ---
-                if !otherPositionStats.isEmpty {
+                // Show ONLY if the user has allowed it to be visible
+                if !otherPositionStats.isEmpty && userProfile.isPastPositionsVisible {
                     VStack(alignment: .center, spacing: 10) {
                         Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
                             HStack(spacing: 4) {
