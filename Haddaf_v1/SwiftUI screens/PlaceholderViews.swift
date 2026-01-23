@@ -20,7 +20,7 @@ struct TeamsView: View {
     }
 }
 
-struct ChallengeView: View {
+/*struct ChallengeView: View {
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
@@ -36,7 +36,7 @@ struct ChallengeView: View {
         }
     }
 }
-
+*/
 
 // MARK: - Video Upload View (Validation Added)
 struct VideoUploadView: View {
