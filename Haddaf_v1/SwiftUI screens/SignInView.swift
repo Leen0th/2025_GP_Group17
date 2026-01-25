@@ -20,6 +20,7 @@ struct SignInView: View {
 
     @State private var goToProfile = false
     @State private var goToPlayerSetup = false
+    @State private var goToAdmin = false
 
     // Resend cooldown/backoff (email verification only)
     @State private var resendBackoff = 60
@@ -178,10 +179,16 @@ struct SignInView: View {
                 .zIndex(1)
             }
         }
+        .fullScreenCover(isPresented: $goToAdmin) {
+            AdminTabView()
+        }
+
+
         .fullScreenCover(isPresented: $goToProfile) {
             PlayerProfileView()
                 .toolbar(.hidden, for: .navigationBar)
         }
+
         .fullScreenCover(isPresented: $goToPlayerSetup) {
             NavigationStack { PlayerSetupView() }
         }
@@ -204,48 +211,106 @@ struct SignInView: View {
 
     // MARK: - Sign In Logic
     private func handleSignIn() async {
-        // Make sure the form is valid before trying to sign in.
+        // Ensure form is valid before attempting sign-in
         guard isFormValid else { return }
+        
         signInError = nil
         inlineVerifyError = nil
+        
         do {
-            // Try to sign in with Firebase using the lowercased email and password.
+            // Sign in with Firebase Auth
             let result = try await Auth.auth().signIn(withEmail: email.lowercased(), password: password)
-            // Extract the signed-in user from the result.
             let user = result.user
             
-            // Reload the user object from Firebase to get the latest state (including email verification).
+            // Reload to get the latest auth state (email verification, token, etc.)
             try await user.reload()
-            if user.isEmailVerified {
-                // Force-refresh the ID token so we have a fresh authenticated session.
+            
+            // Fetch role + isActive from Firestore
+            let doc = try await Firestore.firestore()
+                .collection("users")
+                .document(user.uid)
+                .getDocument()
+            
+            let data = doc.data() ?? [:]
+            let role = (data["role"] as? String ?? "player").lowercased()
+            let isActive = data["isActive"] as? Bool ?? true
+            
+            // CHECK VERIFICATION:
+            var coachIsVerified = false
+            if role == "coach" {
+                // We check the coachRequests collection for this user's approval status
+                let reqSnap = try await Firestore.firestore()
+                    .collection("coachRequests")
+                    .whereField("uid", isEqualTo: user.uid)
+                    .getDocuments()
+                
+                if let status = reqSnap.documents.first?.data()["status"] as? String {
+                    coachIsVerified = (status == "approved")
+                }
+            }
+            
+            // Block access if the account is deactivated
+            if !isActive {
+                try? Auth.auth().signOut()
+                signInError = "Your account is deactivated. Please contact support."
+                return
+            }
+            
+            // ✅ Admin: allow direct access WITHOUT email verification
+            if role == "admin" {
                 _ = try? await user.getIDTokenResult(forcingRefresh: true)
-                await promoteSignupDraftIfNeeded(for: user)
-                // On the main thread, update the global session and mark the user as non-guest.
+                
                 await MainActor.run {
                     session.user = user
                     session.isGuest = false
+                    goToAdmin = true
                 }
-                do {
-                    let complete = try await isPlayerProfileComplete(uid: user.uid)
-                    await MainActor.run {
-                        // If profile is complete, go directly to the main player profile screen.
-                        if complete { goToProfile = true } else {
-                            // Otherwise, send the user to the player setup flow.
-                            goToPlayerSetup = true }
+                return
+            }
+            
+            // Non-admin flow: keep your current email verification logic
+            if user.isEmailVerified {
+                _ = try? await user.getIDTokenResult(forcingRefresh: true)
+                await promoteSignupDraftIfNeeded(for: user)
+                
+                await MainActor.run {
+                    session.user = user
+                    session.role = role // Set the specific role (player or coach)
+                    session.isVerifiedCoach = coachIsVerified // SAVE TO SESSION
+                    session.isGuest = false
+                }
+                
+                if role == "coach" {
+                    // ✅ COACH FLOW: Skip player setup and go directly to profile/discovery
+                    await MainActor.run { goToProfile = true }
+                } else {
+                    // ✅ PLAYER FLOW: Check for profile completion
+                    do {
+                        let complete = try await isPlayerProfileComplete(uid: user.uid)
+                        await MainActor.run {
+                            if complete {
+                                goToProfile = true
+                            } else {
+                                goToPlayerSetup = true
+                            }
+                        }
+                    } catch {
+                        await MainActor.run { goToPlayerSetup = true }
                     }
-                } catch {
-                    await MainActor.run { goToPlayerSetup = true }
                 }
+                
             } else {
-                // If the email is not verified, send a new verification email to this user.
-
+                // Email not verified (players/coaches): show verification prompt
                 try await sendVerificationEmail(to: user)
                 markVerificationSentNow()
                 startResendCooldown(seconds: max(resendCooldownSeconds, resendBackoff))
+                
                 await MainActor.run { showVerifyPrompt = true }
                 startVerificationWatcher()
             }
+            
         } catch {
+            // Firebase Auth error mapping
             let ns = error as NSError
             if let authErr = AuthErrorCode(rawValue: ns.code) {
                 switch authErr {

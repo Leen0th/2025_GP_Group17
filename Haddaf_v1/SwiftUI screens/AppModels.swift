@@ -177,6 +177,7 @@ enum ContentType {
 // Represents the main tabs in the app's `TabView`.
 enum Tab {
     case discovery, teams, action, challenge, profile
+    case lineupBuilder
     
     var imageName: String {
         switch self {
@@ -185,6 +186,7 @@ enum Tab {
         case .action: return ""
         case .challenge: return "chart.bar"
         case .profile: return "person"
+        case .lineupBuilder: return "sportscourt"
         }
     }
     
@@ -195,6 +197,7 @@ enum Tab {
             case .action: return ""
             case .challenge: return "chart.bar.fill"
             case .profile: return "person.fill"
+            case .lineupBuilder: return "sportscourt.fill"
             }
         }
     
@@ -205,6 +208,7 @@ enum Tab {
         case .action: return ""
         case .challenge: return "Challenge"
         case .profile: return "Profile"
+        case .lineupBuilder: return "Builder"
         }
     }
 }

@@ -206,6 +206,14 @@ struct DiscoveryView: View {
     @ViewBuilder
     private var discoveryContent: some View {
         VStack(spacing: 0) {
+            if session.role == "coach" && !session.isVerifiedCoach {
+                Text("Your coaching profile is under review (It usually takes 1–2 business days to verify) Social features will be unlocked once approved!")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.9))
+            }
             // Search & Filters
             HStack(spacing: 12) {
                 HStack(spacing: 8) {
@@ -371,6 +379,8 @@ struct DiscoveryPostCardView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(isReported || (session.role == "coach" && !session.isVerifiedCoach))
+                    .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
                     // --- Disable only if already reported ---
                     .disabled(isReported)
                 }
@@ -413,6 +423,8 @@ struct DiscoveryPostCardView: View {
                     .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
                 }
                 .buttonStyle(.plain)
+                .disabled(session.role == "coach" && !session.isVerifiedCoach)
+                .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
 
                 // --- COMMENT BUTTON Action ---
                 Button {
@@ -429,6 +441,8 @@ struct DiscoveryPostCardView: View {
                     .foregroundColor(BrandColors.darkGray)
                 }
                 .buttonStyle(.plain)
+                .disabled(session.role == "coach" && !session.isVerifiedCoach)
+                .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
             }
             .font(.system(size: 14, design: .rounded))
         }

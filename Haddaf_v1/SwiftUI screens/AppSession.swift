@@ -11,4 +11,16 @@ import FirebaseAuth
 final class AppSession: ObservableObject {
     @Published var user: User?
     @Published var isGuest = false
+    @Published var role: String? = nil
+    @Published var isVerifiedCoach: Bool = false
+    
+    func signOut() {
+        try? Auth.auth().signOut()
+        self.user = nil
+        self.role = nil // Reset the role
+        self.isVerifiedCoach = false
+        self.isGuest = true
+    }
+
 }
+

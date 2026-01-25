@@ -16,6 +16,20 @@ struct SignUpView: View {
     private let bg = BrandColors.backgroundGradientEnd
     private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
     
+    // Coach Fields
+    @State private var coachLocation = ""
+    @State private var hasTeam = true
+    @State private var verificationFile: URL? = nil
+    @State private var verificationFileName = ""
+    @State private var showVerificationInfo = false
+    @State private var showFileImporter = false
+    @State private var isUploadingVerification = false
+    @State private var showCoachLocationPicker = false
+    
+    // Navigation for Coach
+    @State private var goToCoachTeamSetup = false
+    @State private var goToDiscovery = false
+    
     // Fields
     @State private var role: UserRole = .player
     @State private var fullName = ""
@@ -87,21 +101,42 @@ struct SignUpView: View {
     }
     
     private var isFormValid: Bool {
+        if role == .player {
+            return isPlayerFormValid
+        } else {
+            return isCoachFormValid
+        }
+    }
+    
+    private var isPlayerFormValid: Bool {
         isNameValid && isPasswordValid && (requiresParentConsent ? isParentEmailValid : isEmailValid) && isPhoneValid && dob != nil && !emailExists && !parentEmailExists
+    }
+    
+    private var isCoachFormValid: Bool {
+        isNameValid && isPasswordValid && isEmailValid && !coachLocation.isEmpty && verificationFile != nil && !emailExists
     }
     
     // Computed property to get missing required fields
     private var missingFields: [String] {
         var missing: [String] = []
         if !isNameValid { missing.append("Full Name") }
-        if requiresParentConsent {
-            if !isParentEmailValid { missing.append("Parent/Guardian Email") }
-        } else {
-            if !isEmailValid { missing.append("Email") }
-        }
-        if !isPhoneValid { missing.append("Phone number") }
-        if dob == nil { missing.append("Date of birth") }
         if !isPasswordValid { missing.append("Password") }
+        
+        if role == .player {
+            if requiresParentConsent {
+                if !isParentEmailValid { missing.append("Parent/Guardian Email") }
+            } else {
+                if !isEmailValid { missing.append("Email") }
+            }
+            if !isPhoneValid { missing.append("Phone number") }
+            if dob == nil { missing.append("Date of birth") }
+        } else { // Coach
+            if emailExists { missing.append("Email (already in use)") }
+            if !isEmailValid { missing.append("Email") }
+            if coachLocation.isEmpty { missing.append("Location") }
+            if verificationFile == nil { missing.append("Verification File") }
+        }
+        
         return missing
     }
     
@@ -428,8 +463,28 @@ struct SignUpView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 6)
                     } else {
-                        coachPlaceholder
+                        coachSignupForm
                     }
+                }
+                .onChange(of: role) { _ in
+                    fullName = ""
+                    email = ""
+                    phoneLocal = ""
+                    password = ""
+                    dob = nil
+                    parentEmail = ""
+                    requiresParentConsent = false
+                    ageWarning = nil
+                    phoneNonDigitError = false
+                    emailExists = false
+                    parentEmailExists = false
+                    coachLocation = ""
+                    hasTeam = true
+                    verificationFile = nil
+                    verificationFileName = ""
+                    showVerificationInfo = false
+                    attemptedSubmit = false
+                    inlineVerifyError = nil
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -466,6 +521,8 @@ struct SignUpView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
+        .navigationDestination(isPresented: $goToCoachTeamSetup) { CoachTeamSetupView(hasTeam: hasTeam) }
+        .navigationDestination(isPresented: $goToDiscovery) { PlayerProfileView() }
         .onDisappear {
             verifyTask?.cancel()
             resendTimerTask?.cancel()
@@ -495,6 +552,16 @@ struct SignUpView: View {
     // Helper function to calculate age
     private func calculateAge(from dob: Date) -> Int {
         return Calendar.current.dateComponents([.year], from: dob, to: Date()).year ?? 0
+    }
+    
+    private func fetchRole(for uid: String) async -> String? {
+        do {
+            let doc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+            return doc.data()?["role"] as? String
+        } catch {
+            print("Error fetching role: \(error)")
+            return nil
+        }
     }
     
     // MARK: - Full name validation
@@ -590,8 +657,8 @@ struct SignUpView: View {
         let fullPhone = selectedDialCode + phoneLocal
         
         let accountEmail = requiresParentConsent ?
-            parentEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() :
-            childEmail
+        parentEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() :
+        childEmail
         
         do {
             // 1) Create account with parent's email if child needs consent
@@ -614,12 +681,21 @@ struct SignUpView: View {
                 "role": role.rawValue.lowercased(),
                 "accountEmail": accountEmail
             ]
-            if let d = dob {
-                draftData["dob"] = d.timeIntervalSince1970
-            }
-            if requiresParentConsent {
-                draftData["parentEmail"] = accountEmail
-                draftData["requiresParentConsent"] = true
+            
+            if role == .player {
+                let fullPhone = selectedDialCode + phoneLocal
+                draftData["phone"] = fullPhone
+                if let d = dob {
+                    draftData["dob"] = d.timeIntervalSince1970
+                }
+                if requiresParentConsent {
+                    draftData["parentEmail"] = accountEmail
+                    draftData["requiresParentConsent"] = true
+                }
+            } else { // Coach
+                draftData["location"] = coachLocation
+                draftData["hasTeam"] = hasTeam
+                draftData["verificationFile"] = verificationFile?.absoluteString ?? ""
             }
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: draftData),
@@ -682,40 +758,92 @@ struct SignUpView: View {
            let jsonData = jsonString.data(using: .utf8),
            let draft = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
             
+            let db = Firestore.firestore()
+            
             let fullName = draft["fullName"] as? String ?? ""
             let parts = fullName.split(separator: " ").map(String.init)
             let first = parts.first ?? ""
             let last = parts.count >= 2 ? parts[1] : ""
             
             let accountEmail = draft["accountEmail"] as? String ?? user.email ?? ""
+            let roleString = draft["role"] as? String ?? "player"
             
             var data: [String: Any] = [
                 "email": accountEmail,
                 "firstName": first,
                 "lastName": last.isEmpty ? NSNull() : last,
-                "role": draft["role"] as? String ?? "player",
-                "phone": draft["phone"] as? String ?? "",
+                "role": roleString,
                 "emailVerified": true,
+                "isActive": true,
                 "createdAt": FieldValue.serverTimestamp()
             ]
-            
-            if let dobTimestamp = draft["dob"] as? TimeInterval {
-                data["dob"] = Timestamp(date: Date(timeIntervalSince1970: dobTimestamp))
-            }
-            
-            if let parentEmail = draft["parentEmail"] as? String {
-                data["parentEmail"] = parentEmail
-                data["requiresParentConsent"] = true
+            if roleString == "player" {
+                data["phone"] = draft["phone"] as? String ?? ""
+                if let dobTimestamp = draft["dob"] as? TimeInterval {
+                    data["dob"] = Timestamp(date: Date(timeIntervalSince1970: dobTimestamp))
+                }
+                if let parentEmail = draft["parentEmail"] as? String {
+                    data["parentEmail"] = parentEmail
+                    data["requiresParentConsent"] = true
+                }
+            } else { // Coach
+                data["location"] = draft["location"] as? String ?? ""
+                data["verificationFile"] = draft["verificationFile"] as? String ?? ""
+                data["hasTeam"] = draft["hasTeam"] as? Bool ?? false
             }
             
             try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
+            
+            // Admin Approval Request for Coaches
+            if roleString == "coach" {
+                let requestData: [String: Any] = [
+                    "uid": user.uid,
+                    "fullName": fullName,
+                    "email": accountEmail,
+                    "status": "pending",
+                    "submittedAt": FieldValue.serverTimestamp(),
+                    "verificationFile": draft["verificationFile"] as? String ?? ""
+                ]
+                
+                // We use user.uid as the document ID so we can find it easily later
+                try? await db.collection("coachRequests").document(user.uid).setData(requestData)
+            }
+            
             UserDefaults.standard.removeObject(forKey: "profile_draft")
+            
+            session.user = user
+            session.isGuest = false
+            showVerifyPrompt = false
+            session.role = roleString
+            // Coaches start unverified until admin clicks approve
+            session.isVerifiedCoach = (roleString == "admin")
+            
+            
+            // Post notification (keeps app state in sync)
+            NotificationCenter.default.post(
+                name: .userSignedIn,
+                object: nil,
+                userInfo: [
+                    "role": roleString,
+                    "hasTeam": draft["hasTeam"] as? Bool ?? false
+                ]
+            )
+            
+            // MARK: - Navigation Logic
+            if roleString == "coach" {
+                let coachHasTeam = draft["hasTeam"] as? Bool ?? false
+                if coachHasTeam {
+                    // Redirect to Team Setup
+                    goToCoachTeamSetup = true
+                } else {
+                    // No team, go directly to Discovery
+                    goToDiscovery = true
+                }
+            } else {
+                // For players, proceed to Player Setup
+                goToPlayerSetup = true
+            }
         }
-        
-        session.user = user
-        session.isGuest = false
-        showVerifyPrompt = false
-        goToPlayerSetup = true
     }
     
     private func resendVerification() async {
@@ -733,8 +861,8 @@ struct SignUpView: View {
         } catch {
             let ns = error as NSError
             inlineVerifyError = (ns.code == AuthErrorCode.tooManyRequests.rawValue)
-                ? "Too many requests from this device. Please try again later."
-                : ns.localizedDescription
+            ? "Too many requests from this device. Please try again later."
+            : ns.localizedDescription
         }
     }
     
@@ -865,23 +993,273 @@ struct SignUpView: View {
         f.dateFormat = "dd/MM/yyyy"
         return f.string(from: date)
     }
-}
+    
+    
+    private var coachSignupForm: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Full Name
+            fieldLabel("Full Name", required: true)
+            roundedField {
+                TextField("", text: $fullName)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
+                    .tint(primary)
+                    .textInputAutocapitalization(.words)
+            }
+            if let err = nameError, !fullName.isEmpty {
+                Text(err)
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            }
+            
+            // Email
+            fieldLabel("Email", required: true)
+            roundedField {
+                TextField("", text: $email)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
+                    .tint(primary)
+                    .focused($emailFocused)
+                    .onSubmit { checkEmailImmediately() }
+                    .onChange(of: emailFocused) { focused in
+                        if !focused {
+                            checkEmailImmediately()
+                        }
+                    }
+            }
+            Group {
+                if !email.isEmpty && !isValidEmail(email) {
+                    Text("Please enter a valid email address (name@domain).")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                } else if emailExists {
+                    Text("You already have an account. Please sign in.")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                } else if let err = emailCheckError, !err.isEmpty {
+                    Text(err)
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                }
+            }
+            
+            // Password
+            fieldLabel("Password", required: true)
+            roundedField {
+                ZStack(alignment: .trailing) {
+                    if isHidden {
+                        SecureField("", text: $password)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(primary)
+                            .padding(.trailing, 44)
+                    } else {
+                        TextField("", text: $password)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(primary)
+                            .padding(.trailing, 44)
+                    }
+                    Button { withAnimation { isHidden.toggle() } } label: {
+                        Image(systemName: isHidden ? "eye.slash" : "eye")
+                            .foregroundColor(primary.opacity(0.6))
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                passwordRuleRow("At least 8 characters, max 30", satisfied: pHasLen)
+                passwordRuleRow("At least one uppercase letter (A–Z)", satisfied: pHasUpper)
+                passwordRuleRow("At least one lowercase letter (a–z)", satisfied: pHasLower)
+                passwordRuleRow("At least one number (0–9)", satisfied: pHasDigit)
+                passwordRuleRow("At least one special symbol", satisfied: pHasSpec)
+            }
+            .padding(.top, -8)
+            if isPasswordTooLong {
+                Text("Password must be 30 characters or less.")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+                    .padding(.top, 4)
+            }
+            
+            // Location
+            fieldLabel("Location", required: true)
+            buttonLikeField(action: { showCoachLocationPicker = true }) {
+                HStack {
+                    Text(coachLocation.isEmpty ? "Select city" : coachLocation)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(coachLocation.isEmpty ? .gray : primary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .foregroundColor(primary.opacity(0.85))
+                }
+            }
+            .sheet(isPresented: $showCoachLocationPicker) {
+                LocationPickerSheet(
+                    title: "Select your city",
+                    allCities: SAUDI_CITIES,
+                    selection: $coachLocation,
+                    searchText: .constant(""),
+                    showSheet: $showCoachLocationPicker,
+                    accent: primary
+                )
+            }
+            
+            // Verification File
+            VStack(alignment: .leading, spacing: 8) {
+                // Label with (i) icon
+                HStack(spacing: 4) {
+                    Text("Verification Document")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(primary.opacity(0.75))
+                    
+                    Text("*")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.red)
+                        .padding(.top, -2)
+                    
+                    // The Info Button
+                    Button {
+                        showVerificationInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 15))
+                            .foregroundColor(primary)
+                    }
+                }
+                .alert("Verification Help", isPresented: $showVerificationInfo) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text("Upload a file (PDF or Image) to verify you are a coach.")
+                }
 
-private var coachPlaceholder: some View {
-    VStack {
-        Spacer().frame(height: 120)
-        VStack(spacing: 8) {
-            Text("Coach Profile")
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .foregroundColor(Color.gray)
-            Text("To be developed in upcoming sprints")
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(Color.gray.opacity(0.7))
+                // The Upload Button
+                buttonLikeField(action: { showFileImporter = true }) {
+                    HStack {
+                        Image(systemName: verificationFile == nil ? "doc.badge.plus" : "doc.fill")
+                            .foregroundColor(primary)
+                        
+                        Text(verificationFileName.isEmpty ? "Upload Document" : verificationFileName)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(verificationFile == nil ? .gray : primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        
+                        Spacer()
+                        
+                        if verificationFile != nil {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(BrandColors.actionGreen)
+                        } else {
+                            Image(systemName: "arrow.up.doc")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+                .fileImporter(
+                    isPresented: $showFileImporter,
+                    allowedContentTypes: [.pdf, .image],
+                    allowsMultipleSelection: false
+                ) { result in
+                    switch result {
+                    case .success(let urls):
+                        guard let selectedURL = urls.first else { return }
+                        // Optionally, start accessing the file securely
+                        if selectedURL.startAccessingSecurityScopedResource() {
+                            defer { selectedURL.stopAccessingSecurityScopedResource() }
+                            verificationFile = selectedURL
+                            verificationFileName = selectedURL.lastPathComponent
+                        }
+                    case .failure(let error):
+                        print("File import error: \(error.localizedDescription)")
+                        // Optionally, show an alert or set an error state
+                    }
+                }
+            }
+            
+            // Has Team Toggle
+            Toggle(isOn: $hasTeam) {
+                Text("I have a team I am coaching")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
+            }
+            .tint(primary)
+            
+            // Show missing fields warning if user tried to submit
+            if attemptedSubmit && !missingFields.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 16))
+                        Text("Please complete the following required fields:")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.orange.opacity(0.9))
+                    }
+                    ForEach(missingFields, id: \.self) { field in
+                        HStack(spacing: 6) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 6))
+                                .foregroundColor(.orange.opacity(0.7))
+                            Text(field)
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.orange.opacity(0.8))
+                        }
+                        .padding(.leading, 24)
+                    }
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.1))
+                )
+                .padding(.top, 4)
+            }
+
+            // Submit
+            Button {
+                attemptedSubmit = true
+                if isFormValid {
+                    Task { await handleSignUp() }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text("Sign Up")
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
+                        .foregroundColor(.white)
+                    if isSubmitting { ProgressView().colorInvert().scaleEffect(0.9) }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(isFormValid && !isSubmitting ? primary : primary.opacity(0.5))
+                .clipShape(Capsule())
+                .shadow(color: (isFormValid && !isSubmitting) ? primary.opacity(0.3) : .clear, radius: 10, y: 5)
+            }
+            .padding(.top, 8)
+            .disabled(isSubmitting)
+
+            // Bottom link
+            HStack(spacing: 6) {
+                Text("Already have an account?")
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundColor(primary.opacity(0.7))
+                NavigationLink { SignInView() } label: {
+                    Text("Sign in")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 6)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
-        Spacer()
+        
     }
 }
+
 
 // MARK: - Verify sheet
 struct SimpleVerifySheet: View {

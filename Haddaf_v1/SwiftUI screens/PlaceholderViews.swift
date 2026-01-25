@@ -20,12 +20,29 @@ struct TeamsView: View {
     }
 }
 
-struct ChallengeView: View {
+/*struct ChallengeView: View {
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             VStack(spacing: 8) {
                 Text("Challenge Page")
+                    .font(.system(size: 32, design: .rounded))
+                    .foregroundColor(.secondary)
+                
+                Text("To be developed in upcoming sprints")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.gray)
+            }
+        }
+    }
+}
+*/
+struct LineupBuilderView: View {
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            VStack(spacing: 8) {
+                Text("Lineup Builder Page")
                     .font(.system(size: 32, design: .rounded))
                     .foregroundColor(.secondary)
                 

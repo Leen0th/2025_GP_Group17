@@ -474,6 +474,8 @@ struct PostDetailView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
             }
+            .disabled(session.role == "coach" && !session.isVerifiedCoach)
+            .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
             
             // --- Comment Button Action ---
             Button {
@@ -490,6 +492,8 @@ struct PostDetailView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(BrandColors.darkGray)
             }
+            .disabled(session.role == "coach" && !session.isVerifiedCoach)
+            .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
         }
         .foregroundColor(.primary)
     }
@@ -865,6 +869,8 @@ struct CommentsView: View {
                         Image(systemName: "paperplane.fill")
                             .font(.title2).foregroundColor(accentColor)
                     }
+                    .disabled(session.role == "coach" && !session.isVerifiedCoach)
+                    .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
                     // MODIFIED: Disable if empty OR exceeds limit
                     .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty || newCommentText.count > commentLimit || session.isGuest)
                     .opacity((newCommentText.count > commentLimit || session.isGuest) ? 0.5 : 1.0)
@@ -1265,6 +1271,8 @@ fileprivate struct CommentRowView: View {
                 .buttonStyle(.plain)
                 // --- Disable only if already reported ---
                 .disabled(isReported)
+                .disabled((session.role == "coach" && !session.isVerifiedCoach))
+                .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
             }
         }
         .animation(.easeInOut, value: isEditing)
