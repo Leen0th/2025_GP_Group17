@@ -3,6 +3,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 import Foundation
+import PhotosUI
 
 // MARK: - User Role
 enum UserRole: String { case player = "Player", coach = "Coach" }
@@ -26,6 +27,11 @@ struct SignUpView: View {
     @State private var showFileImporter = false
     @State private var isUploadingVerification = false
     @State private var showCoachLocationPicker = false
+    // Coach Profile Picture
+    @State private var coachProfileItem: PhotosPickerItem? = nil
+    @State private var coachProfileData: Data? = nil
+    @State private var coachProfileImage: Image? = nil
+    @State private var isUploadingProfilePic = false
     
     // Navigation for Coach
     @State private var goToCoachTeamSetup = false
@@ -677,6 +683,16 @@ struct SignUpView: View {
             }
             
             var finalVerificationURL = ""
+            var profilePicURL: String? = nil
+            
+            if role == .coach {
+                // Upload profile picture if selected
+                if coachProfileData != nil {
+                    await MainActor.run { self.isUploadingProfilePic = true }
+                    profilePicURL = try await uploadCoachProfilePicture(uid: uid)
+                    await MainActor.run { self.isUploadingProfilePic = false }
+                }
+            }
 
             // If it is a coach, upload the file now
             if role == .coach, let localFileURL = verificationFile {
@@ -706,6 +722,7 @@ struct SignUpView: View {
                 draftData["location"] = coachLocation
                 draftData["hasTeam"] = hasTeam
                 draftData["verificationFile"] = finalVerificationURL
+                draftData["profilePic"] = profilePicURL
             }
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: draftData),
@@ -800,6 +817,7 @@ struct SignUpView: View {
                 data["location"] = draft["location"] as? String ?? ""
                 data["verificationFile"] = draft["verificationFile"] as? String ?? ""
                 data["hasTeam"] = draft["hasTeam"] as? Bool ?? false
+                data["profilePic"] = draft["profilePic"] as? String ?? ""
             }
             
             try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
@@ -967,6 +985,23 @@ struct SignUpView: View {
         let downloadURL = try await ref.downloadURL()
         return downloadURL.absoluteString
     }
+    private func uploadCoachProfilePicture(uid: String) async throws -> String? {
+        guard let data = coachProfileData else { return nil }
+        
+        let filename = "\(UUID().uuidString).jpg"
+        let storageRef = Storage.storage().reference()
+            .child("profile")
+            .child(uid)
+            .child(filename)
+        
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+        
+        _ = try await storageRef.putDataAsync(data, metadata: metadata)
+        let downloadURL = try await storageRef.downloadURL()
+        
+        return downloadURL.absoluteString
+    }
     
     private func fieldLabel(_ title: String, required: Bool) -> some View {
         HStack(spacing: 4) {
@@ -1029,6 +1064,53 @@ struct SignUpView: View {
     
     private var coachSignupForm: some View {
         VStack(alignment: .leading, spacing: 20) {
+            // Profile Picture (optional)
+            VStack(alignment: .leading, spacing: 12) {
+                fieldLabel("Profile Picture", required: false)
+                
+                PhotosPicker(selection: $coachProfileItem, matching: .images) {
+                    ZStack(alignment: .bottomTrailing) {
+                        if let image = coachProfileImage {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 120, height: 120)
+                                .clipShape(Circle())
+                        } else {
+                            Image("profile_placeholder") 
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 120, height: 120)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.gray.opacity(0.3), lineWidth: 1))
+                        }
+                        
+                        Circle()
+                            .fill(primary)
+                            .frame(width: 36, height: 36)
+                            .overlay(
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.white)
+                            )
+                            .offset(x: 8, y: 8)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                
+                /*if isUploadingProfilePic {
+                    HStack {
+                        ProgressView()
+                            .tint(primary)
+                        Text("Uploading photo...")
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }*/
+            }
+            .padding(.bottom, 8)
+            
             // Full Name
             fieldLabel("Full Name", required: true)
             roundedField {
@@ -1287,6 +1369,25 @@ struct SignUpView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 6)
+        }
+        .onChange(of: coachProfileItem) { _, newItem in
+            Task {
+                if let newItem = newItem {
+                    if let data = try? await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run {
+                            self.coachProfileData = data
+                            if let uiImage = UIImage(data: data) {
+                                self.coachProfileImage = Image(uiImage: uiImage)
+                            }
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        self.coachProfileData = nil
+                        self.coachProfileImage = nil
+                    }
+                }
+            }
         }
         
     }

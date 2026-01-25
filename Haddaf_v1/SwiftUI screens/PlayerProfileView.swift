@@ -6,6 +6,7 @@ extension Notification.Name {
 }
 
 struct PlayerProfileView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var session: AppSession
     @State private var selectedTab: Tab = .discovery
     @State private var showVideoUpload = false
@@ -32,7 +33,11 @@ struct PlayerProfileView: View {
                         NavigationStack {
                             GuestProfileGateView()
                         }
+                    } else if session.role == "coach" {
+                        // If user is a coach, show the Coach Profile
+                        CoachProfileContentView()
                     } else {
+                        // Otherwise, show the Player Profile
                         PlayerProfileContentView()
                     }
                 default:

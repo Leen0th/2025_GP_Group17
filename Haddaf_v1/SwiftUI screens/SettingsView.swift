@@ -3,6 +3,7 @@ import FirebaseAuth
 import FirebaseMessaging
 
 struct SettingsView: View {
+    @EnvironmentObject var session: AppSession
     // The environment object for dismissing the view
     @Environment(\.dismiss) private var dismiss
     // The user's profile data to be used by `EditProfileView`
@@ -51,10 +52,10 @@ struct SettingsView: View {
                VStack(spacing: 0) {
                    NavigationLink {
                        EditProfileView(userProfile: userProfile)
-                   } label: {
-                       settingsRow(icon: "person", title: "Edit Profile",
-                                   iconColor: primary, showChevron: true, showDivider: true)
-                   }
+                       } label: {
+                           settingsRow(icon: "person", title: "Edit Profile",
+                                       iconColor: primary, showChevron: true, showDivider: true)
+                       }
                    
                    NavigationLink {
                        NotificationsView()
