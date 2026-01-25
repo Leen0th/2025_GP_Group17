@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 import Foundation
 
 // MARK: - User Role
@@ -663,6 +664,7 @@ struct SignUpView: View {
         do {
             // 1) Create account with parent's email if child needs consent
             let authResult = try await Auth.auth().createUser(withEmail: accountEmail, password: password)
+            let uid = authResult.user.uid
             
             // 2) Set the display name
             let changeReq = authResult.user.createProfileChangeRequest()
@@ -672,6 +674,14 @@ struct SignUpView: View {
                     if let err = err { cont.resume(throwing: err) }
                     else { cont.resume() }
                 }
+            }
+            
+            var finalVerificationURL = ""
+
+            // If it is a coach, upload the file now
+            if role == .coach, let localFileURL = verificationFile {
+                // Call the helper we added above
+                finalVerificationURL = try await uploadVerificationToStorage(userId: uid, fileURL: localFileURL)
             }
             
             // 3) Store draft
@@ -695,7 +705,7 @@ struct SignUpView: View {
             } else { // Coach
                 draftData["location"] = coachLocation
                 draftData["hasTeam"] = hasTeam
-                draftData["verificationFile"] = verificationFile?.absoluteString ?? ""
+                draftData["verificationFile"] = finalVerificationURL
             }
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: draftData),
@@ -934,6 +944,28 @@ struct SignUpView: View {
                 )
                 .padding(2)
         }
+    }
+    
+    // MARK: - Storage Helper
+    private func uploadVerificationToStorage(userId: String, fileURL: URL) async throws -> String {
+        let storage = Storage.storage()
+        // Create a reference: coach_verifications/USER_ID/filename
+        let ref = storage.reference().child("coach_verifications/\(userId)/\(fileURL.lastPathComponent)")
+        
+        // We must access the security scoped resource to read the file
+        let accessing = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { fileURL.stopAccessingSecurityScopedResource() }
+        }
+        
+        let data = try Data(contentsOf: fileURL)
+        
+        // Upload
+        _ = try await ref.putDataAsync(data)
+        
+        // Get the download URL (The http link the admin can click)
+        let downloadURL = try await ref.downloadURL()
+        return downloadURL.absoluteString
     }
     
     private func fieldLabel(_ title: String, required: Bool) -> some View {

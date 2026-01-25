@@ -165,6 +165,7 @@ struct CoachRequestItem: Identifiable {
     let email: String
     let status: String
     let submittedAt: Date?
+    let verificationFile: String
 }
 
 struct AdminCoachesApprovalView: View {
@@ -224,6 +225,18 @@ struct AdminCoachesApprovalView: View {
             Text(item.email)
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.secondary)
+            
+            if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
+                Link(destination: url) {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("View Verification Document")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.blue)
+                    .padding(.vertical, 4)
+                }
+            }
 
             HStack(spacing: 10) {
                 Button {
@@ -239,7 +252,7 @@ struct AdminCoachesApprovalView: View {
                 }
 
                 Button {
-                    Task { await reject(requestId: item.id) }
+                    Task { await reject(uid: item.uid, requestId: item.id) }
                 } label: {
                     Text("Reject")
                         .foregroundColor(.red)
@@ -276,7 +289,8 @@ struct AdminCoachesApprovalView: View {
                     fullName: data["fullName"] as? String ?? "",
                     email: data["email"] as? String ?? "",
                     status: data["status"] as? String ?? "pending",
-                    submittedAt: (data["submittedAt"] as? Timestamp)?.dateValue()
+                    submittedAt: (data["submittedAt"] as? Timestamp)?.dateValue(),
+                    verificationFile: data["verificationFile"] as? String ?? ""
                 )
             }
 
@@ -301,6 +315,7 @@ struct AdminCoachesApprovalView: View {
             let userRef = db.collection("users").document(uid)
             batch.setData([
                 "role": "coach",
+                "coachStatus": "approved",
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: userRef, merge: true)
 
@@ -311,15 +326,25 @@ struct AdminCoachesApprovalView: View {
         }
     }
 
-    private func reject(requestId: String) async {
+    private func reject(uid: String, requestId: String) async {
         do {
-            try await Firestore.firestore()
-                .collection("coachRequests").document(requestId)
-                .setData([
-                    "status": "rejected",
-                    "reviewedAt": FieldValue.serverTimestamp()
-                ], merge: true)
+            let db = Firestore.firestore()
+            let batch = db.batch()
 
+            // 1. Update the request status
+            let reqRef = db.collection("coachRequests").document(requestId)
+            batch.updateData([
+                "status": "rejected",
+                "reviewedAt": FieldValue.serverTimestamp()
+            ], forDocument: reqRef)
+
+            // 2. Update the user document so the app knows to show the rejection message
+            let userRef = db.collection("users").document(uid)
+            batch.updateData([
+                "coachStatus": "rejected" 
+            ], forDocument: userRef)
+
+            try await batch.commit()
             await loadPending()
         } catch {
             errorText = error.localizedDescription
