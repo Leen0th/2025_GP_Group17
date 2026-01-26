@@ -35,12 +35,6 @@ private struct AdminTopTitle: View {
 }
 
 // =======================================================
-// MARK: - Admin Root (Tabs) ✅ Fix Tab Bar (no big white / no "watery" strip)
-// =======================================================
-
-
-
-// =======================================================
 // MARK: - Admin Root (Custom Footer)
 // =======================================================
 
@@ -77,7 +71,7 @@ struct AdminTabView: View {
 
                 AdminFooterBar(selected: $selected, primary: primary)
                     // Make the pill closer to screen edges (less empty sides)
-                    .padding(.horizontal, 2)     // ⬅️ was 16, reduce it
+                    .padding(.horizontal, 2)
                     // Remove bottom gap
                     .padding(.bottom, 0)
             }
@@ -90,7 +84,7 @@ struct AdminTabView: View {
 }
 
 // =======================================================
-// MARK: - Footer Bar UI (Bigger + Less Side Empty Space)
+// MARK: - Footer Bar UI
 // =======================================================
 
 private struct AdminFooterBar: View {
@@ -114,19 +108,17 @@ private struct AdminFooterBar: View {
                     icon: "chart.bar",
                     title: "Add Challenge")
         }
-        // Make the footer taller and more “filled”
-        .padding(.vertical, 24)     // ⬅️ bigger
-        .padding(.horizontal, 10)   // ⬅️ smaller to reduce inner empty space
+        .padding(.vertical, 24)
+        .padding(.horizontal, 10)
         .frame(maxWidth: .infinity)
-        .frame(height: 92)          // ⬅️ bigger height
+        .frame(height: 92)
         .background(
             RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .fill(Color.white) // Solid background (no blur)
+                .fill(Color.white)
                 .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 8)
         )
     }
 
-    // Single tab item
     private func tabItem(tab: AdminTab, icon: String, title: String) -> some View {
         let isSelected = (selected == tab)
 
@@ -135,10 +127,10 @@ private struct AdminFooterBar: View {
         } label: {
             VStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold)) // ⬅️ bigger icons
+                    .font(.system(size: 24, weight: .semibold))
 
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded)) // ⬅️ bigger text
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -148,11 +140,6 @@ private struct AdminFooterBar: View {
         .buttonStyle(.plain)
     }
 }
-
-
-
-
-  
 
 // =======================================================
 // MARK: - 1) Coaches Approval
@@ -165,6 +152,7 @@ struct CoachRequestItem: Identifiable {
     let email: String
     let status: String
     let submittedAt: Date?
+    let verificationFile: String
 }
 
 struct AdminCoachesApprovalView: View {
@@ -225,6 +213,18 @@ struct AdminCoachesApprovalView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.secondary)
 
+            if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
+                Link(destination: url) {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("View Verification Document")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.blue)
+                    .padding(.vertical, 4)
+                }
+            }
+
             HStack(spacing: 10) {
                 Button {
                     Task { await approve(uid: item.uid, requestId: item.id) }
@@ -239,7 +239,7 @@ struct AdminCoachesApprovalView: View {
                 }
 
                 Button {
-                    Task { await reject(requestId: item.id) }
+                    Task { await reject(uid: item.uid, requestId: item.id) }
                 } label: {
                     Text("Reject")
                         .foregroundColor(.red)
@@ -276,7 +276,8 @@ struct AdminCoachesApprovalView: View {
                     fullName: data["fullName"] as? String ?? "",
                     email: data["email"] as? String ?? "",
                     status: data["status"] as? String ?? "pending",
-                    submittedAt: (data["submittedAt"] as? Timestamp)?.dateValue()
+                    submittedAt: (data["submittedAt"] as? Timestamp)?.dateValue(),
+                    verificationFile: data["verificationFile"] as? String ?? ""
                 )
             }
 
@@ -301,6 +302,7 @@ struct AdminCoachesApprovalView: View {
             let userRef = db.collection("users").document(uid)
             batch.setData([
                 "role": "coach",
+                "coachStatus": "approved",
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: userRef, merge: true)
 
@@ -311,15 +313,23 @@ struct AdminCoachesApprovalView: View {
         }
     }
 
-    private func reject(requestId: String) async {
+    private func reject(uid: String, requestId: String) async {
         do {
-            try await Firestore.firestore()
-                .collection("coachRequests").document(requestId)
-                .setData([
-                    "status": "rejected",
-                    "reviewedAt": FieldValue.serverTimestamp()
-                ], merge: true)
+            let db = Firestore.firestore()
+            let batch = db.batch()
 
+            let reqRef = db.collection("coachRequests").document(requestId)
+            batch.updateData([
+                "status": "rejected",
+                "reviewedAt": FieldValue.serverTimestamp()
+            ], forDocument: reqRef)
+
+            let userRef = db.collection("users").document(uid)
+            batch.updateData([
+                "coachStatus": "rejected"
+            ], forDocument: userRef)
+
+            try await batch.commit()
             await loadPending()
         } catch {
             errorText = error.localizedDescription
@@ -441,6 +451,7 @@ struct AdminManageAccountsView: View {
                         .clipShape(Capsule())
                 }
                 .disabled(!u.isActive)
+                .buttonStyle(.plain)
 
                 Button {
                     Task { await setActive(uid: u.id, active: true) }
@@ -454,6 +465,7 @@ struct AdminManageAccountsView: View {
                         .clipShape(Capsule())
                 }
                 .disabled(u.isActive)
+                .buttonStyle(.plain)
             }
         }
         .padding(16)
@@ -506,7 +518,7 @@ struct AdminManageAccountsView: View {
 }
 
 // =======================================================
-// MARK: - 3) Challenges (List + Create + Edit) ✅ Live updates + Edit Sheet
+// MARK: - 3) Challenges (List + Create + Edit)
 // =======================================================
 
 struct AdminChallengeItem: Identifiable {
@@ -527,7 +539,14 @@ struct AdminChallengesView: View {
     @State private var errorText: String?
     @State private var challenges: [AdminChallengeItem] = []
 
+    // ✅ FIX: use isPresented sheet to avoid listener canceling the sheet
     @State private var editingChallenge: AdminChallengeItem? = nil
+    @State private var showEditSheet = false
+
+    // Delete confirmation
+    @State private var challengeToDelete: AdminChallengeItem? = nil
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
 
     @State private var listener: ListenerRegistration? = nil
 
@@ -557,6 +576,7 @@ struct AdminChallengesView: View {
                         )
                         .padding(.horizontal, 18)
                     }
+                    .buttonStyle(.plain)
 
                     if loading {
                         ProgressView().tint(primary)
@@ -577,7 +597,15 @@ struct AdminChallengesView: View {
                                     AdminChallengeCard(
                                         challenge: ch,
                                         primary: primary,
-                                        onEdit: { editingChallenge = ch }
+                                        onEdit: {
+                                            // ✅ FIX: stable open even if listener updates list
+                                            editingChallenge = ch
+                                            showEditSheet = true
+                                        },
+                                        onDelete: {
+                                            challengeToDelete = ch
+                                            showDeleteConfirm = true
+                                        }
                                     )
                                 }
                             }
@@ -598,11 +626,36 @@ struct AdminChallengesView: View {
                 }
             }
 
-            // Edit
-            .sheet(item: $editingChallenge) { ch in
-                EditChallengeSheet(challenge: ch) {
-                    editingChallenge = nil
+            // ✅ FIXED Edit Sheet
+            .sheet(isPresented: $showEditSheet, onDismiss: {
+                editingChallenge = nil
+            }) {
+                if let ch = editingChallenge {
+                    EditChallengeSheet(challenge: ch) {
+                        showEditSheet = false
+                        editingChallenge = nil
+                    }
+                } else {
+                    Text("No challenge selected")
                 }
+            }
+
+            // Delete confirmation
+            .confirmationDialog(
+                "Delete this challenge?",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let ch = challengeToDelete {
+                        Task { await deleteChallenge(ch) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    challengeToDelete = nil
+                }
+            } message: {
+                Text("This will permanently delete the challenge and all its submissions. This action cannot be undone.")
             }
 
             .onAppear { startListening() }
@@ -649,12 +702,61 @@ struct AdminChallengesView: View {
                 loading = false
             }
     }
+
+    private func deleteChallenge(_ challenge: AdminChallengeItem) async {
+        isDeleting = true
+
+        do {
+            let db = Firestore.firestore()
+            let challengeRef = db.collection("challenges").document(challenge.id)
+
+            // 1) Delete submissions + their storage + ratings
+            let submissionsSnap = try await challengeRef.collection("submissions").getDocuments()
+
+            for subDoc in submissionsSnap.documents {
+                let storagePath = subDoc.data()["storagePath"] as? String ?? ""
+
+                if !storagePath.isEmpty {
+                    try? await Storage.storage().reference().child(storagePath).delete()
+                }
+
+                let ratingsSnap = try await subDoc.reference.collection("ratings").getDocuments()
+                for ratingDoc in ratingsSnap.documents {
+                    try await ratingDoc.reference.delete()
+                }
+
+                try await subDoc.reference.delete()
+            }
+
+            // 2) Delete challenge image from storage (best effort)
+            if !challenge.imageURL.isEmpty, let url = URL(string: challenge.imageURL) {
+                let fileName = url.lastPathComponent
+                if !fileName.isEmpty {
+                    try? await Storage.storage()
+                        .reference()
+                        .child("challenges/\(challenge.id)/\(fileName)")
+                        .delete()
+                }
+            }
+
+            // 3) Delete challenge doc
+            try await challengeRef.delete()
+
+            isDeleting = false
+            challengeToDelete = nil
+
+        } catch {
+            isDeleting = false
+            errorText = "Failed to delete: \(error.localizedDescription)"
+        }
+    }
 }
 
 struct AdminChallengeCard: View {
     let challenge: AdminChallengeItem
     let primary: Color
     let onEdit: () -> Void
+    let onDelete: () -> Void
 
     private var isPast: Bool {
         if let end = challenge.endAt { return Date() >= end }
@@ -736,15 +838,38 @@ struct AdminChallengeCard: View {
                     .foregroundColor(.secondary)
             }
 
-            HStack {
+            HStack(spacing: 12) {
                 Spacer()
-                Button("Edit") { onEdit() }
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+
+                Button {
+                    onDelete()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Delete")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 26)
+                    .padding(.horizontal, 20)
                     .padding(.vertical, 10)
-                    .background(primary)
+                    .background(Color.red.opacity(0.85))
                     .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    onEdit()
+                } label: {
+                    Text("Edit")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 10)
+                        .background(primary)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(16)
@@ -758,7 +883,7 @@ struct AdminChallengeCard: View {
 }
 
 // =======================================================
-// MARK: - Wheel Date Picker Sheet ✅ (مثل صورتك "Select your birth date" + Done)
+// MARK: - Wheel Date Picker Sheet
 // =======================================================
 
 struct WheelDatePickerSheet: View {
@@ -825,7 +950,7 @@ private struct DateRow: View {
 }
 
 // =======================================================
-// MARK: - Create Challenge Sheet ✅ Boxes white + unified + wheel dates
+// MARK: - Create Challenge Sheet
 // =======================================================
 
 struct CreateChallengeSheet: View {
@@ -894,7 +1019,6 @@ struct CreateChallengeSheet: View {
                             }
                         }
 
-                        // ✅ unified white boxes
                         field("Title", placeholder: "Challenge title", text: $title)
                         field("Description", placeholder: "Write a short description", text: $description)
 
@@ -906,11 +1030,10 @@ struct CreateChallengeSheet: View {
                             TextEditor(text: $criteriaText)
                                 .frame(height: 90)
                                 .padding(10)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)) // ✅ white
+                                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
                         }
                         .padding(.horizontal, 22)
 
-                        // ✅ Wheel date pickers like your image
                         VStack(spacing: 10) {
                             DateRow(
                                 label: "Start Date",
@@ -939,6 +1062,7 @@ struct CreateChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
                         .disabled(uploading || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .buttonStyle(.plain)
 
                         if let errorText {
                             Text(errorText)
@@ -988,7 +1112,7 @@ struct CreateChallengeSheet: View {
                 .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(BrandColors.background) // ✅ white (مو رمادي)
+                        .fill(BrandColors.background)
                 )
         }
         .padding(.horizontal, 22)
@@ -1062,7 +1186,7 @@ struct CreateChallengeSheet: View {
 }
 
 // =======================================================
-// MARK: - Edit Challenge Sheet ✅ Admin can edit + updates reflect to users (Firestore doc update)
+// MARK: - Edit Challenge Sheet
 // =======================================================
 
 struct EditChallengeSheet: View {
@@ -1195,6 +1319,7 @@ struct EditChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
                         .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .buttonStyle(.plain)
 
                         if let errorText {
                             Text(errorText)

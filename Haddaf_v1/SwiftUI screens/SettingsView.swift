@@ -3,23 +3,19 @@ import FirebaseAuth
 import FirebaseMessaging
 
 struct SettingsView: View {
-    // The environment object for dismissing the view
+    @EnvironmentObject var session: AppSession
     @Environment(\.dismiss) private var dismiss
-    // The user's profile data to be used by `EditProfileView`
     @ObservedObject var userProfile: UserProfile
 
     private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.15)
     
-    // Controls the visibility of the logout confirmation popup
     @State private var showLogoutPopup = false
-    // Triggers the `navigationDestination` to the `WelcomeView` after a successful logout
-    @State private var goToWelcome = false
-
-    // Show a loading indicator while the logout process is active
     @State private var isSigningOut = false
-    // String to display any error that occurs during the sign-out process
     @State private var signOutError: String?
+    
+    // ⬇️ الحل الجديد: نستخدم presentationMode للخروج من fullScreenCover
+    @Environment(\.presentationMode) var presentationMode
 
     var body: some View {
        ZStack {
@@ -51,10 +47,10 @@ struct SettingsView: View {
                VStack(spacing: 0) {
                    NavigationLink {
                        EditProfileView(userProfile: userProfile)
-                   } label: {
-                       settingsRow(icon: "person", title: "Edit Profile",
-                                   iconColor: primary, showChevron: true, showDivider: true)
-                   }
+                       } label: {
+                           settingsRow(icon: "person", title: "Edit Profile",
+                                       iconColor: primary, showChevron: true, showDivider: true)
+                       }
                    
                    NavigationLink {
                        NotificationsView()
@@ -106,12 +102,10 @@ struct SettingsView: View {
                                .multilineTextAlignment(.center)
                                .padding(.horizontal, 24)
 
-                           // Loading spinner
                            if isSigningOut {
                                ProgressView().tint(primary).padding(.top, 4)
                            }
 
-                           // Error message
                            if let signOutError {
                                Text(signOutError)
                                    .font(.system(size: 13, design: .rounded))
@@ -120,7 +114,6 @@ struct SettingsView: View {
                                    .padding(.horizontal, 16)
                            }
 
-                           // Action Buttons
                            HStack(spacing: 16) {
                                Button("No") {
                                    withAnimation { showLogoutPopup = false }
@@ -158,10 +151,6 @@ struct SettingsView: View {
            }
        }
        .animation(.easeInOut, value: showLogoutPopup)
-        // Navigation destination to go back to Welcome screen after logout
-       .navigationDestination(isPresented: $goToWelcome) {
-           WelcomeView()
-       }
        .navigationBarBackButtonHidden(true)
    }
 
@@ -172,36 +161,45 @@ struct SettingsView: View {
 
         clearLocalCaches()
 
-        // Delete the FCM token so this device no longer receives push notifications for the user who is logging out.
         Messaging.messaging().deleteToken { _ in
-            // proceed with signing the user out.
             self.signOutFirebase()
         }
     }
 
     private func signOutFirebase() {
         do {
+            // ⬇️ أولاً: أرسل notification فوراً لإغلاق الـ fullScreenCover
+            NotificationCenter.default.post(name: .forceLogout, object: nil)
+            
+            // ⬇️ ثانياً: امسح الـ session
+            session.user = nil
+            session.role = nil
+            session.isVerifiedCoach = false
+            session.coachStatus = nil
+            session.isGuest = false
+            session.userListener?.remove()
+            
+            // ⬇️ ثالثاً: سجل خروج من Firebase
             try Auth.auth().signOut()
-            // Success: trigger navigation
-            withAnimation {
-                isSigningOut = false
-                showLogoutPopup = false
-                goToWelcome = true // This triggers the .navigationDestination
+            
+            // ⬇️ رابعاً: اطلع من الـ Settings
+            DispatchQueue.main.async {
+                self.presentationMode.wrappedValue.dismiss()
             }
+            
+            isSigningOut = false
+            showLogoutPopup = false
+            
         } catch {
-            // Failure: show error
             isSigningOut = false
             signOutError = "Failed to sign out: \(error.localizedDescription)"
         }
     }
 
-    // Removes sensitive or user-specific data from `UserDefaults` during logout
-    // Clears any saved profile drafts or cached user profile information
     private func clearLocalCaches() {
         UserDefaults.standard.removeObject(forKey: "signup_profile_draft")
         UserDefaults.standard.removeObject(forKey: "current_user_profile")
         UserDefaults.standard.synchronize()
-        // Clear the shared report state so the next user doesn't see old reports
         ReportStateService.shared.reset()
     }
 

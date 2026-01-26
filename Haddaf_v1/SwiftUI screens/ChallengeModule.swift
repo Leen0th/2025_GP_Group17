@@ -768,16 +768,20 @@ struct NewChallengePage: View {
     @State private var pickedItem: PhotosPickerItem?
     @State private var showPicker = false
 
-    // ✅ Full-screen popup state (so dim covers whole screen)
+    // ✅ Full-screen popup state (for guest/coach - "Join Haddaf!")
     @State private var showActionPopup = false
     @State private var actionPopupMessage = ""
+    
+    // ⬇️ Simple alert for regular warnings (like "already uploaded")
+    @State private var showSimpleAlert = false
+    @State private var simpleAlertMessage = ""
 
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
+                LazyVStack(spacing: 18) {
                     Text("New Challenge")
                         .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .foregroundColor(accent)
@@ -792,7 +796,7 @@ struct NewChallengePage: View {
                     .padding(.horizontal, 14)
 
                     HStack {
-                        Text("Posts")
+                        Text("Challenge Posts")
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Spacer()
                     }
@@ -875,6 +879,14 @@ struct NewChallengePage: View {
         } message: {
             Text("Video must be 30 seconds or less.")
         }
+        
+        // ⬇️ Simple alert for warnings
+        .alert("Notice", isPresented: $showSimpleAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(simpleAlertMessage)
+        }
+        
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -884,10 +896,20 @@ struct NewChallengePage: View {
     }
 
     private func handleUploadTap() {
-        // Guest OR Coach -> same popup style + same dim
+        // Guest OR Coach -> "Join Haddaf!" popup
         if session.isGuest || roleResolver.isCoach || !roleResolver.isPlayer {
             presentActionPopup("You must be signed in and be a player to perform this action.")
             return
+        }
+
+        // ⬇️ Check if player already uploaded a video -> simple alert
+        if let currentUid = Auth.auth().currentUser?.uid {
+            let alreadyUploaded = subService.submissions.contains { $0.uid == currentUid }
+            if alreadyUploaded {
+                simpleAlertMessage = "You can only upload one video per challenge. Delete your current video to upload a new one."
+                showSimpleAlert = true
+                return
+            }
         }
 
         // Player -> open picker
@@ -943,7 +965,7 @@ struct PastChallengePage: View {
                     .padding(.horizontal, 14)
 
                     HStack {
-                        Text("Winner Posts")
+                        Text("Challenge Winners")
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                         Spacer()
                     }
@@ -1261,7 +1283,21 @@ private struct SubmissionCard: View {
             }
 
             // Rating row OR points row
-            if !isEvaluated {
+            // ⬇️ If guest or not a player, show points directly
+            if !canEvaluate {
+                HStack(spacing: 8) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.yellow)
+
+                    Text("\(currentPoints) pts")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                    Spacer()
+                }
+                .padding(.top, 2)
+            } else if !isEvaluated {
+                // Player who hasn't evaluated yet - show stars
                 HStack(spacing: 10) {
                     StarPicker(
                         selected: $selectedStars,
@@ -1290,6 +1326,7 @@ private struct SubmissionCard: View {
                 }
                 .padding(.top, 2)
             } else {
+                // Player who already evaluated - show points
                 HStack(spacing: 8) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 16, weight: .bold))

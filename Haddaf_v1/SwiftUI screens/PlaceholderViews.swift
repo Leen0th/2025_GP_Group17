@@ -37,6 +37,23 @@ struct TeamsView: View {
     }
 }
 */
+struct LineupBuilderView: View {
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            VStack(spacing: 8) {
+                Text("Lineup Builder Page")
+                    .font(.system(size: 32, design: .rounded))
+                    .foregroundColor(.secondary)
+                
+                Text("To be developed in upcoming sprints")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(.gray)
+            }
+        }
+    }
+}
+
 
 // MARK: - Video Upload View (Validation Added)
 struct VideoUploadView: View {

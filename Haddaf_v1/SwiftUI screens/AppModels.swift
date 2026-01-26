@@ -3,6 +3,7 @@ import Combine
 import PhotosUI
 import Foundation
 import FirebaseFirestore
+import UIKit
 
 // MARK: - Haddaf Color Palette
 struct BrandColors {
@@ -177,6 +178,7 @@ enum ContentType {
 // Represents the main tabs in the app's `TabView`.
 enum Tab {
     case discovery, teams, action, challenge, profile
+    case lineupBuilder
     
     var imageName: String {
         switch self {
@@ -185,6 +187,7 @@ enum Tab {
         case .action: return ""
         case .challenge: return "chart.bar"
         case .profile: return "person"
+        case .lineupBuilder: return "sportscourt"
         }
     }
     
@@ -195,6 +198,7 @@ enum Tab {
             case .action: return ""
             case .challenge: return "chart.bar.fill"
             case .profile: return "person.fill"
+            case .lineupBuilder: return "sportscourt.fill"
             }
         }
     
@@ -205,6 +209,7 @@ enum Tab {
         case .action: return ""
         case .challenge: return "Challenge"
         case .profile: return "Profile"
+        case .lineupBuilder: return "Builder"
         }
     }
 }
@@ -504,5 +509,49 @@ struct AppNotification: Identifiable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+
+
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        picker.allowsEditing = true
+        picker.sourceType = .photoLibrary
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let parent: ImagePicker
+
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]
+        ) {
+            if let edited = info[.editedImage] as? UIImage {
+                parent.image = edited
+            } else if let original = info[.originalImage] as? UIImage {
+                parent.image = original
+            }
+            picker.dismiss(animated: true)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+        }
     }
 }

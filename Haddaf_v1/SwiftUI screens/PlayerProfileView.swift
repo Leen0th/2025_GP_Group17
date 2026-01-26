@@ -1,62 +1,144 @@
-
 import SwiftUI
+import FirebaseFirestore
+
+extension Notification.Name {
+    static let userSignedIn = Notification.Name("userSignedIn")
+    static let forceLogout = Notification.Name("forceLogout")
+}
 
 struct PlayerProfileView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var session: AppSession
     @State private var selectedTab: Tab = .discovery
     @State private var showVideoUpload = false
     @State private var showAuthSheet = false
+    @State private var showLineupBuilder = false
     
-    // Track if the view has already appeared to prevent resetting the tab on back navigation
+    // Track if the view has already appeared
     @State private var hasAppeared = false
     
     var body: some View {
-            ZStack(alignment: .bottom) {
-                VStack {
-                    switch selectedTab {
-                    case .discovery: DiscoveryView()
-                    case .teams: TeamsView()
-                    case .challenge: ChallengeView()
-                        // If the user is a guest, show the gate instead of the real profile.
-                    case .profile: if session.isGuest {
+        // ⬇️ تحقق إذا المستخدم logged out
+        if session.user == nil {
+            // المستخدم سجل خروج - أغلق الـ fullScreenCover
+            Color.clear
+                .onAppear {
+                    dismiss()
+                }
+        } else {
+            // المستخدم موجود - عرض الـ TabView
+            mainContent
+        }
+    }
+    
+    private var mainContent: some View {
+        ZStack(alignment: .bottom) {
+            VStack {
+                switch selectedTab {
+                case .discovery:
+                    DiscoveryView()
+                case .teams:
+                    TeamsView()
+                case .challenge:
+                    ChallengeView()
+                case .lineupBuilder:
+                    LineupBuilderView()
+                case .profile:
+                    if session.isGuest {
                         NavigationStack {
                             GuestProfileGateView()
                         }
+                    } else if session.role == "coach" {
+                        // If user is a coach, show the Coach Profile
+                        CoachProfileContentView()
                     } else {
+                        // Otherwise, show the Player Profile
                         PlayerProfileContentView()
                     }
-                    default: DiscoveryView()
+                default:
+                    DiscoveryView()
+                }
+            }
+                        
+            CustomTabBar(
+                selectedTab: $selectedTab,
+                showVideoUpload: $showVideoUpload,
+                showAuthSheet: $showAuthSheet
+            )
+            
+            if showAuthSheet {
+                AuthPromptSheet(isPresented: $showAuthSheet)
+                    .animation(.easeInOut, value: showAuthSheet)
+            }
+        }
+        .ignoresSafeArea(.all, edges: .bottom)
+        .fullScreenCover(isPresented: $showVideoUpload) {
+            VideoUploadView()
+        }
+        .navigationBarBackButtonHidden(true)
+        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+
+        .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
+            selectedTab = .profile
+            showVideoUpload = false
+        }
+        // ⬇️ استمع للـ forceLogout notification
+        .onReceive(NotificationCenter.default.publisher(for: .forceLogout)) { _ in
+            dismiss()
+        }
+        .onAppear {
+            // Force Discovery tab on first real appearance
+            if !hasAppeared {
+                selectedTab = .discovery
+                hasAppeared = true
+            }
+            
+            // Refresh role whenever we appear to ensure the UI matches the account
+            if let uid = session.user?.uid {
+                Task {
+                    let role = await fetchRole()
+                    await MainActor.run {
+                        session.role = role
                     }
                 }
-                CustomTabBar(selectedTab: $selectedTab, showVideoUpload: $showVideoUpload, showAuthSheet: $showAuthSheet)
-                
-                if showAuthSheet {
-                    AuthPromptSheet(isPresented: $showAuthSheet)
-                        .animation(.easeInOut, value: showAuthSheet) // Animation applied here
+            }
+        }
+        .onChange(of: session.user) { oldUser, newUser in
+            if let user = newUser {
+                Task {
+                    session.role = await fetchRole()
                 }
+            } else {
+                // ⬇️ المستخدم logged out - أغلق الـ view
+                dismiss()
             }
-            .ignoresSafeArea(.all, edges: .bottom)
-            .fullScreenCover(isPresented: $showVideoUpload) {
-                VideoUploadView()
-            }
-        // After a post is created, switch to the Profile tab and close the Upload screen.
-            .onReceive(NotificationCenter.default.publisher(for: .postCreated)) { _ in
-                selectedTab = .profile
-                showVideoUpload = false
-            }
-        // Force the tab to Discovery on first launch
-            .onAppear {
-                if !hasAppeared {
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .userSignedIn)) { note in
+            if let role = note.userInfo?["role"] as? String {
+                if role == "coach" {
                     selectedTab = .discovery
-                    hasAppeared = true
+                } else {
+                    selectedTab = .profile
                 }
-            }
-        // If the user changes, force reset to Discovery
-            .onChange(of: session.user) { _, _ in
-                selectedTab = .discovery
             }
         }
     }
+
+    private func fetchRole() async -> String? {
+        guard let uid = session.user?.uid else { return nil }
+        do {
+            let doc = try await Firestore.firestore()
+                .collection("users")
+                .document(uid)
+                .getDocument()
+            return doc.data()?["role"] as? String
+        } catch {
+            print("Error fetching role: \(error)")
+            return nil
+        }
+    }
+}
 
 
 
@@ -98,23 +180,37 @@ struct CustomTabBar: View {
             .frame(maxHeight: .infinity, alignment: .bottom)
             Button(action: {
                 if session.isGuest {
+                    // Guests always see the Auth Sheet regardless of the icon shown
                     showAuthSheet = true
+                } else if session.role == "coach" {
+                    selectedTab = .lineupBuilder
                 } else {
+                    // Players (and theoretically guests if they weren't caught above)
+                    // see the upload flow
                     showVideoUpload = true
                 }
             }) {
                 ZStack {
                     Circle()
                         .fill(BrandColors.background)
-                       
                         .frame(width: 72, height: 72)
                         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 
-                    Image(systemName: "video.badge.plus")
-                        
+                    // Show sportscourt ONLY if verified coach.
+                    // Guests and Players see video.badge.plus
+                    Image(systemName: session.role == "coach" ? "sportscourt" : "video.badge.plus")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(accentColor)
+                        .foregroundColor(
+                            // Highlight if active
+                            ((session.role == "coach" && selectedTab == .lineupBuilder) ||
+                             (session.role != "coach" && showVideoUpload))
+                            ? BrandColors.darkTeal
+                            : .gray
+                        )
                 }
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
+
+
             }
             .buttonStyle(.plain)
             .frame(maxHeight: .infinity, alignment: .bottom)

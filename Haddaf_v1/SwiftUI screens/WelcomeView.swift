@@ -20,7 +20,7 @@ struct WelcomeView: View {
                     .scaledToFit()
                     .frame(width: 210, height: 210)
                 
-                Text("Let’s get started !")
+                Text("Let's get started !")
                     .font(.system(size: 24, weight: .medium, design: .rounded))
                     .foregroundColor(primary)
                 
@@ -61,7 +61,7 @@ struct WelcomeView: View {
                         Rectangle().fill(Color.gray.opacity(0.35)).frame(height: 1)
                     }
                     
-                    // ⬇️ زر الضيف: تسجيل Anonymous فعليًا
+                    // ⬇️ زر الضيف: تسجيل Anonymous فعلياً
                     Button {
                         Task {
                             do {
@@ -72,7 +72,6 @@ struct WelcomeView: View {
                                     showMainApp = true
                                 }
                             } catch {
-                                // ممكن تستبدلها بتوست/تنبيه
                                 print("Anonymous sign-in failed:", error.localizedDescription)
                             }
                         }
@@ -98,10 +97,17 @@ struct WelcomeView: View {
         .navigationBarBackButtonHidden(true)
         .fullScreenCover(isPresented: $showMainApp) {
             PlayerProfileView()
+                .environmentObject(session)
+        }
+        // ⬇️ استمع للـ forceLogout notification - أغلق فوراً بدون animation
+        .onReceive(NotificationCenter.default.publisher(for: .forceLogout)) { _ in
+            showMainApp = false
+        }
+        // ⬇️ تحقق من الـ session - أغلق فوراً
+        .onChange(of: session.user) { newUser in
+            if newUser == nil && showMainApp {
+                showMainApp = false
+            }
         }
     }
 }
-
-
-
-

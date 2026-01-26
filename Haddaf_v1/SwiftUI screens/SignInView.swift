@@ -235,6 +235,20 @@ struct SignInView: View {
             let role = (data["role"] as? String ?? "player").lowercased()
             let isActive = data["isActive"] as? Bool ?? true
             
+            // CHECK VERIFICATION:
+            var coachIsVerified = false
+            if role == "coach" {
+                // We check the coachRequests collection for this user's approval status
+                let reqSnap = try await Firestore.firestore()
+                    .collection("coachRequests")
+                    .whereField("uid", isEqualTo: user.uid)
+                    .getDocuments()
+                
+                if let status = reqSnap.documents.first?.data()["status"] as? String {
+                    coachIsVerified = (status == "approved")
+                }
+            }
+            
             // Block access if the account is deactivated
             if !isActive {
                 try? Auth.auth().signOut()
@@ -261,20 +275,28 @@ struct SignInView: View {
                 
                 await MainActor.run {
                     session.user = user
+                    session.role = role // Set the specific role (player or coach)
+                    session.isVerifiedCoach = coachIsVerified // SAVE TO SESSION
                     session.isGuest = false
                 }
                 
-                do {
-                    let complete = try await isPlayerProfileComplete(uid: user.uid)
-                    await MainActor.run {
-                        if complete {
-                            goToProfile = true
-                        } else {
-                            goToPlayerSetup = true
+                if role == "coach" {
+                    // ✅ COACH FLOW: Skip player setup and go directly to profile/discovery
+                    await MainActor.run { goToProfile = true }
+                } else {
+                    // ✅ PLAYER FLOW: Check for profile completion
+                    do {
+                        let complete = try await isPlayerProfileComplete(uid: user.uid)
+                        await MainActor.run {
+                            if complete {
+                                goToProfile = true
+                            } else {
+                                goToPlayerSetup = true
+                            }
                         }
+                    } catch {
+                        await MainActor.run { goToPlayerSetup = true }
                     }
-                } catch {
-                    await MainActor.run { goToPlayerSetup = true }
                 }
                 
             } else {

@@ -3,8 +3,8 @@ import FirebaseAuth
 
 struct ContentView: View {
     @StateObject private var session = AppSession()
-
     @State private var showWelcomeScreen = false
+    @State private var navigationID = UUID() // ⬅️ لإعادة بناء الـ NavigationStack
 
     var body: some View {
         NavigationStack {
@@ -27,7 +27,11 @@ struct ContentView: View {
                 }
             }
         }
-        .environmentObject(session) // ⬅️ نشر الجلسة لكل الشاشات
+        .id(navigationID) // ⬅️ إعادة بناء NavigationStack
+        .environmentObject(session)
+        .onReceive(NotificationCenter.default.publisher(for: .forceLogout)) { _ in
+            // عند logout، غيّر الـ ID لإعادة بناء الـ NavigationStack بالكامل
+            navigationID = UUID()
+        }
     }
 }
-

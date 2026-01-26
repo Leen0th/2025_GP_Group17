@@ -3,6 +3,10 @@ import SwiftUI
 struct GuestProfileGateView: View {
     @EnvironmentObject var session: AppSession
     private let primary = BrandColors.darkTeal
+    
+    // ⬅️ State variables لإظهار الـ views في fullScreenCover
+    @State private var showSignIn = false
+    @State private var showSignUp = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -16,8 +20,8 @@ struct GuestProfileGateView: View {
                 .padding(.bottom, 30)
 
             // Sign In
-            NavigationLink {
-                SignInView()
+            Button {
+                showSignIn = true
             } label: {
                 Text("Sign In")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
@@ -31,8 +35,8 @@ struct GuestProfileGateView: View {
             }
 
             // Sign Up
-            NavigationLink {
-                SignUpView()
+            Button {
+                showSignUp = true
             } label: {
                 Text("Sign Up")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
@@ -51,6 +55,16 @@ struct GuestProfileGateView: View {
             }
 
             Spacer()
+        }
+        .fullScreenCover(isPresented: $showSignIn) {
+            NavigationStack {
+                SignInView()
+            }
+        }
+        .fullScreenCover(isPresented: $showSignUp) {
+            NavigationStack {
+                SignUpView()
+            }
         }
     }
 }
