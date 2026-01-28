@@ -27,6 +27,15 @@ struct SignUpView: View {
     @State private var showFileImporter = false
     @State private var isUploadingVerification = false
     @State private var showCoachLocationPicker = false
+    @State private var showLocationInfo = false
+    @State private var coachLocationSearch = ""
+    @State private var coachPhoneLocal = ""
+    @State private var coachPhoneNonDigitError = false
+    
+    // Coach Document
+    @State private var fileSizeError: String? = nil
+    private let maxFileSizeBytes: Int64 = 10 * 1024 * 1024 // File size limit: 10MB
+    
     // Coach Profile Picture
     @State private var coachProfileItem: PhotosPickerItem? = nil
     @State private var coachProfileData: Data? = nil
@@ -120,7 +129,7 @@ struct SignUpView: View {
     }
     
     private var isCoachFormValid: Bool {
-        isNameValid && isPasswordValid && isEmailValid && !coachLocation.isEmpty && verificationFile != nil && !emailExists
+        isNameValid && isPasswordValid && isEmailValid && !coachLocation.isEmpty && isValidPhone(code: selectedDialCode, local: coachPhoneLocal) && verificationFile != nil && fileSizeError == nil && !emailExists
     }
     
     // Computed property to get missing required fields
@@ -140,8 +149,10 @@ struct SignUpView: View {
         } else { // Coach
             if emailExists { missing.append("Email (already in use)") }
             if !isEmailValid { missing.append("Email") }
+            if !isValidPhone(code: selectedDialCode, local: coachPhoneLocal) { missing.append("Phone number") }
             if coachLocation.isEmpty { missing.append("Location") }
             if verificationFile == nil { missing.append("Verification File") }
+            if fileSizeError != nil { missing.append("File size (must be under 10MB)") }
         }
         
         return missing
@@ -486,12 +497,15 @@ struct SignUpView: View {
                     emailExists = false
                     parentEmailExists = false
                     coachLocation = ""
+                    coachPhoneLocal = ""
+                    coachPhoneNonDigitError = false
                     hasTeam = true
                     verificationFile = nil
                     verificationFileName = ""
                     showVerificationInfo = false
                     attemptedSubmit = false
                     inlineVerifyError = nil
+                    fileSizeError = nil
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -719,6 +733,8 @@ struct SignUpView: View {
                     draftData["requiresParentConsent"] = true
                 }
             } else { // Coach
+                let coachFullPhone = selectedDialCode + coachPhoneLocal
+                draftData["phone"] = coachFullPhone
                 draftData["location"] = coachLocation
                 draftData["hasTeam"] = hasTeam
                 draftData["verificationFile"] = finalVerificationURL
@@ -814,6 +830,7 @@ struct SignUpView: View {
                     data["requiresParentConsent"] = true
                 }
             } else { // Coach
+                data["phone"] = draft["phone"] as? String ?? "" 
                 data["location"] = draft["location"] as? String ?? ""
                 data["verificationFile"] = draft["verificationFile"] as? String ?? ""
                 data["hasTeam"] = draft["hasTeam"] as? Bool ?? false
@@ -1061,6 +1078,11 @@ struct SignUpView: View {
         return f.string(from: date)
     }
     
+    // Helper function to format file size
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let mb = Double(bytes) / (1024 * 1024)
+        return String(format: "%.1f MB", mb)
+    }
     
     private var coachSignupForm: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -1160,6 +1182,44 @@ struct SignUpView: View {
                 }
             }
             
+            // PHONE
+            fieldLabel("Phone number", required: true)
+            roundedField {
+                HStack(spacing: 10) {
+                    Text(selectedDialCode)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(primary)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(primary.opacity(0.08))
+                        )
+                    TextField("", text: Binding(
+                        get: { coachPhoneLocal },
+                        set: { val in
+                            coachPhoneNonDigitError = val.contains { !$0.isNumber }
+                            coachPhoneLocal = val.filter { $0.isNumber }
+                        }
+                    ))
+                    .keyboardType(.numberPad)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
+                    .tint(primary)
+                }
+            }
+            if coachPhoneNonDigitError {
+                Text("Numbers only (0–9).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            } else if !coachPhoneLocal.isEmpty && !isValidPhone(code: selectedDialCode, local: coachPhoneLocal) {
+                Text("Enter a valid Saudi number (starts with 5, 9 digits).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            }
+            
             // Password
             fieldLabel("Password", required: true)
             roundedField {
@@ -1201,8 +1261,9 @@ struct SignUpView: View {
             }
             
             // Location
-            fieldLabel("Location", required: true)
-            buttonLikeField(action: { showCoachLocationPicker = true }) {
+            fieldLabel("City of Residence", required: true)
+            buttonLikeField(action: { coachLocationSearch = ""
+                showCoachLocationPicker = true }) {
                 HStack {
                     Text(coachLocation.isEmpty ? "Select city" : coachLocation)
                         .font(.system(size: 16, design: .rounded))
@@ -1217,7 +1278,7 @@ struct SignUpView: View {
                     title: "Select your city",
                     allCities: SAUDI_CITIES,
                     selection: $coachLocation,
-                    searchText: .constant(""),
+                    searchText: $coachLocationSearch,
                     showSheet: $showCoachLocationPicker,
                     accent: primary
                 )
@@ -1248,7 +1309,8 @@ struct SignUpView: View {
                 .alert("Verification Help", isPresented: $showVerificationInfo) {
                     Button("OK", role: .cancel) { }
                 } message: {
-                    Text("Upload a file (PDF or Image) to verify you are a coach.")
+                    Text("Upload an official document that proves you are a coach, such as a coaching license, federation certificate, or club issued credential.")
+                    + Text("\n\nAccepted formats: PDF or image. Maximum file size: 10 MB.")
                 }
 
                 // The Upload Button
@@ -1257,7 +1319,7 @@ struct SignUpView: View {
                         Image(systemName: verificationFile == nil ? "doc.badge.plus" : "doc.fill")
                             .foregroundColor(primary)
                         
-                        Text(verificationFileName.isEmpty ? "Upload Document" : verificationFileName)
+                        Text(verificationFileName.isEmpty ? "Upload Document (Max 10 MB)" : verificationFileName)
                             .font(.system(size: 16, design: .rounded))
                             .foregroundColor(verificationFile == nil ? .gray : primary)
                             .lineLimit(1)
@@ -1282,16 +1344,41 @@ struct SignUpView: View {
                     switch result {
                     case .success(let urls):
                         guard let selectedURL = urls.first else { return }
-                        // Optionally, start accessing the file securely
-                        if selectedURL.startAccessingSecurityScopedResource() {
-                            defer { selectedURL.stopAccessingSecurityScopedResource() }
-                            verificationFile = selectedURL
-                            verificationFileName = selectedURL.lastPathComponent
+                        // Check file size before accepting
+                        do {
+                            let accessing = selectedURL.startAccessingSecurityScopedResource()
+                            defer {
+                                if accessing { selectedURL.stopAccessingSecurityScopedResource() }
+                            }
+                                            
+                            let fileAttributes = try FileManager.default.attributesOfItem(atPath: selectedURL.path)
+                            let fileSize = fileAttributes[.size] as? Int64 ?? 0
+                                            
+                            if fileSize > maxFileSizeBytes {
+                                fileSizeError = "File size (\(formatFileSize(fileSize))) exceeds the maximum limit of 10 MB. Please choose a smaller file."
+                                verificationFile = nil
+                                verificationFileName = ""
+                            } else {
+                                verificationFile = selectedURL
+                                verificationFileName = selectedURL.lastPathComponent
+                                fileSizeError = nil
+                            }
+                        } catch {
+                            fileSizeError = "Unable to read file. Please try again."
+                            verificationFile = nil
+                            verificationFileName = ""
                         }
                     case .failure(let error):
                         print("File import error: \(error.localizedDescription)")
-                        // Optionally, show an alert or set an error state
+                        fileSizeError = "Failed to import file. Please try again."
                     }
+                }
+                // Show file size error if present
+                if let fileSizeError = fileSizeError {
+                    Text(fileSizeError)
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                        .padding(.top, 4)
                 }
             }
             
