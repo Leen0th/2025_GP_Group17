@@ -5,27 +5,33 @@ import Combine
 /// This ensures that if you report a post in one view, it appears as "reported" in all other views.
 @MainActor
 final class ReportStateService: ObservableObject {
-    
+
     /// The shared singleton instance of the service.
     static let shared = ReportStateService()
-    
+
     // --- STATE 1: Which items are REPORTED (for filled icons) ---
     /// A set of all Post IDs that the user has reported.
     @Published private(set) var reportedPostIDs: Set<String> = []
-    
+
     /// A set of all Comment IDs that the user has reported.
     @Published private(set) var reportedCommentIDs: Set<String> = []
-    
+
     /// A set of all Profile IDs (using email or UID) that the user has reported.
     @Published private(set) var reportedProfileIDs: Set<String> = []
+
+    /// ✅ NEW: Challenge Submission IDs that the user has reported
+    @Published private(set) var reportedChallengeSubmissionIDs: Set<String> = []
 
     // --- STATE 2: Which items are currently HIDDEN (for placeholder) ---
     @Published private(set) var hiddenPostIDs: Set<String> = []
     @Published private(set) var hiddenCommentIDs: Set<String> = []
-    
-    // Private init to ensure it's only use one instance
+
+    /// ✅ NEW: Challenge Submission IDs that are hidden (after report)
+    @Published private(set) var hiddenChallengeSubmissionIDs: Set<String> = []
+
+    // Private init to ensure only one instance
     private init() {}
-    
+
     // MARK: - Public Methods
 
     /// Marks a post as reported, causing it to be hidden.
@@ -33,39 +39,53 @@ final class ReportStateService: ObservableObject {
         reportedPostIDs.insert(id)
         hiddenPostIDs.insert(id)
     }
-    
+
     /// Marks a comment as reported, causing it to be hidden.
     func reportComment(id: String) {
         reportedCommentIDs.insert(id)
         hiddenCommentIDs.insert(id)
     }
-    
+
     /// Marks a profile as reported.
     func reportProfile(id: String) {
         reportedProfileIDs.insert(id)
     }
-    
+
+    /// ✅ NEW: Marks a challenge submission as reported, causing it to be hidden.
+    func reportChallengeSubmission(id: String) {
+        reportedChallengeSubmissionIDs.insert(id)
+        hiddenChallengeSubmissionIDs.insert(id)
+    }
+
     /// Unhides a post that was previously reported.
     func unhidePost(id: String) {
         hiddenPostIDs.remove(id)
     }
-    
+
     /// Unhides a comment that was previously reported.
     func unhideComment(id: String) {
         hiddenCommentIDs.remove(id)
     }
-    
+
     /// Unhides a profile that was previously reported.
     func unhideProfile(id: String) {
         reportedProfileIDs.remove(id)
     }
-    
+
+    /// ✅ NEW: Unhides a challenge submission that was previously reported.
+    func unhideChallengeSubmission(id: String) {
+        hiddenChallengeSubmissionIDs.remove(id)
+    }
+
     /// Clears all reported and hidden state.
     func reset() {
         reportedPostIDs.removeAll()
         reportedCommentIDs.removeAll()
         reportedProfileIDs.removeAll()
+        reportedChallengeSubmissionIDs.removeAll()
+
         hiddenPostIDs.removeAll()
         hiddenCommentIDs.removeAll()
+        hiddenChallengeSubmissionIDs.removeAll()
     }
 }

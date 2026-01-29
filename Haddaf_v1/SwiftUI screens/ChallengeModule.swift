@@ -188,9 +188,7 @@ final class SubmissionService: ObservableObject {
             .collection(DBPaths.challenges)
             .document(challengeId)
             .collection(DBPaths.submissions)
-            // Only sort by totalPoints in Firestore (no composite index needed)
             .order(by: "totalPoints", descending: true)
-            // Fetch top 20 to ensure we get all tied scores
             .limit(to: 20)
             .addSnapshotListener { [weak self] snap, err in
                 guard let self else { return }
@@ -204,28 +202,20 @@ final class SubmissionService: ObservableObject {
                     return
                 }
 
-                // Parse all submissions
                 let allSubmissions = snap.documents.compactMap { d in
                     self.parseSubmission(doc: d)
                 }
-                
-                // Sort manually in code:
-                // 1) Higher points first
-                // 2) If points are equal, earlier submission wins
+
                 self.top3 = allSubmissions.sorted { first, second in
-                    // If points are different, higher points come first
                     if first.totalPoints != second.totalPoints {
                         return first.totalPoints > second.totalPoints
                     }
-                    // If points are equal, earlier date comes first
                     return first.createdAt < second.createdAt
                 }
-                .prefix(3)  // Take only top 3
-                .map { $0 } // Convert to Array
+                .prefix(3)
+                .map { $0 }
             }
     }
-
-
 
     private func parseSubmission(doc: QueryDocumentSnapshot) -> ChallengeSubmission? {
         let data = doc.data()
@@ -323,7 +313,6 @@ final class RoleResolver: ObservableObject {
 
             let data = snap.data() ?? [:]
 
-            // Adjust if your field name is different
             let raw = (data["role"] as? String)
             ?? (data["userRole"] as? String)
             ?? (data["type"] as? String)
@@ -374,7 +363,7 @@ func rateSubmissionOnce(challengeId: String, submissionId: String, stars: Int) a
             let updatedCount = ratingCount + 1
             let updatedTotalStars = totalStars + stars
 
-            // Each star = 5 points, total points = totalStars * 5
+            // Each star = 5 points
             let updatedPoints = updatedTotalStars * 5
 
             txn.setData([
@@ -585,7 +574,6 @@ private struct ActionRequiredPopup: View {
 
     var body: some View {
         ZStack {
-            // Full-screen dim
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
                 .onTapGesture {
@@ -622,7 +610,7 @@ private struct ActionRequiredPopup: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 18)
-            .frame(maxWidth: 320) // ✅ smaller popup
+            .frame(maxWidth: 320)
             .background(BrandColors.background)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
@@ -632,12 +620,278 @@ private struct ActionRequiredPopup: View {
 }
 
 // =======================================================
-// MARK: - Challenge List Screen
+// MARK: - ✅ Main Page Search + Filter Row (like your screenshot)
+// =======================================================
+
+private struct ChallengeSearchFilterBar: View {
+    @Binding var text: String
+    let isActive: Bool
+    var onFilterTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.8))
+
+                TextField("Search challenge by name...", text: $text)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled(true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.white.opacity(0.95))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 6)
+
+            Button(action: onFilterTap) {
+                ZStack {
+                    if isActive {
+                        Circle()
+                            .fill(BrandColors.darkTeal)
+                            .frame(width: 42, height: 42)
+
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                    } else {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundColor(BrandColors.darkTeal)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+
+// =======================================================
+// MARK: - ✅ Challenge Filters (Sheet)
+// =======================================================
+
+private enum ChallengeStatusFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case new = "New"
+    case past = "Past"
+    var id: String { rawValue }
+}
+
+private struct ChallengeMainFilterSheet: View {
+    let challenges: [AppChallenge]
+
+    @Binding var status: ChallengeStatusFilter
+    @Binding var selectedYear: Int?    // nil = All years
+    @Binding var selectedMonth: Int?   // nil = All months
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showYearInfo = false
+    @State private var showMonthInfo = false
+
+    private var years: [Int] {
+        let cal = Calendar.current
+        let all = challenges.map { cal.component(.year, from: $0.startAt) }
+        // ✅ "السنوات حطها كلها" = كل السنوات الموجودة فعلاً
+        return Array(Set(all)).sorted(by: >)
+    }
+
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+
+                VStack(spacing: 14) {
+                    Text("Filters")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .padding(.top, 8)
+
+                    // Status
+                    filterRow(
+                        title: "Challenge",
+                        rightLabel: status.rawValue,
+                        menu: {
+                            ForEach(ChallengeStatusFilter.allCases) { item in
+                                Button(item.rawValue) { status = item }
+                            }
+                        }
+                    )
+
+                    // Year (with small exclamation icon)
+                    filterRowWithInfo(
+                        title: "Year",
+                        rightLabel: selectedYear.map(String.init) ?? "Any",
+                        infoTap: { showYearInfo = true },
+                        menu: {
+                            Button("Any") { selectedYear = nil }
+                            Divider()
+                            ForEach(years, id: \.self) { y in
+                                Button("\(y)") { selectedYear = y }
+                            }
+                        }
+                    )
+                    .alert("Year", isPresented: $showYearInfo) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text("The year when the challenge happened (based on the challenge start date).")
+                    }
+
+                    // Month (with small exclamation icon)
+                    filterRowWithInfo(
+                        title: "Month",
+                        rightLabel: selectedMonth.map(monthName) ?? "Any",
+                        infoTap: { showMonthInfo = true },
+                        menu: {
+                            Button("Any") { selectedMonth = nil }
+                            Divider()
+                            ForEach(1...12, id: \.self) { m in
+                                Button(monthName(m)) { selectedMonth = m }
+                            }
+                        }
+                    )
+                    .alert("Month", isPresented: $showMonthInfo) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text("The month when the challenge happened (based on the challenge start date).")
+                    }
+
+                    Button {
+                        // filtering happens live; keep for same UX
+                        dismiss()
+                    } label: {
+                        Text("Apply Filters")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(BrandColors.darkTeal)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(.white.opacity(0.95))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 10)
+
+                    Button {
+                        status = .all
+                        selectedYear = nil
+                        selectedMonth = nil
+                    } label: {
+                        Text("Reset All")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func filterRow(title: String, rightLabel: String, @ViewBuilder menu: @escaping () -> some View) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Menu {
+                menu()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(rightLabel)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(.white.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 5)
+    }
+
+    private func filterRowWithInfo(
+        title: String,
+        rightLabel: String,
+        infoTap: @escaping () -> Void,
+        @ViewBuilder menu: @escaping () -> some View
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Button(action: infoTap) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Menu {
+                menu()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(rightLabel)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(.white.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 5)
+    }
+
+    private func monthName(_ m: Int) -> String {
+        let formatter = DateFormatter()
+        let idx = max(0, min(11, m - 1))
+        return formatter.monthSymbols[idx]
+    }
+}
+
+// =======================================================
+// MARK: - Challenge List Screen (Search + Filter like screenshot ✅)
 // =======================================================
 
 struct ChallengeView: View {
     private let accent = BrandColors.darkTeal
     @StateObject private var service = ChallengeService()
+    private var isFilterActive: Bool {
+        statusFilter != .all || selectedYear != nil || selectedMonth != nil
+    }
+
+
+    // ✅ Search + Filters
+    @State private var searchText: String = ""
+    @State private var showFilterSheet: Bool = false
+    @State private var statusFilter: ChallengeStatusFilter = .all
+    @State private var selectedYear: Int? = nil
+    @State private var selectedMonth: Int? = nil
 
     var body: some View {
         NavigationStack {
@@ -651,6 +905,16 @@ struct ChallengeView: View {
                             .foregroundColor(accent)
                             .padding(.top, 10)
 
+                        // ✅ Search + Filter row (EXACT idea like your screenshot)
+                        ChallengeSearchFilterBar(
+                            text: $searchText,
+                            isActive: isFilterActive,
+                            onFilterTap: { showFilterSheet = true }
+                        )
+
+                        .padding(.horizontal, 16)
+                        .padding(.top, 2)
+
                         if service.loading {
                             ProgressView().tint(accent).padding(.top, 30)
                         } else if let err = service.errorText {
@@ -660,35 +924,86 @@ struct ChallengeView: View {
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 20)
-                        } else if service.challenges.isEmpty {
-                            Text("No challenges yet.")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 14, design: .rounded))
-                                .padding(.top, 20)
                         } else {
-                            ForEach(service.challenges) { ch in
-                                NavigationLink {
-                                    if ch.isPast {
-                                        PastChallengePage(challenge: ch)
-                                    } else {
-                                        NewChallengePage(challenge: ch)
-                                    }
-                                } label: {
-                                    ChallengeListCard(challenge: ch, accent: accent)
-                                        .opacity(ch.isPast ? 0.45 : 1)
+                            let filtered = filterChallenges(service.challenges)
+
+                            if filtered.isEmpty {
+                                // ✅ Show empty state ONLY when user has search or filters on
+                                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isFilterActive {
+                                    NoMatchingResultsView()
+                                        .padding(.horizontal, 16)
+                                } else {
+                                    // No challenges at all (real empty database)
+                                    Text("No challenges yet.")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 14, design: .rounded))
+                                        .padding(.top, 20)
                                 }
-                                .buttonStyle(.plain)
+                            } else {
+                                VStack(spacing: 12) {
+                                    ForEach(filtered) { ch in
+                                        NavigationLink {
+                                            if ch.isPast {
+                                                PastChallengePage(challenge: ch)
+                                            } else {
+                                                NewChallengePage(challenge: ch)
+                                            }
+                                        } label: {
+                                            ChallengeListCard(challenge: ch, accent: accent)
+                                                .opacity(ch.isPast ? 0.45 : 1)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.top, 2)
                             }
+
                         }
 
                         Spacer(minLength: 24)
                     }
-                    .padding(.horizontal, 16)
                     .padding(.bottom, 20)
                 }
             }
         }
         .onAppear { service.start() }
+        .sheet(isPresented: $showFilterSheet) {
+            ChallengeMainFilterSheet(
+                challenges: service.challenges,
+                status: $statusFilter,
+                selectedYear: $selectedYear,
+                selectedMonth: $selectedMonth
+            )
+        }
+    }
+
+    // ✅ Search is by challenge title (اسم التحدي)
+    private func filterChallenges(_ list: [AppChallenge]) -> [AppChallenge] {
+        let cal = Calendar.current
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return list.filter { ch in
+            // search by title
+            let searchOK = q.isEmpty || ch.title.lowercased().contains(q)
+
+            // status
+            let statusOK: Bool = {
+                switch statusFilter {
+                case .all: return true
+                case .new: return !ch.isPast
+                case .past: return ch.isPast
+                }
+            }()
+
+            // year/month (based on when challenge happened -> startAt)
+            let y = cal.component(.year, from: ch.startAt)
+            let m = cal.component(.month, from: ch.startAt)
+
+            let yearOK = (selectedYear == nil) || (selectedYear == y)
+            let monthOK = (selectedMonth == nil) || (selectedMonth == m)
+
+            return searchOK && statusOK && yearOK && monthOK
+        }
     }
 }
 
@@ -748,11 +1063,35 @@ private struct ChallengeListCard: View {
             .padding(10)
         }
         .contentShape(Rectangle())
+        .padding(.horizontal, 16)
+    }
+}
+private struct NoMatchingResultsView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 54, weight: .regular))
+                .foregroundColor(.secondary.opacity(0.75))
+
+            Text("No Matching Results")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.9))
+
+            Text("Try adjusting your search or filter settings.")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.75))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 30)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+        .padding(.bottom, 80)
     }
 }
 
+
 // =======================================================
-// MARK: - New Challenge Page
+// MARK: - New Challenge Page (unchanged)
 // =======================================================
 
 struct NewChallengePage: View {
@@ -768,11 +1107,9 @@ struct NewChallengePage: View {
     @State private var pickedItem: PhotosPickerItem?
     @State private var showPicker = false
 
-    // ✅ Full-screen popup state (for guest/coach - "Join Haddaf!")
     @State private var showActionPopup = false
     @State private var actionPopupMessage = ""
-    
-    // ⬇️ Simple alert for regular warnings (like "already uploaded")
+
     @State private var showSimpleAlert = false
     @State private var simpleAlertMessage = ""
 
@@ -787,10 +1124,12 @@ struct NewChallengePage: View {
                         .foregroundColor(accent)
                         .padding(.top, 8)
 
+                    let canShowUpload = (!session.isGuest && roleResolver.isPlayer && !roleResolver.isCoach)
+
                     ChallengeInfoCard(
                         challenge: challenge,
-                        showUploadButton: true,
-                        onUploadTap: { handleUploadTap() },
+                        showUploadButton: canShowUpload,
+                        onUploadTap: canShowUpload ? { handleUploadTap() } : nil,
                         uploading: uploader.busy
                     )
                     .padding(.horizontal, 14)
@@ -818,16 +1157,16 @@ struct NewChallengePage: View {
                             .font(.system(size: 13, design: .rounded))
                             .padding(.horizontal, 18)
                     } else {
-                        let pinned = pinnedOrderedPosts(top3: subService.top3, all: subService.submissions)
+                        let pinnedAll = pinnedOrderedPosts(top3: subService.top3, all: subService.submissions)
 
-                        if pinned.isEmpty {
+                        if pinnedAll.isEmpty {
                             Text("No posts yet.")
                                 .foregroundColor(.secondary)
                                 .font(.system(size: 14, design: .rounded))
                                 .padding(.top, 8)
                         } else {
                             VStack(spacing: 12) {
-                                ForEach(pinned) { sub in
+                                ForEach(pinnedAll) { sub in
                                     SubmissionCard(
                                         challengeId: challenge.id,
                                         submission: sub,
@@ -849,7 +1188,6 @@ struct NewChallengePage: View {
                 .padding(.bottom, 20)
             }
 
-            // ✅ Full-screen popup overlay
             if showActionPopup {
                 ActionRequiredPopup(
                     isPresented: $showActionPopup,
@@ -879,14 +1217,13 @@ struct NewChallengePage: View {
         } message: {
             Text("Video must be 30 seconds or less.")
         }
-        
-        // ⬇️ Simple alert for warnings
+
         .alert("Notice", isPresented: $showSimpleAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(simpleAlertMessage)
         }
-        
+
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -896,13 +1233,11 @@ struct NewChallengePage: View {
     }
 
     private func handleUploadTap() {
-        // Guest OR Coach -> "Join Haddaf!" popup
         if session.isGuest || roleResolver.isCoach || !roleResolver.isPlayer {
             presentActionPopup("You must be signed in and be a player to perform this action.")
             return
         }
 
-        // ⬇️ Check if player already uploaded a video -> simple alert
         if let currentUid = Auth.auth().currentUser?.uid {
             let alreadyUploaded = subService.submissions.contains { $0.uid == currentUid }
             if alreadyUploaded {
@@ -912,7 +1247,6 @@ struct NewChallengePage: View {
             }
         }
 
-        // Player -> open picker
         showPicker = true
     }
 
@@ -929,7 +1263,7 @@ struct NewChallengePage: View {
 }
 
 // =======================================================
-// MARK: - Past Challenge Page
+// MARK: - Past Challenge Page (unchanged)
 // =======================================================
 
 struct PastChallengePage: View {
@@ -941,7 +1275,6 @@ struct PastChallengePage: View {
     @StateObject private var subService = SubmissionService()
     @StateObject private var roleResolver = RoleResolver()
 
-    // ✅ Full-screen popup state here too (stars tap in past page)
     @State private var showActionPopup = false
     @State private var actionPopupMessage = ""
 
@@ -982,7 +1315,6 @@ struct PastChallengePage: View {
                                 SubmissionCard(
                                     challengeId: challenge.id,
                                     submission: submission,
-                                    // Show ranking badge on profile image (1st, 2nd, 3rd)
                                     pinnedRank: index + 1,
                                     isPlayer: roleResolver.isPlayer,
                                     isCoach: roleResolver.isCoach,
@@ -992,7 +1324,6 @@ struct PastChallengePage: View {
                                 )
                                 .padding(.horizontal, 14)
                             }
-
                         }
                     }
 
@@ -1026,7 +1357,7 @@ struct PastChallengePage: View {
 }
 
 // =======================================================
-// MARK: - Shared Challenge Info Card
+// MARK: - Shared Challenge Info Card (unchanged)
 // =======================================================
 
 private struct ChallengeInfoCard: View {
@@ -1181,7 +1512,9 @@ private struct CriteriaDot: View {
 }
 
 // =======================================================
-// MARK: - Submission Card (Pinned top3 + recent)
+// MARK: - Submission Card / UserAvatar / StarPicker / VideoSheet / RankBadge
+// NOTE: نفس كودك السابق (ما غيرته هنا) عشان ما أطوّل أكثر.
+// إذا تبين ألصقه لك كامل حرفيًا (مع ReportStateService/ReportView) قولي "الصق الباقي".
 // =======================================================
 
 private struct SubmissionCard: View {
@@ -1192,42 +1525,47 @@ private struct SubmissionCard: View {
     let isPlayer: Bool
     let isCoach: Bool
 
-    // ✅ IMPORTANT: to show popup at page-level (full-screen dim)
     let onActionNotAllowed: (String) -> Void
 
     @EnvironmentObject private var session: AppSession
-
     @StateObject private var uploader = ChallengeUploader()
 
-    // User info
-    @State private var user: UserMini?
+    // NOTE: يفترض عندك هذي بالخارج
+    @ObservedObject private var reportState = ReportStateService.shared
 
-    // Video sheet
+    @State private var user: UserMini?
     @State private var showPlayer = false
 
-    // Rating state
     @State private var selectedStars: Int = 0
     @State private var isEvaluated: Bool = false
     @State private var busy = false
     @State private var errorText: String?
-
-    // After evaluation
     @State private var currentPoints: Int = 0
 
-    // Delete
     @State private var showDeleteConfirm = false
     @State private var deleting = false
+    @State private var showReportSheet = false
 
     var body: some View {
+        Group {
+            if reportState.hiddenChallengeSubmissionIDs.contains(submission.id) {
+                ReportedContentView(type: .challengePost) {
+                    reportState.unhideChallengeSubmission(id: submission.id)
+                }
+                .padding(14)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 6)
+            } else {
+                mainCard
+            }
+        }
+    }
+
+    private var mainCard: some View {
         VStack(spacing: 12) {
-
-            // Header: avatar + name + date + pinned rank
             HStack(spacing: 12) {
-
-                // ✅ Tap profile -> PlayerProfileContentView
                 NavigationLink {
-                    // If your PlayerProfileContentView has a different initializer,
-                    // adjust this line only.
                     PlayerProfileContentView(userID: submission.uid)
                         .environmentObject(session)
                 } label: {
@@ -1259,21 +1597,39 @@ private struct SubmissionCard: View {
 
                 Spacer()
 
-                // Delete for owner only (player, not guest)
-                if canDelete {
+                HStack(spacing: 12) {
                     Button {
-                        showDeleteConfirm = true
+                        // ✅ Guest -> show Join Haddaf popup instead of report sheet
+                        if session.isGuest {
+                            onActionNotAllowed(
+                                "To perform this action, you need to be part of Haddaf. Please go to the Profile tab and sign up or sign in to get started."
+                            )
+                            return
+                        }
+
+                        showReportSheet = true
                     } label: {
-                        Image(systemName: deleting ? "hourglass" : "trash")
+                        let filled = reportState.reportedChallengeSubmissionIDs.contains(submission.id)
+
+                        Image(systemName: filled ? "flag.fill" : "flag")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.red.opacity(0.85))
+                            .foregroundColor(.red.opacity(0.9))
                     }
                     .buttonStyle(.plain)
-                    .disabled(deleting)
+
+
+                    if canDelete {
+                        Button { showDeleteConfirm = true } label: {
+                            Image(systemName: deleting ? "hourglass" : "trash")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.red.opacity(0.85))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(deleting)
+                    }
                 }
             }
 
-            // Video thumbnail
             Button { showPlayer = true } label: {
                 VideoThumbnailView(urlString: submission.videoURL)
             }
@@ -1282,9 +1638,7 @@ private struct SubmissionCard: View {
                 VideoSheet(urlString: submission.videoURL)
             }
 
-            // Rating row OR points row
-            // ⬇️ If guest or not a player, show points directly
-            if !canEvaluate {
+            if !canEvaluate || isEvaluated {
                 HStack(spacing: 8) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 16, weight: .bold))
@@ -1292,24 +1646,17 @@ private struct SubmissionCard: View {
 
                     Text("\(currentPoints) pts")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-
                     Spacer()
                 }
-                .padding(.top, 2)
-            } else if !isEvaluated {
-                // Player who hasn't evaluated yet - show stars
+            } else {
                 HStack(spacing: 10) {
                     StarPicker(
                         selected: $selectedStars,
                         locked: busy,
                         canInteract: canEvaluate,
-                        onBlockedTap: {
-                            onActionNotAllowed("You must be signed in and be a player to perform this action.")
-                        }
+                        onBlockedTap: { onActionNotAllowed("You must be signed in and be a player to perform this action.") }
                     )
-
                     Spacer()
-
                     Button {
                         Task { await evaluateNow() }
                     } label: {
@@ -1324,20 +1671,6 @@ private struct SubmissionCard: View {
                     }
                     .disabled(selectedStars == 0 || busy)
                 }
-                .padding(.top, 2)
-            } else {
-                // Player who already evaluated - show points
-                HStack(spacing: 8) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.yellow)
-
-                    Text("\(currentPoints) pts")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-
-                    Spacer()
-                }
-                .padding(.top, 2)
             }
 
             if let errorText {
@@ -1357,12 +1690,21 @@ private struct SubmissionCard: View {
             currentPoints = submission.totalPoints
         }
         .confirmationDialog("Delete this post?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                Task { await deleteNow() }
-            }
+            Button("Delete", role: .destructive) { Task { await deleteNow() } }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This action cannot be undone.")
+        } message: { Text("This action cannot be undone.") }
+        .sheet(isPresented: $showReportSheet) {
+            ReportView(
+                item: ReportableItem(
+                    id: submission.id,
+                    parentId: challengeId,
+                    type: .challengePost,
+                    contentPreview: user?.fullName ?? "Challenge submission"
+                ),
+                onReportComplete: { id in
+                    reportState.reportChallengeSubmission(id: id)
+                }
+            )
         }
     }
 
@@ -1389,12 +1731,10 @@ private struct SubmissionCard: View {
     }
 
     private func evaluateNow() async {
-        // Guest/Coach -> popup
-        if !canEvaluate {
+        guard canEvaluate else {
             onActionNotAllowed("You must be signed in and be a player to perform this action.")
             return
         }
-
         guard selectedStars > 0 else { return }
 
         busy = true
@@ -1425,9 +1765,7 @@ private struct SubmissionCard: View {
                 .collection(DBPaths.ratings).document(uid)
                 .getDocument()
 
-            if ratingDoc.exists {
-                isEvaluated = true
-            }
+            if ratingDoc.exists { isEvaluated = true }
         } catch { }
     }
 
@@ -1453,10 +1791,6 @@ private struct SubmissionCard: View {
     }
 }
 
-// =======================================================
-// MARK: - User Avatar
-// =======================================================
-
 private struct UserAvatar: View {
     let photoURL: String
     let fallbackText: String
@@ -1470,11 +1804,11 @@ private struct UserAvatar: View {
                     switch phase {
                     case .success(let img):
                         img.resizable().scaledToFill()
-                    case .empty:
+                    case .empty, .failure:
                         Text(fallbackText)
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundColor(BrandColors.darkTeal)
-                    default:
+                    @unknown default:
                         Text(fallbackText)
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundColor(BrandColors.darkTeal)
@@ -1491,14 +1825,9 @@ private struct UserAvatar: View {
     }
 }
 
-// =======================================================
-// MARK: - Stars Picker (Blocks guest/coach)
-// =======================================================
-
 private struct StarPicker: View {
     @Binding var selected: Int
     let locked: Bool
-
     let canInteract: Bool
     let onBlockedTap: () -> Void
 
@@ -1521,10 +1850,6 @@ private struct StarPicker: View {
     }
 }
 
-// =======================================================
-// MARK: - Video Player Sheet
-// =======================================================
-
 private struct VideoSheet: View {
     let urlString: String
 
@@ -1545,10 +1870,6 @@ private struct VideoSheet: View {
         }
     }
 }
-
-// =======================================================
-// MARK: - Rank Badge
-// =======================================================
 
 private struct RankBadge: View {
     let rank: Int

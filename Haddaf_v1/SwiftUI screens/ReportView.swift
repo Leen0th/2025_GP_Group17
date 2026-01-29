@@ -4,7 +4,7 @@ import SwiftUI
 struct ReportView: View {
     @StateObject private var viewModel: ReportViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
     /// Called with the ID of the reported item when the submission is successful.
     var onReportComplete: (String) -> Void
     private let item: ReportableItem
@@ -23,7 +23,7 @@ struct ReportView: View {
                     Text("REPORTING \(item.type.rawValue.uppercased())")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
-                    
+
                     Text(item.contentPreview)
                         .font(.system(size: 16, weight: .medium, design: .rounded))
                         .lineLimit(2)
@@ -39,7 +39,6 @@ struct ReportView: View {
                 // 2. Options List
                 List {
                     ForEach(viewModel.options) { option in
-                        // Custom Row to handle selection look
                         Button {
                             withAnimation {
                                 viewModel.selectedOption = option
@@ -50,7 +49,7 @@ struct ReportView: View {
                                     Text(option.title)
                                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                                         .foregroundColor(.primary)
-                                    
+
                                     Text(option.description)
                                         .font(.system(size: 14, design: .rounded))
                                         .foregroundColor(.secondary)
@@ -66,8 +65,8 @@ struct ReportView: View {
                         .buttonStyle(.plain)
                         .padding(.vertical, 4)
                     }
-                    
-                    // NEW: Custom Text Input for "Other"
+
+                    // Custom Text Input for "Other"
                     if viewModel.selectedOption?.title == "Other" {
                         Section {
                             VStack(alignment: .trailing, spacing: 6) {
@@ -80,17 +79,14 @@ struct ReportView: View {
                                         RoundedRectangle(cornerRadius: 8)
                                             .stroke(BrandColors.darkTeal.opacity(0.3), lineWidth: 1)
                                     )
-                                    // MARK: - Enforce Character Limit
                                     .onChange(of: viewModel.customReason) { newValue in
                                         if newValue.count > 500 {
                                             viewModel.customReason = String(newValue.prefix(500))
                                         }
                                     }
-                                
-                                // Character Counter
+
                                 Text("\(viewModel.customReason.count)/500")
                                     .font(.system(size: 12, design: .rounded))
-                                    // Turn red if they hit the limit
                                     .foregroundColor(viewModel.customReason.count >= 500 ? .red : .secondary)
                                     .padding(.trailing, 4)
                             }
@@ -100,12 +96,12 @@ struct ReportView: View {
                     }
                 }
                 .listStyle(.plain)
-                
+
                 // 3. Submit Button
                 VStack {
                     Button(action: {
                         viewModel.submitReport {
-                            // This completion is now handled by the .alert
+                            // handled by alert
                         }
                     }) {
                         if viewModel.isSubmitting {
@@ -122,21 +118,22 @@ struct ReportView: View {
                     .padding()
                     .background(BrandColors.darkTeal)
                     .clipShape(Capsule())
-                    // Disable if: No option selected OR (Option is "Other" AND input is empty) OR submitting
                     .disabled(
                         viewModel.selectedOption == nil ||
                         viewModel.isSubmitting ||
-                        (viewModel.selectedOption?.title == "Other" && viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        (viewModel.selectedOption?.title == "Other" &&
+                         viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     )
                     .opacity(
                         (viewModel.selectedOption == nil ||
                          viewModel.isSubmitting ||
-                         (viewModel.selectedOption?.title == "Other" && viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                         (viewModel.selectedOption?.title == "Other" &&
+                          viewModel.customReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                         ? 0.7 : 1.0
                     )
                 }
                 .padding()
-                
+
             }
             .navigationTitle("Report Content")
             .navigationBarTitleDisplayMode(.inline)
