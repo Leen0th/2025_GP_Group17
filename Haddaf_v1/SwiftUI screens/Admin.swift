@@ -39,7 +39,7 @@ private struct AdminTopTitle: View {
 // =======================================================
 
 enum AdminTab: Int {
-    case coaches, accounts, challenges
+    case coaches, accounts, challenges, profile
 }
 
 struct AdminTabView: View {
@@ -61,6 +61,8 @@ struct AdminTabView: View {
                     AdminManageAccountsView()
                 case .challenges:
                     AdminChallengesView()
+                case .profile:
+                    AdminProfileView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -107,6 +109,10 @@ private struct AdminFooterBar: View {
             tabItem(tab: .challenges,
                     icon: "chart.bar",
                     title: "Add Challenge")
+            
+            tabItem(tab: .profile,
+                    icon: "person.circle",
+                    title: "Admin Profile")
         }
         .padding(.vertical, 24)
         .padding(.horizontal, 10)
@@ -161,6 +167,8 @@ struct AdminCoachesApprovalView: View {
     @State private var loading = true
     @State private var errorText: String?
     @State private var pending: [CoachRequestItem] = []
+    @State private var searchText = ""
+    @State private var sortByNew = true // true = recent first, false = older first
 
     var body: some View {
         NavigationStack {
@@ -168,7 +176,51 @@ struct AdminCoachesApprovalView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
                 VStack(spacing: 14) {
-                    AdminTopTitle(title: "Coaches Approval", color: primary)
+                    
+                    // Search and Sort Controls
+                    VStack(spacing: 10) {
+                        // Search + Sort in one horizontal row
+                        HStack(spacing: 12) {
+                            // Search field (takes available space)
+                            HStack {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.secondary)
+                                
+                                TextField("Search by name or email...", text: $searchText)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+                            )
+                            
+                            // Sort menu – compact capsule
+                            Menu {
+                                Picker("Sort by date", selection: $sortByNew) {
+                                    Text("Newest first").tag(true)
+                                    Text("Oldest first").tag(false)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.system(size: 13, weight: .medium))
+                                    
+                                    Text(sortByNew ? "Newest" : "Oldest")
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                }
+                                .foregroundColor(BrandColors.darkTeal)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(BrandColors.background)
+                                .clipShape(Capsule())
+                                .shadow(color: .black.opacity(0.07), radius: 4, y: 2)
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                    }
 
                     if loading {
                         ProgressView().tint(primary)
@@ -178,14 +230,14 @@ struct AdminCoachesApprovalView: View {
                             .font(.system(size: 13, design: .rounded))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 18)
-                    } else if pending.isEmpty {
-                        Text("No pending coach requests.")
+                    } else if filteredAndSortedPending.isEmpty {
+                        Text(searchText.isEmpty ? "No pending coach requests." : "No results found.")
                             .foregroundColor(.secondary)
                             .font(.system(size: 14, design: .rounded))
                     } else {
                         ScrollView {
                             VStack(spacing: 12) {
-                                ForEach(pending) { item in
+                                ForEach(filteredAndSortedPending) { item in
                                     coachCard(item)
                                 }
                             }
@@ -200,6 +252,28 @@ struct AdminCoachesApprovalView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { Task { await loadPending() } }
+        }
+    }
+    
+    private var filteredAndSortedPending: [CoachRequestItem] {
+        let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        // Filter
+        let filtered: [CoachRequestItem]
+        if s.isEmpty {
+            filtered = pending
+        } else {
+            filtered = pending.filter {
+                $0.fullName.lowercased().contains(s) || $0.email.lowercased().contains(s)
+            }
+        }
+        
+        // Sort
+        return filtered.sorted { item1, item2 in
+            guard let date1 = item1.submittedAt, let date2 = item2.submittedAt else {
+                return false
+            }
+            return sortByNew ? (date1 > date2) : (date1 < date2)
         }
     }
 
@@ -346,26 +420,75 @@ struct UserRowItem: Identifiable {
     let email: String
     let role: String
     let isActive: Bool
+    let createdAt: Date?
 }
 
 struct AdminManageAccountsView: View {
     private let primary = BrandColors.darkTeal
-
+    
     @State private var loading = true
     @State private var errorText: String?
     @State private var users: [UserRowItem] = []
     @State private var search = ""
-
+    @State private var selectedRole: String = "coach" // "coach" or "player"
+    @State private var sortByNew = true // true = newest first, false = oldest first
+    
     var body: some View {
         NavigationStack {
             ZStack {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
-
+                
                 VStack(spacing: 12) {
-                    AdminTopTitle(title: "Manage Account", color: primary)
-
+                    
+                    // Role Tabs
+                    HStack(spacing: 0) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedRole = "coach"
+                            }
+                        } label: {
+                            VStack(spacing: 8) {
+                                Text("Coaches")
+                                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                                    .foregroundColor(selectedRole == "coach" ? primary : .secondary)
+                                
+                                if selectedRole == "coach" {
+                                    Rectangle()
+                                        .frame(height: 2)
+                                        .foregroundColor(primary)
+                                } else {
+                                    Color.clear.frame(height: 2)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedRole = "player"
+                            }
+                        } label: {
+                            VStack(spacing: 8) {
+                                Text("Players")
+                                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                                    .foregroundColor(selectedRole == "player" ? primary : .secondary)
+                                
+                                if selectedRole == "player" {
+                                    Rectangle()
+                                        .frame(height: 2)
+                                        .foregroundColor(primary)
+                                } else {
+                                    Color.clear.frame(height: 2)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 10)
+                    
                     searchBox
-
+                    
                     if loading {
                         ProgressView().tint(primary)
                     } else if let errorText {
@@ -389,7 +512,7 @@ struct AdminManageAccountsView: View {
                             .padding(.bottom, 20)
                         }
                     }
-
+                    
                     Spacer()
                 }
             }
@@ -397,11 +520,11 @@ struct AdminManageAccountsView: View {
             .onAppear { Task { await loadUsers() } }
         }
     }
-
+    
     private var searchBox: some View {
         HStack {
             Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-            TextField("Search by email...", text: $search)
+            TextField("Search by name or email...", text: $search)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
         }
@@ -413,21 +536,51 @@ struct AdminManageAccountsView: View {
         )
         .padding(.horizontal, 18)
     }
-
+    
     private var filteredUsers: [UserRowItem] {
         let s = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if s.isEmpty { return users }
-        return users.filter {
-            $0.email.lowercased().contains(s) || $0.role.lowercased().contains(s)
+        
+        // Filter by role first
+        let roleFiltered = users.filter { $0.role.lowercased() == selectedRole.lowercased() }
+        
+        // Then filter by search
+        let searchFiltered: [UserRowItem]
+        if s.isEmpty {
+            searchFiltered = roleFiltered
+        } else {
+            searchFiltered = roleFiltered.filter {
+                $0.email.lowercased().contains(s) || $0.role.lowercased().contains(s)
+            }
+        }
+        
+        // Finally sort by creation date
+        return searchFiltered.sorted { user1, user2 in
+            guard let date1 = user1.createdAt, let date2 = user2.createdAt else {
+                return false
+            }
+            return sortByNew ? (date1 > date2) : (date1 < date2)
         }
     }
-
+    
     private func accountCard(_ u: UserRowItem) -> some View {
+        NavigationLink {
+            if u.role.lowercased() == "coach" {
+                CoachProfileContentView(userID: u.id)
+            } else {
+                PlayerProfileContentView(userID: u.id)
+            }
+        } label: {
+            accountCardContent(u)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func accountCardContent(_ u: UserRowItem) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(u.email.isEmpty ? u.id : u.email)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundColor(primary)
-
+            
             HStack {
                 Text("Role: \(u.role)")
                     .font(.system(size: 13, design: .rounded))
@@ -437,35 +590,33 @@ struct AdminManageAccountsView: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(u.isActive ? .green : .red)
             }
-
+            
             HStack(spacing: 10) {
-                Button {
-                    Task { await setActive(uid: u.id, active: false) }
-                } label: {
-                    Text("Deactivate")
-                        .foregroundColor(.red)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(Color(UIColor.systemGray6))
-                        .clipShape(Capsule())
-                }
-                .disabled(!u.isActive)
-                .buttonStyle(.plain)
-
                 Button {
                     Task { await setActive(uid: u.id, active: true) }
                 } label: {
                     Text("Activate")
                         .foregroundColor(.white)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .padding(.vertical, 10)
                         .frame(maxWidth: .infinity)
                         .background(primary)
                         .clipShape(Capsule())
                 }
                 .disabled(u.isActive)
-                .buttonStyle(.plain)
+                
+                Button {
+                    Task { await setActive(uid: u.id, active: false) }
+                } label: {
+                    Text("Deactivate")
+                        .foregroundColor(.red)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(UIColor.systemGray6))
+                        .clipShape(Capsule())
+                }
+                .disabled(!u.isActive)
             }
         }
         .padding(16)
@@ -487,11 +638,13 @@ struct AdminManageAccountsView: View {
 
             users = snap.documents.map { d in
                 let data = d.data()
+                let createdAtTimestamp = data["createdAt"] as? Timestamp
                 return UserRowItem(
                     id: d.documentID,
                     email: data["email"] as? String ?? "",
                     role: data["role"] as? String ?? "player",
-                    isActive: data["isActive"] as? Bool ?? true
+                    isActive: data["isActive"] as? Bool ?? true,
+                    createdAt: createdAtTimestamp?.dateValue()
                 )
             }
             loading = false
@@ -556,8 +709,6 @@ struct AdminChallengesView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
                 VStack(spacing: 14) {
-                    AdminTopTitle(title: "Add Challenge", color: primary)
-
                     Button { showCreate = true } label: {
                         VStack(spacing: 10) {
                             Text("Add Challenge")
@@ -1442,5 +1593,718 @@ struct EditChallengeSheet: View {
         _ = try await ref.putDataAsync(data, metadata: meta)
         let url = try await ref.downloadURL()
         return url.absoluteString
+    }
+}
+
+// =======================================================
+// MARK: - 4) Admin Profile
+// =======================================================
+
+struct AdminProfileView: View {
+    @EnvironmentObject var session: AppSession
+    @Environment(\.presentationMode) var presentationMode
+    
+    private let primary = BrandColors.darkTeal
+    private let dividerColor = Color.black.opacity(0.15)
+    
+    @State private var showLogoutPopup = false
+    @State private var isSigningOut = false
+    @State private var signOutError: String?
+    @State private var adminEmail: String = ""
+    @State private var adminName: String = ""
+    
+    private var currentEmail: String {
+        Auth.auth().currentUser?.email ?? "No email"
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    
+                    // Profile Header
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.circle.fill")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 100, height: 100)
+                            .foregroundColor(primary.opacity(0.6))
+                        
+                        Text(adminName.isEmpty ? "Admin" : adminName)
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundColor(primary)
+                        
+                        Text(currentEmail)
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 30)
+                    
+                    // Settings List
+                    VStack(spacing: 0) {
+                        NavigationLink {
+                            AdminChangeEmailView()
+                            .onDisappear {
+                                        // Refresh when we come back
+                                        if let user = Auth.auth().currentUser {
+                                            adminEmail = user.email ?? ""
+                                        }
+                                    }
+                        } label: {
+                            settingsRow(icon: "envelope", title: "Change Email",
+                                        iconColor: primary, showChevron: true, showDivider: true)
+                        }
+                        
+                        NavigationLink {
+                            ChangePasswordView()
+                        } label: {
+                            settingsRow(icon: "lock", title: "Change Password",
+                                        iconColor: primary, showChevron: true, showDivider: true)
+                        }
+                        
+                        Button {
+                            showLogoutPopup = true
+                        } label: {
+                            settingsRow(icon: "rectangle.portrait.and.arrow.right", title: "Logout",
+                                        iconColor: primary, showChevron: false, showDivider: false)
+                        }
+                    }
+                    .background(BrandColors.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+                    .padding(.horizontal, 16)
+                    
+                    Spacer()
+                }
+                .padding(.top, 6)
+                
+                // Logout Popup
+                if showLogoutPopup {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                    
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer()
+                            VStack(spacing: 20) {
+                                Text("Logout?")
+                                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.center)
+                                
+                                Text("Are you sure you want to log out from this device?")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 24)
+                                
+                                if isSigningOut {
+                                    ProgressView().tint(primary).padding(.top, 4)
+                                }
+                                
+                                if let signOutError {
+                                    Text(signOutError)
+                                        .font(.system(size: 13, design: .rounded))
+                                        .foregroundColor(.red)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 16)
+                                }
+                                
+                                HStack(spacing: 16) {
+                                    Button("No") {
+                                        withAnimation { showLogoutPopup = false }
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(BrandColors.darkGray)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(BrandColors.lightGray)
+                                    .cornerRadius(12)
+                                    
+                                    Button("Yes") {
+                                        performLogout()
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.red)
+                                    .cornerRadius(12)
+                                    .disabled(isSigningOut)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
+                            .frame(width: 320)
+                            .background(BrandColors.background)
+                            .cornerRadius(20)
+                            .shadow(radius: 12)
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
+                    .transition(.scale)
+                }
+            }
+            .animation(.easeInOut, value: showLogoutPopup)
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onAppear {
+            loadAdminName()
+        }
+    }
+    
+    private func loadAdminName() {
+        if let user = Auth.auth().currentUser {
+            adminName = user.displayName ?? "Admin"
+        }
+    }
+    
+    private func performLogout() {
+        isSigningOut = true
+        signOutError = nil
+        
+        clearLocalCaches()
+        signOutFirebase()
+    }
+    
+    private func signOutFirebase() {
+        do {
+            // 1. Send notification to force logout
+            NotificationCenter.default.post(name: .forceLogout, object: nil)
+            
+            // 2. Clear session
+            session.user = nil
+            session.role = nil
+            session.isVerifiedCoach = false
+            session.coachStatus = nil
+            session.isGuest = false
+            session.userListener?.remove()
+            
+            // 3. Sign out from Firebase
+            try Auth.auth().signOut()
+            
+            isSigningOut = false
+            showLogoutPopup = false
+            
+        } catch {
+            isSigningOut = false
+            signOutError = "Failed to sign out: \(error.localizedDescription)"
+        }
+    }
+    
+    private func clearLocalCaches() {
+        UserDefaults.standard.removeObject(forKey: "signup_profile_draft")
+        UserDefaults.standard.removeObject(forKey: "current_user_profile")
+        UserDefaults.standard.synchronize()
+        ReportStateService.shared.reset()
+    }
+    
+    private func settingsRow(icon: String, title: String,
+                             iconColor: Color, showChevron: Bool, showDivider: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(iconColor)
+                    .frame(width: 28, height: 28)
+                
+                Text(title)
+                    .font(.system(size: 17, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                
+                Spacer()
+                
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            
+            if showDivider {
+                Rectangle()
+                    .fill(dividerColor)
+                    .frame(height: 1)
+                    .padding(.leading, 60)
+            }
+        }
+    }
+}
+
+// =======================================================
+// MARK: - Admin Change Email View
+// =======================================================
+
+struct AdminChangeEmailView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    private let primary = BrandColors.darkTeal
+    private let db = Firestore.firestore()
+    
+    @State private var newEmail = ""
+    @State private var password = ""
+    @State private var isPasswordHidden = true
+    
+    @FocusState private var emailFocused: Bool
+    
+    // Email validation
+    @State private var emailExists = false
+    @State private var emailCheckError: String? = nil
+    @State private var emailCheckTask: Task<Void, Never>? = nil
+    @State private var isCheckingEmail = false
+    
+    // Operation states
+    @State private var isSaving = false
+    @State private var showVerifyPrompt = false
+    @State private var verifyTask: Task<Void, Never>? = nil
+    @State private var inlineVerifyError: String? = nil
+    
+    // Resend cooldown
+    @State private var resendCooldown = 0
+    @State private var resendTimerTask: Task<Void, Never>? = nil
+    private let resendCooldownSeconds = 60
+    private let emailActionURL = "https://haddaf-db.web.app/__/auth/action"
+    
+    // Alert states
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var alertIsError = false
+    
+    private var isEmailValid: Bool { isValidEmail(newEmail) }
+    
+    private var canSubmit: Bool {
+        isEmailValid && !password.isEmpty && !emailExists && !isCheckingEmail && !isSaving
+    }
+    
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header
+                    Text("Change Email")
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
+                        .foregroundColor(primary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 8)
+                    
+                    Text("Enter your new email address and current password to proceed.")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    // New Email Field
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("New Email")
+                        
+                        roundedField {
+                            HStack {
+                                TextField("", text: $newEmail)
+                                    .keyboardType(.emailAddress)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .foregroundColor(primary)
+                                    .tint(primary)
+                                    .focused($emailFocused)
+                                    .onSubmit { checkEmailImmediately() }
+                                
+                                if isCheckingEmail {
+                                    ProgressView().scaleEffect(0.8)
+                                }
+                            }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(!newEmail.isEmpty && (emailExists || !isEmailValid) ? Color.red : Color.clear, lineWidth: 1)
+                        )
+                        .onChange(of: emailFocused) { focused in
+                            if !focused { checkEmailImmediately() }
+                        }
+                        .onChange(of: newEmail) { _, newValue in
+                            if newValue.isEmpty {
+                                emailExists = false
+                                emailCheckError = nil
+                            }
+                        }
+                        
+                        // Email Errors
+                        if !newEmail.isEmpty {
+                            if !isEmailValid {
+                                Text("Please enter a valid email address (name@domain).")
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.red)
+                            } else if emailExists {
+                                Text("This email is already in use by another account.")
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.red)
+                            } else if let err = emailCheckError {
+                                Text(err)
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    .padding(.top, 10)
+                    
+                    // Current Password Field
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("Current Password")
+                        
+                        roundedField {
+                            HStack {
+                                if isPasswordHidden {
+                                    SecureField("", text: $password)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                        .font(.system(size: 16, design: .rounded))
+                                        .foregroundColor(primary)
+                                } else {
+                                    TextField("", text: $password)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                        .font(.system(size: 16, design: .rounded))
+                                        .foregroundColor(primary)
+                                }
+                                
+                                Button {
+                                    withAnimation { isPasswordHidden.toggle() }
+                                } label: {
+                                    Image(systemName: isPasswordHidden ? "eye.slash" : "eye")
+                                        .foregroundColor(primary.opacity(0.6))
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Submit Button
+                    Button {
+                        Task { await changeEmail() }
+                    } label: {
+                        HStack {
+                            Text("Change Email")
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                                .foregroundColor(.white)
+                            if isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(primary)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(!canSubmit)
+                    .opacity(canSubmit ? 1.0 : 0.5)
+                    .padding(.top, 20)
+                    
+                    Spacer(minLength: 24)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+            .opacity(showVerifyPrompt ? 0.2 : 1.0)
+            
+            // Verification Overlay
+            if showVerifyPrompt {
+                Color.black.opacity(0.4).ignoresSafeArea()
+                
+                AdminEmailVerifySheet(
+                    email: newEmail,
+                    primary: primary,
+                    resendCooldown: $resendCooldown,
+                    errorText: $inlineVerifyError,
+                    onResend: { Task { await resendVerification() } },
+                    onClose: {
+                        withAnimation { showVerifyPrompt = false }
+                        isSaving = false
+                        verifyTask?.cancel()
+                        dismiss()
+                    }
+                )
+                .transition(.scale)
+                .zIndex(3)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(alertIsError ? "Error" : "Success", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {
+                if !alertIsError { dismiss() }
+            }
+        } message: {
+            Text(alertMessage)
+        }
+        .onDisappear {
+            verifyTask?.cancel()
+            resendTimerTask?.cancel()
+            emailCheckTask?.cancel()
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func checkEmailImmediately() {
+        emailCheckTask?.cancel()
+        emailExists = false
+        emailCheckError = nil
+        isCheckingEmail = false
+        
+        let trimmed = newEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentEmail = Auth.auth().currentUser?.email ?? ""
+        
+        if trimmed.isEmpty || trimmed == currentEmail { return }
+        guard isValidEmail(trimmed) else { return }
+        
+        let mail = trimmed.lowercased()
+        isCheckingEmail = true
+        
+        emailCheckTask = Task {
+            let testPassword = UUID().uuidString + "Aa1!"
+            do {
+                let result = try await Auth.auth().createUser(withEmail: mail, password: testPassword)
+                try? await result.user.delete()
+                await MainActor.run {
+                    if !Task.isCancelled {
+                        emailExists = false
+                        isCheckingEmail = false
+                    }
+                }
+            } catch {
+                let ns = error as NSError
+                await MainActor.run {
+                    if !Task.isCancelled {
+                        emailExists = (ns.code == AuthErrorCode.emailAlreadyInUse.rawValue)
+                        isCheckingEmail = false
+                    }
+                }
+            }
+        }
+    }
+    
+    private func changeEmail() async {
+        guard let user = Auth.auth().currentUser else {
+            alertMessage = "User not authenticated"
+            alertIsError = true
+            showAlert = true
+            return
+        }
+        
+        isSaving = true
+        
+        // Re-authenticate
+        let credential = EmailAuthProvider.credential(withEmail: user.email ?? "", password: password)
+        
+        do {
+            try await user.reauthenticate(with: credential)
+            
+            // Update email
+            try await user.updateEmail(to: newEmail)
+            
+            // Send verification email
+            try await sendVerificationEmail(to: user)
+            markVerificationSentNow()
+            startResendCooldown(seconds: resendCooldownSeconds)
+            
+            await MainActor.run {
+                isSaving = false
+                withAnimation { showVerifyPrompt = true }
+            }
+            
+            startVerificationWatcher()
+            
+        } catch {
+            await MainActor.run {
+                isSaving = false
+                let ns = error as NSError
+                
+                if ns.code == AuthErrorCode.wrongPassword.rawValue {
+                    alertMessage = "Incorrect password. Please try again."
+                } else if ns.code == AuthErrorCode.emailAlreadyInUse.rawValue {
+                    emailExists = true
+                    alertMessage = "This email is already in use."
+                } else {
+                    alertMessage = "Failed to update email: \(error.localizedDescription)"
+                }
+                
+                alertIsError = true
+                showAlert = true
+            }
+        }
+    }
+    
+    private func sendVerificationEmail(to user: User) async throws {
+        let acs = ActionCodeSettings()
+        acs.handleCodeInApp = true
+        acs.url = URL(string: emailActionURL)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            acs.setIOSBundleID(bundleID)
+        }
+        
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            user.sendEmailVerification(with: acs) { err in
+                if let err { cont.resume(throwing: err) }
+                else { cont.resume() }
+            }
+        }
+    }
+    
+    private func startVerificationWatcher() {
+        verifyTask?.cancel()
+        verifyTask = Task {
+            let deadline = Date().addingTimeInterval(600)
+            while !Task.isCancelled && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let user = Auth.auth().currentUser else { break }
+                try? await user.reload()
+                
+                if user.isEmailVerified {
+                    await finalizeEmailUpdate(for: user)
+                    break
+                }
+            }
+        }
+    }
+    
+    @MainActor
+    private func finalizeEmailUpdate(for user: User) async {
+        try? await user.getIDToken(forcingRefresh: true)
+        
+        showVerifyPrompt = false
+        isSaving = false
+        
+        alertMessage = "Email verified and updated successfully!"
+        alertIsError = false
+        showAlert = true
+    }
+    
+    private func resendVerification() async {
+        guard let user = Auth.auth().currentUser else { return }
+        if resendCooldown > 0 { return }
+        
+        do {
+            try await sendVerificationEmail(to: user)
+            markVerificationSentNow()
+            startResendCooldown(seconds: resendCooldownSeconds)
+            inlineVerifyError = nil
+        } catch {
+            inlineVerifyError = error.localizedDescription
+        }
+    }
+    
+    private func startResendCooldown(seconds: Int) {
+        resendTimerTask?.cancel()
+        resendCooldown = seconds
+        resendTimerTask = Task {
+            while !Task.isCancelled && resendCooldown > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run { resendCooldown -= 1 }
+            }
+        }
+    }
+    
+    private func markVerificationSentNow() {
+        UserDefaults.standard.set(Int(Date().timeIntervalSince1970), forKey: "admin_email_verification_sent")
+    }
+    
+    private func isValidEmail(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.contains("..") { return false }
+        let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
+        return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
+    }
+    
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title).font(.system(size: 14, design: .rounded)).foregroundColor(.gray)
+    }
+    
+    private func roundedField<Content: View>(@ViewBuilder c: () -> Content) -> some View {
+        c()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+            )
+    }
+}
+
+// Admin Email Verification Sheet
+struct AdminEmailVerifySheet: View {
+    let email: String
+    let primary: Color
+    @Binding var resendCooldown: Int
+    @Binding var errorText: String?
+    var onResend: () -> Void
+    var onClose: () -> Void
+    
+    var body: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 14) {
+                HStack {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+                
+                Text("Verify your new email")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                
+                Text("We've sent a verification link to \(email).\n\nOpen the link to verify your new email address.")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                
+                Button(action: { if resendCooldown == 0 { onResend() } }) {
+                    Text(resendCooldown > 0 ? "Resend (\(resendCooldown)s)" : "Resend")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 10)
+                        .background(Color(UIColor.systemGray5))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .disabled(resendCooldown > 0)
+                
+                if let errorText, !errorText.isEmpty {
+                    Text(errorText)
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 2)
+                }
+                
+                Spacer().frame(height: 8)
+            }
+            .padding(.vertical, 10)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.15), radius: 16, x: 0, y: 10)
+            )
+            Spacer()
+        }
+        .padding()
+        .background(Color.clear)
+        .allowsHitTesting(true)
     }
 }
