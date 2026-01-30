@@ -11,7 +11,9 @@ class CoachProfile: ObservableObject {
     @Published var team: String = ""
     @Published var location: String = ""
     @Published var email: String = ""
+    @Published var phone: String = ""
     @Published var isEmailVisible: Bool = false
+    @Published var isPhoneNumberVisible: Bool = false
     @Published var profileImage: UIImage? = nil
 
     init() {}
@@ -43,7 +45,9 @@ class CoachProfileViewModel: ObservableObject {
                 self.coachProfile.name = (data["firstName"] as? String ?? "") + " " + (data["lastName"] as? String ?? "")
                 self.coachProfile.location = data["location"] as? String ?? ""
                 self.coachProfile.email = data["email"] as? String ?? ""
+                self.coachProfile.phone = data["phone"] as? String ?? ""
                 self.coachProfile.isEmailVisible = data["isEmailVisible"] as? Bool ?? false
+                self.coachProfile.isPhoneNumberVisible = data["isPhoneNumberVisible"] as? Bool ?? false
                 self.coachProfile.team = data["teamName"] as? String ?? ""
                 
                 // 2. Handle Profile Picture asynchronously
@@ -145,6 +149,11 @@ struct CoachProfileContentView: View {
             }
             .fullScreenCover(isPresented: $goToSettings) {
                 NavigationStack { SettingsViewCoach(coachProfile: viewModel.coachProfile) }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
+            Task {
+                await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -259,10 +268,23 @@ struct InfoGridViewCoach: View {
                 Spacer()
             }
 
-            // Row 2: Email (only if visible)
-            if coachProfile.isEmailVisible {
-                UserStatItem(title: "EMAIL", value: coachProfile.email)
+            // Row 2: Contact Info (if visible)
+            HStack {
+                if coachProfile.isEmailVisible {
+                    Spacer()
+                    UserStatItem(title: "EMAIL", value: coachProfile.email)
+                    Spacer()
+                }
+                
+                if coachProfile.isPhoneNumberVisible {
+                    Spacer()
+                    UserStatItem(title: "PHONE", value: coachProfile.phone)
+                    Spacer()
+                }
             }
+            .opacity((coachProfile.isEmailVisible || coachProfile.isPhoneNumberVisible) ? 1 : 0)
+            .frame(height: (coachProfile.isEmailVisible || coachProfile.isPhoneNumberVisible) ? nil : 0)
+
 
         }
         .padding(.vertical, 25)
@@ -333,6 +355,12 @@ struct EditCoachProfileView: View {
     @State private var emailCheckError: String? = nil
     @State private var emailCheckTask: Task<Void, Never>? = nil
     @State private var isCheckingEmail = false
+    
+    // Phone State
+    @State private var phone: String
+    @State private var isPhoneNumberVisible: Bool
+    @State private var phoneNonDigitError = false
+    private let selectedDialCode = "+966"
 
     // Verification Flow State
     @State private var showVerifyPrompt = false
@@ -370,7 +398,7 @@ struct EditCoachProfileView: View {
     }
 
     private var isFormValid: Bool {
-        isNameValid && isEmailFieldValid && isLocationValid &&
+        isNameValid && isEmailFieldValid && isLocationValid && isPhoneValid &&
         !emailExists && !isCheckingEmail
     }
 
@@ -382,6 +410,12 @@ struct EditCoachProfileView: View {
         _email = State(initialValue: authEmail)
         _isEmailVisible = State(initialValue: coachProfile.isEmailVisible)
         _profileImage = State(initialValue: coachProfile.profileImage)
+        
+        // Initialize phone - Extract local phone part (remove +966)
+        let storedPhone = coachProfile.phone
+        let localPart = storedPhone.hasPrefix("+966") ? String(storedPhone.dropFirst(4)) : storedPhone
+        _phone = State(initialValue: localPart)
+        _isPhoneNumberVisible = State(initialValue: coachProfile.isPhoneNumberVisible)
     }
 
     private func confirmEmailUpdateWithPassword() {
@@ -632,8 +666,57 @@ struct EditCoachProfileView: View {
                         .foregroundColor(.red)
                 }
             }
+            
+            // Phone Field
+            fieldLabel("Phone number")
+            roundedField {
+                HStack(spacing: 10) {
+                    Text(selectedDialCode)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(primary)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(primary.opacity(0.08))
+                        )
+                    
+                    TextField("", text: Binding(
+                        get: { phone },
+                        set: { val in
+                            phoneNonDigitError = val.contains { !$0.isNumber }
+                            phone = val.filter { $0.isNumber }
+                        }
+                    ))
+                    .keyboardType(.numberPad)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(primary)
+                    .tint(primary)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(!phone.isEmpty && !isPhoneValid ? Color.red : Color.clear, lineWidth: 1)
+            )
+
+            if phoneNonDigitError {
+                Text("Numbers only (0–9).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            } else if !phone.isEmpty && !isPhoneValid {
+                Text("Enter a valid Saudi number (starts with 5, 9 digits).")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            }
         }
     }
+    
+    private var isPhoneValid: Bool {
+        isValidPhone(code: selectedDialCode, local: phone)
+    }
+
 
     // Toggles Section (Reused)
     private var togglesSection: some View {
@@ -644,6 +727,16 @@ struct EditCoachProfileView: View {
                     .foregroundColor(BrandColors.darkGray)
                 Spacer()
                 Toggle("", isOn: $isEmailVisible)
+                    .labelsHidden()
+                    .tint(primary)
+            }
+            
+            HStack {
+                Text("Make my phone number visible")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                Spacer()
+                Toggle("", isOn: $isPhoneNumberVisible)
                     .labelsHidden()
                     .tint(primary)
             }
@@ -727,11 +820,15 @@ struct EditCoachProfileView: View {
         guard let uid = Auth.auth().currentUser?.uid else { return }
 
         do {
+            let fullPhone = selectedDialCode + phone
+            
             var userUpdates: [String: Any] = [
                 "firstName": name.split(separator: " ").first.map(String.init) ?? name,
                 "lastName": name.split(separator: " ").dropFirst().joined(separator: " "),
                 "location": location,
+                "phone": fullPhone,
                 "isEmailVisible": isEmailVisible,
+                "isPhoneNumberVisible": isPhoneNumberVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
 
@@ -928,6 +1025,14 @@ struct EditCoachProfileView: View {
         if value.contains("..") { return false }
         let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
         return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
+    }
+    
+    private func isValidPhone(code: String, local: String) -> Bool {
+        guard !local.isEmpty else { return false }
+        let len = local.count
+        var ok = (6...15).contains(len)
+        if code == "+966" { ok = (len == 9) && local.first == "5" }
+        return ok
     }
 }
 // MARK: - Settings View for Coach
