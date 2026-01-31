@@ -159,6 +159,7 @@ struct CoachRequestItem: Identifiable {
     let status: String
     let submittedAt: Date?
     let verificationFile: String
+    let rejectionReason: String?
 }
 
 struct AdminCoachesApprovalView: View {
@@ -169,6 +170,10 @@ struct AdminCoachesApprovalView: View {
     @State private var pending: [CoachRequestItem] = []
     @State private var searchText = ""
     @State private var sortByNew = true // true = recent first, false = older first
+    @State private var showRejectionSheet = false
+    @State private var selectedCoachForRejection: CoachRequestItem? = nil
+    @State private var rejectionReason = ""
+    @State private var isRejecting = false
 
     var body: some View {
         NavigationStack {
@@ -252,6 +257,28 @@ struct AdminCoachesApprovalView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { Task { await loadPending() } }
+            .sheet(isPresented: $showRejectionSheet) {
+                RejectionReasonSheet(
+                    coachName: selectedCoachForRejection?.fullName ?? "Coach",
+                    rejectionReason: $rejectionReason,
+                    isRejecting: $isRejecting,
+                    onCancel: {
+                        showRejectionSheet = false
+                        rejectionReason = ""
+                        selectedCoachForRejection = nil
+                    },
+                    onConfirm: {
+                        if let coach = selectedCoachForRejection {
+                            Task {
+                                await rejectWithReason(uid: coach.uid, requestId: coach.id, reason: rejectionReason)
+                            }
+                        }
+                    }
+                )
+                .presentationDetents([.height(400)])
+                .presentationBackground(BrandColors.background)
+                .presentationCornerRadius(28)
+            }
         }
     }
     
@@ -313,7 +340,8 @@ struct AdminCoachesApprovalView: View {
                 }
 
                 Button {
-                    Task { await reject(uid: item.uid, requestId: item.id) }
+                    selectedCoachForRejection = item
+                    showRejectionSheet = true
                 } label: {
                     Text("Reject")
                         .foregroundColor(.red)
@@ -337,31 +365,32 @@ struct AdminCoachesApprovalView: View {
         loading = true
         errorText = nil
         do {
-            let snap = try await Firestore.firestore()
-                .collection("coachRequests")
+            let snap = try await Firestore.firestore().collection("coachRequests")
                 .whereField("status", isEqualTo: "pending")
+                .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
             pending = snap.documents.map { d in
                 let data = d.data()
+                let ts = data["submittedAt"] as? Timestamp
                 return CoachRequestItem(
                     id: d.documentID,
-                    uid: data["uid"] as? String ?? d.documentID,
+                    uid: data["uid"] as? String ?? "",
                     fullName: data["fullName"] as? String ?? "",
                     email: data["email"] as? String ?? "",
                     status: data["status"] as? String ?? "pending",
-                    submittedAt: (data["submittedAt"] as? Timestamp)?.dateValue(),
-                    verificationFile: data["verificationFile"] as? String ?? ""
+                    submittedAt: ts?.dateValue(),
+                    verificationFile: data["verificationFile"] as? String ?? "",
+                    rejectionReason: data["rejectionReason"] as? String
                 )
             }
-
             loading = false
         } catch {
             loading = false
             errorText = error.localizedDescription
         }
     }
-
+    
     private func approve(uid: String, requestId: String) async {
         do {
             let db = Firestore.firestore()
@@ -387,7 +416,10 @@ struct AdminCoachesApprovalView: View {
         }
     }
 
-    private func reject(uid: String, requestId: String) async {
+    private func rejectWithReason(uid: String, requestId: String, reason: String) async {
+        errorText = nil
+        isRejecting = true
+        
         do {
             let db = Firestore.firestore()
             let batch = db.batch()
@@ -395,18 +427,31 @@ struct AdminCoachesApprovalView: View {
             let reqRef = db.collection("coachRequests").document(requestId)
             batch.updateData([
                 "status": "rejected",
+                "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 "reviewedAt": FieldValue.serverTimestamp()
             ], forDocument: reqRef)
 
             let userRef = db.collection("users").document(uid)
             batch.updateData([
-                "coachStatus": "rejected"
+                "coachStatus": "rejected",
+                "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines)
             ], forDocument: userRef)
 
             try await batch.commit()
+            
+            await MainActor.run {
+                isRejecting = false
+                showRejectionSheet = false
+                rejectionReason = ""
+                selectedCoachForRejection = nil
+            }
+            
             await loadPending()
         } catch {
-            errorText = error.localizedDescription
+            await MainActor.run {
+                isRejecting = false
+                errorText = error.localizedDescription
+            }
         }
     }
 }
@@ -2306,5 +2351,118 @@ struct AdminEmailVerifySheet: View {
         .padding()
         .background(Color.clear)
         .allowsHitTesting(true)
+    }
+}
+
+// =======================================================
+// MARK: - Rejection Reason Sheet
+// =======================================================
+
+struct RejectionReasonSheet: View {
+    let coachName: String
+    @Binding var rejectionReason: String
+    @Binding var isRejecting: Bool
+    var onCancel: () -> Void
+    var onConfirm: () -> Void
+    
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 500
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            HStack {
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            
+            VStack(spacing: 8) {
+                Text("Reject Coach Application")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+                
+                Text("Please provide a reason for rejecting \(coachName)'s application.")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            
+            // Text Editor
+            VStack(alignment: .trailing, spacing: 4) {
+                ZStack(alignment: .topLeading) {
+                    if rejectionReason.isEmpty {
+                        Text("Explain why the application was rejected...")
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.gray.opacity(0.6))
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                    }
+                    
+                    TextEditor(text: $rejectionReason)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(primary)
+                        .frame(height: 120)
+                        .scrollContentBackground(.hidden)
+                        .onChange(of: rejectionReason) { _, newValue in
+                            if newValue.count > charLimit {
+                                rejectionReason = String(newValue.prefix(charLimit))
+                            }
+                        }
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(UIColor.systemGray6))
+                )
+                
+                Text("\(rejectionReason.count)/\(charLimit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal)
+            
+            // Action Buttons
+            HStack(spacing: 12) {
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(BrandColors.lightGray)
+                        .clipShape(Capsule())
+                }
+                
+                Button(action: onConfirm) {
+                    HStack {
+                        Text("Reject")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                        if isRejecting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.red.opacity(0.5) : Color.red)
+                    .clipShape(Capsule())
+                }
+                .disabled(rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRejecting)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+        .padding(.vertical, 10)
+        .background(BrandColors.background)
     }
 }

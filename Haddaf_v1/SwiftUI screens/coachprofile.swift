@@ -15,6 +15,8 @@ class CoachProfile: ObservableObject {
     @Published var isEmailVisible: Bool = false
     @Published var isPhoneNumberVisible: Bool = false
     @Published var profileImage: UIImage? = nil
+    @Published var coachStatus: String = ""
+    @Published var rejectionReason: String = ""
 
     init() {}
 }
@@ -49,6 +51,8 @@ class CoachProfileViewModel: ObservableObject {
                 self.coachProfile.isEmailVisible = data["isEmailVisible"] as? Bool ?? false
                 self.coachProfile.isPhoneNumberVisible = data["isPhoneNumberVisible"] as? Bool ?? false
                 self.coachProfile.team = data["teamName"] as? String ?? ""
+                self.coachProfile.coachStatus = data["coachStatus"] as? String ?? ""
+                self.coachProfile.rejectionReason = data["rejectionReason"] as? String ?? ""
                 
                 // 2. Handle Profile Picture asynchronously
                 if let urlString = data["profilePic"] as? String,
@@ -122,7 +126,7 @@ struct CoachProfileContentView: View {
                             showNotifications: $showNotificationsList,
                             isCurrentUser: isCurrentUser,
                             isRootProfileView: isRootProfileView,
-                            onReport: {}, // No report for now
+                            onReport: {},
                             reportService: ReportStateService.shared,
                             reportedID: viewModel.coachProfile.email
                         )

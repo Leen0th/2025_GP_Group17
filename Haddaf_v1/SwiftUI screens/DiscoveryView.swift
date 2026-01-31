@@ -2,6 +2,8 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 import AVKit
+import FirebaseStorage
+import UniformTypeIdentifiers
 
 // MARK: - Discovery View
 // The main view for the "Discovery" tab, which also hosts the "Leaderboard" tab
@@ -24,6 +26,9 @@ struct DiscoveryView: View {
 
     // --- for auth prompt ---
     @State private var showAuthSheet = false
+    
+    // --- for re-application ---
+    @State private var showReapplySheet = false
 
     // MARK: - Filters
     @State private var filterPosition: String? = nil
@@ -170,6 +175,11 @@ struct DiscoveryView: View {
                     reportService.reportPost(id: reportedID)
                 }
             }
+            // --- Sheet for Re-applying ---
+            .sheet(isPresented: $showReapplySheet) {
+                ReapplyCoachSheet()
+                    .presentationDetents([.medium, .large])
+            }
             
             // MARK: - Notification Listener
             .onReceive(NotificationCenter.default.publisher(for: .postDataUpdated)) { notification in
@@ -208,20 +218,27 @@ struct DiscoveryView: View {
         VStack(spacing: 0) {
             if session.role == "coach" {
                 if session.coachStatus == "rejected" {
-                    VStack(spacing: 4) {
-                        Text("Your application has been rejected.")
-                            .fontWeight(.bold)
-                        Text("If you believe this is a mistake, please contact our support team at **support@haddaf.com**")
-                            .font(.system(size: 13))
+                    // MARK: - Rejection Banner
+                    VStack(spacing: 6) {
+                        Text("Application Rejected: \(session.rejectionReason ?? "Reason unspecified")")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                        
+                        Button {
+                            showReapplySheet = true
+                        } label: {
+                            Text("Tap here to upload document and reapply")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .underline()
+                        }
                     }
-                    .font(.system(size: 14, design: .rounded))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(12)
+                    .padding(8)
                     .frame(maxWidth: .infinity)
-                    .background(Color.red.opacity(0.9))
-                    .accentColor(.white)
+                    .background(Color.red.opacity(0.85)) // Use Red to indicate rejection, but same style
                 } else if !session.isVerifiedCoach {
+                    // MARK: - Under Review Banner
                     Text("Your coaching profile is under review (It usually takes 1–2 business days to verify). Social features will be unlocked once approved!")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundColor(.white)
@@ -907,5 +924,216 @@ struct FeedVideoPlayer: View {
                 // Pause when scrolling away to save resources
                 player?.pause()
             }
+    }
+}
+
+struct ReapplyCoachSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    private let primary = BrandColors.darkTeal
+    
+    @State private var showFileImporter = false
+    @State private var selectedFileURL: URL?
+    @State private var selectedFileName: String = ""
+    @State private var isUploading = false
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    
+                    // Icon
+                    Image(systemName: "doc.text.arrow.up")
+                        .font(.system(size: 50))
+                        .foregroundColor(primary)
+                        .padding(.top, 40)
+                    
+                    VStack(spacing: 12) {
+                        Text("Resubmit Verification Document")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                        
+                        Text("Please upload a valid coaching certificate or ID")
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
+                    
+                    // File Selection Area
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        VStack(spacing: 12) {
+                            if let _ = selectedFileURL {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(.green)
+                                Text(selectedFileName)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal)
+                                Text("Tap to change file")
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Image(systemName: "plus.circle")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(primary.opacity(0.8))
+                                Text("Select PDF or Image")
+                                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                                    .foregroundColor(primary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 160)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                                .foregroundColor(primary.opacity(0.3))
+                                .background(primary.opacity(0.03))
+                        )
+                        .padding(.horizontal, 20)
+                    }
+                    
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    
+                    Spacer()
+                    
+                    // Submit Button
+                    Button {
+                        Task { await submitReapplication() }
+                    } label: {
+                        HStack {
+                            Text(isUploading ? "Uploading..." : "Submit Application")
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            if isUploading {
+                                ProgressView().tint(.white).padding(.leading, 8)
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(selectedFileURL == nil ? Color.gray : primary)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(selectedFileURL == nil || isUploading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [UTType.pdf, UTType.image],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    // Security scope access is required for file importer URLs
+                    if url.startAccessingSecurityScopedResource() {
+                        defer { url.stopAccessingSecurityScopedResource() }
+                        // Create a temporary copy to ensure we can read it later during upload
+                        do {
+                            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
+                            try? FileManager.default.removeItem(at: tempURL) // clear previous
+                            try FileManager.default.copyItem(at: url, to: tempURL)
+                            
+                            self.selectedFileURL = tempURL
+                            self.selectedFileName = url.lastPathComponent
+                            self.errorMessage = nil
+                        } catch {
+                            self.errorMessage = "Failed to select file: \(error.localizedDescription)"
+                        }
+                    } else {
+                        self.errorMessage = "Permission denied to access the file."
+                    }
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+    
+    private func submitReapplication() async {
+        guard let fileURL = selectedFileURL,
+              let user = Auth.auth().currentUser else { return }
+        
+        isUploading = true
+        errorMessage = nil
+        
+        do {
+            let uid = user.uid
+            let fileName = UUID().uuidString + "_" + fileURL.lastPathComponent
+            let storageRef = Storage.storage().reference().child("coach_verifications/\(uid)/\(fileName)")
+            
+            // 1. Upload File
+            // Note: putFileAsync is safer for local files than putDataAsync
+            _ = try await storageRef.putFileAsync(from: fileURL, metadata: nil)
+            let downloadURL = try await storageRef.downloadURL()
+            
+            let db = Firestore.firestore()
+            let batch = db.batch()
+            
+            // 2. Add new request to 'coachRequests' collection
+            // We use .document() without ID to auto-generate a new request ID
+            // This ensures admins see it as a fresh request in their list
+            let newRequestRef = db.collection("coachRequests").document()
+            
+            // Fetch user name/email first to populate the request
+            let userDoc = try await db.collection("users").document(uid).getDocument()
+            let userData = userDoc.data() ?? [:]
+            let firstName = userData["firstName"] as? String ?? ""
+            let lastName = userData["lastName"] as? String ?? ""
+            let fullName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+            let email = user.email ?? ""
+            
+            let requestData: [String: Any] = [
+                "uid": uid,
+                "email": email,
+                "fullName": fullName.isEmpty ? "Coach" : fullName,
+                "verificationFile": downloadURL.absoluteString,
+                "status": "pending",
+                "submittedAt": FieldValue.serverTimestamp()
+            ]
+            batch.setData(requestData, forDocument: newRequestRef)
+            
+            // 3. Update User Document
+            // Reset status to pending and remove the old rejection reason
+            let userRef = db.collection("users").document(uid)
+            batch.updateData([
+                "coachStatus": "pending",
+                "rejectionReason": FieldValue.delete(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], forDocument: userRef)
+            
+            try await batch.commit()
+            
+            await MainActor.run {
+                isUploading = false
+                dismiss()
+            }
+            
+        } catch {
+            await MainActor.run {
+                isUploading = false
+                errorMessage = "Upload failed: \(error.localizedDescription)"
+            }
+        }
     }
 }
