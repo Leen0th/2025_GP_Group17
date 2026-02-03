@@ -719,7 +719,17 @@ struct AdminManageAccountsView: View {
 // MARK: - 3) Challenges (List + Create + Edit)
 // =======================================================
 
-struct AdminChallengeItem: Identifiable {
+// =======================================================
+// MARK: - 3) Admin Challenges - FIXED VERSION
+// =======================================================
+
+import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
+import FirebaseStorage
+import PhotosUI
+
+struct AdminChallengeItem: Identifiable, Hashable {
     let id: String
     let title: String
     let description: String
@@ -727,26 +737,56 @@ struct AdminChallengeItem: Identifiable {
     let startAt: Date?
     let endAt: Date?
     let imageURL: String
+    let yearMonth: String
+}
+
+private enum AdminChallengeStatusFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case current = "Current"
+    case past = "Past"
+    var id: String { rawValue }
+}
+
+private struct AdminChallengeFilters: Equatable {
+    var status: AdminChallengeStatusFilter = .all
+    var year: Int? = nil
+    var month: Int? = nil
+
+    var isActive: Bool {
+        status != .all || year != nil || month != nil
+    }
+
+    mutating func reset() {
+        status = .all
+        year = nil
+        month = nil
+    }
 }
 
 struct AdminChallengesView: View {
     private let primary = BrandColors.darkTeal
 
-    @State private var showCreate = false
     @State private var loading = true
     @State private var errorText: String?
     @State private var challenges: [AdminChallengeItem] = []
+    @State private var listener: ListenerRegistration? = nil
 
-    // ✅ FIX: use isPresented sheet to avoid listener canceling the sheet
+    @State private var searchText = ""
+    @State private var showFiltersSheet = false
+    @State private var filters = AdminChallengeFilters()
+    @State private var appliedFilters = AdminChallengeFilters()
+
+    @State private var showCreateSheet = false
+    @State private var selectedChallenge: AdminChallengeItem? = nil
+    @State private var showDetailsSheet = false
+
     @State private var editingChallenge: AdminChallengeItem? = nil
     @State private var showEditSheet = false
 
-    // Delete confirmation
-    @State private var challengeToDelete: AdminChallengeItem? = nil
-    @State private var showDeleteConfirm = false
+    @State private var showDeletePopup = false
+    @State private var deletingChallenge: AdminChallengeItem? = nil
     @State private var isDeleting = false
-
-    @State private var listener: ListenerRegistration? = nil
+    @State private var deleteError: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -754,7 +794,28 @@ struct AdminChallengesView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
                 VStack(spacing: 14) {
-                    Button { showCreate = true } label: {
+
+                    // ✅ Search + Filter button with green background when active
+                    HStack(spacing: 12) {
+                        searchBox
+                        Button {
+                            filters = appliedFilters
+                            showFiltersSheet = true
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundColor(appliedFilters.isActive ? .white : primary)
+                                .padding(10)
+                                .background(appliedFilters.isActive ? primary : Color.clear)
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 6)
+
+                    // Add Challenge Button
+                    Button { showCreateSheet = true } label: {
                         VStack(spacing: 10) {
                             Text("Add Challenge")
                                 .font(.system(size: 20, weight: .medium, design: .rounded))
@@ -782,27 +843,22 @@ struct AdminChallengesView: View {
                             .font(.system(size: 13, design: .rounded))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 18)
-                    } else if challenges.isEmpty {
-                        Text("No challenges yet.")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 14, design: .rounded))
+                    } else if filteredChallenges.isEmpty {
+                        Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? "No challenges found."
+                             : "No results found.")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 14, design: .rounded))
+                        .padding(.top, 16)
                     } else {
                         ScrollView {
                             VStack(spacing: 12) {
-                                ForEach(challenges) { ch in
-                                    AdminChallengeCard(
-                                        challenge: ch,
-                                        primary: primary,
-                                        onEdit: {
-                                            // ✅ FIX: stable open even if listener updates list
-                                            editingChallenge = ch
-                                            showEditSheet = true
-                                        },
-                                        onDelete: {
-                                            challengeToDelete = ch
-                                            showDeleteConfirm = true
+                                ForEach(filteredChallenges) { ch in
+                                    AdminChallengeHeroCard(challenge: ch, primary: primary)
+                                        .onTapGesture {
+                                            selectedChallenge = ch
+                                            showDetailsSheet = true
                                         }
-                                    )
                                 }
                             }
                             .padding(.horizontal, 18)
@@ -812,51 +868,163 @@ struct AdminChallengesView: View {
 
                     Spacer()
                 }
+
+                if showDeletePopup, let deletingChallenge {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    AdminConfirmPopup(
+                        title: "Delete challenge?",
+                        message: "This will permanently delete the challenge and all its submissions and ratings. This action cannot be undone.",
+                        primary: primary,
+                        isLoading: isDeleting,
+                        errorText: deleteError,
+                        cancelTitle: "No",
+                        confirmTitle: "Yes",
+                        confirmColor: .red,
+                        onCancel: {
+                            withAnimation {
+                                showDeletePopup = false
+                                self.deletingChallenge = nil
+                                deleteError = nil
+                            }
+                        },
+                        onConfirm: {
+                            Task { await deleteChallengeCascade(deletingChallenge) }
+                        }
+                    )
+                    .transition(.scale)
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { startListening() }
+            .onDisappear { listener?.remove(); listener = nil }
 
-            // Create
-            .sheet(isPresented: $showCreate) {
-                CreateChallengeSheet {
-                    showCreate = false
+            // ✅ Filters sheet with "Apply Filters" button that turns green when active
+            .sheet(isPresented: $showFiltersSheet) {
+                AdminChallengeFiltersSheet(
+                    challenges: challenges,
+                    primary: primary,
+                    filters: $filters,
+                    onApply: {
+                        appliedFilters = filters
+                        showFiltersSheet = false
+                    },
+                    onReset: {
+                        filters.reset()
+                        appliedFilters.reset()
+                        showFiltersSheet = false
+                    },
+                    onDone: {
+                        showFiltersSheet = false
+                    }
+                )
+                .presentationDetents([.height(360)])
+                .presentationCornerRadius(28)
+                .presentationBackground(BrandColors.background)
+            }
+
+            .sheet(isPresented: $showCreateSheet) {
+                AdminCreateMonthlyChallengeSheet(primary: primary) {
+                    showCreateSheet = false
                 }
             }
 
-            // ✅ FIXED Edit Sheet
-            .sheet(isPresented: $showEditSheet, onDismiss: {
-                editingChallenge = nil
+            .sheet(isPresented: $showDetailsSheet, onDismiss: {
+                selectedChallenge = nil
             }) {
+                if let ch = selectedChallenge {
+                    AdminChallengeDetailsSheet(
+                        challenge: ch,
+                        primary: primary,
+                        onClose: { showDetailsSheet = false },
+                        onEdit: {
+                            editingChallenge = ch
+                            showDetailsSheet = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                showEditSheet = true
+                            }
+                        },
+                        onDelete: {
+                            self.deletingChallenge = ch
+                            self.deleteError = nil
+                            self.showDetailsSheet = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                withAnimation { self.showDeletePopup = true }
+                            }
+                        }
+                    )
+                } else {
+                    Text("No challenge selected")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding()
+                }
+            }
+
+            .sheet(isPresented: $showEditSheet, onDismiss: { editingChallenge = nil }) {
                 if let ch = editingChallenge {
-                    EditChallengeSheet(challenge: ch) {
+                    AdminEditMonthlyChallengeSheet(primary: primary, challenge: ch) {
                         showEditSheet = false
                         editingChallenge = nil
                     }
                 } else {
                     Text("No challenge selected")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding()
                 }
             }
-
-            // Delete confirmation
-            .confirmationDialog(
-                "Delete this challenge?",
-                isPresented: $showDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let ch = challengeToDelete {
-                        Task { await deleteChallenge(ch) }
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    challengeToDelete = nil
-                }
-            } message: {
-                Text("This will permanently delete the challenge and all its submissions. This action cannot be undone.")
-            }
-
-            .onAppear { startListening() }
-            .onDisappear { listener?.remove(); listener = nil }
         }
+    }
+
+    private var searchBox: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("Search challenge by name...", text: $searchText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(BrandColors.background)
+                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+        )
+    }
+
+    private var filteredChallenges: [AdminChallengeItem] {
+        let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let now = Date()
+
+        var list = challenges
+        if !s.isEmpty {
+            list = list.filter { $0.title.lowercased().contains(s) }
+        }
+
+        list = list.filter { ch in
+            let isPast = (ch.endAt ?? .distantPast) < now
+            switch appliedFilters.status {
+            case .all: break
+            case .current:
+                if isPast { return false }
+            case .past:
+                if !isPast { return false }
+            }
+
+            if let year = appliedFilters.year {
+                if !ch.yearMonth.hasPrefix(String(format: "%04d", year)) { return false }
+            }
+            if let month = appliedFilters.month {
+                let m = String(format: "-%02d", month)
+                if !ch.yearMonth.contains(m) { return false }
+            }
+
+            return true
+        }
+
+        return list.sorted { $0.yearMonth > $1.yearMonth }
     }
 
     private func startListening() {
@@ -866,23 +1034,21 @@ struct AdminChallengesView: View {
 
         listener = Firestore.firestore()
             .collection("challenges")
-            .order(by: "createdAt", descending: true)
+            .order(by: "yearMonth", descending: true)
             .addSnapshotListener { snap, err in
                 if let err {
                     loading = false
                     errorText = err.localizedDescription
                     return
                 }
-                guard let snap else {
-                    loading = false
-                    return
-                }
+                guard let snap else { loading = false; return }
 
                 challenges = snap.documents.map { d in
                     let data = d.data()
                     let startAt = (data["startAt"] as? Timestamp)?.dateValue()
                     let endAt   = (data["endAt"] as? Timestamp)?.dateValue()
                     let criteriaArr = data["criteria"] as? [String] ?? []
+                    let ym = data["yearMonth"] as? String ?? ""
 
                     return AdminChallengeItem(
                         id: d.documentID,
@@ -891,7 +1057,8 @@ struct AdminChallengesView: View {
                         criteria: criteriaArr,
                         startAt: startAt,
                         endAt: endAt,
-                        imageURL: data["imageURL"] as? String ?? ""
+                        imageURL: data["imageURL"] as? String ?? "",
+                        yearMonth: ym
                     )
                 }
 
@@ -899,277 +1066,431 @@ struct AdminChallengesView: View {
             }
     }
 
-    private func deleteChallenge(_ challenge: AdminChallengeItem) async {
-        isDeleting = true
+    private func deleteChallengeCascade(_ challenge: AdminChallengeItem) async {
+        await MainActor.run {
+            isDeleting = true
+            deleteError = nil
+        }
 
         do {
             let db = Firestore.firestore()
             let challengeRef = db.collection("challenges").document(challenge.id)
 
-            // 1) Delete submissions + their storage + ratings
             let submissionsSnap = try await challengeRef.collection("submissions").getDocuments()
-
             for subDoc in submissionsSnap.documents {
                 let storagePath = subDoc.data()["storagePath"] as? String ?? ""
-
-                if !storagePath.isEmpty {
-                    try? await Storage.storage().reference().child(storagePath).delete()
-                }
 
                 let ratingsSnap = try await subDoc.reference.collection("ratings").getDocuments()
                 for ratingDoc in ratingsSnap.documents {
                     try await ratingDoc.reference.delete()
                 }
 
+                if !storagePath.isEmpty {
+                    try? await Storage.storage().reference().child(storagePath).delete()
+                }
+
                 try await subDoc.reference.delete()
             }
 
-            // 2) Delete challenge image from storage (best effort)
-            if !challenge.imageURL.isEmpty, let url = URL(string: challenge.imageURL) {
-                let fileName = url.lastPathComponent
-                if !fileName.isEmpty {
-                    try? await Storage.storage()
-                        .reference()
-                        .child("challenges/\(challenge.id)/\(fileName)")
-                        .delete()
-                }
-            }
-
-            // 3) Delete challenge doc
             try await challengeRef.delete()
 
-            isDeleting = false
-            challengeToDelete = nil
+            await MainActor.run {
+                isDeleting = false
+                showDeletePopup = false
+                deletingChallenge = nil
+            }
 
         } catch {
-            isDeleting = false
-            errorText = "Failed to delete: \(error.localizedDescription)"
+            await MainActor.run {
+                isDeleting = false
+                deleteError = "Failed to delete: \(error.localizedDescription)"
+            }
         }
     }
 }
 
-struct AdminChallengeCard: View {
+// =======================================================
+// MARK: - Card UI
+// =======================================================
+
+private struct AdminChallengeHeroCard: View {
     let challenge: AdminChallengeItem
     let primary: Color
-    let onEdit: () -> Void
-    let onDelete: () -> Void
 
     private var isPast: Bool {
-        if let end = challenge.endAt { return Date() >= end }
+        if let end = challenge.endAt { return Date() > end }
         return false
     }
 
+    private var statusText: String { isPast ? "Past" : "Current" }
+
+    private var endByText: String {
+        guard let end = challenge.endAt else { return "" }
+        return "End by \(end.formatted(.dateTime.day().month(.abbreviated).year()))"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(challenge.title.isEmpty ? "Challenge" : challenge.title)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(primary)
-
-                Spacer()
-
-                Text(isPast ? "Past" : "New")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(isPast ? .gray : primary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(UIColor.systemGray6))
-                    .clipShape(Capsule())
-            }
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(UIColor.systemGray5))
+                .frame(height: 160)
 
             if let url = URL(string: challenge.imageURL), !challenge.imageURL.isEmpty {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .fill(Color(UIColor.systemGray5))
-                            .frame(height: 120)
+                            .frame(height: 160)
                             .overlay(ProgressView().tint(primary))
                     case .success(let image):
                         image.resizable()
                             .scaledToFill()
-                            .frame(height: 120)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .frame(height: 160)
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .clipped()
                     default:
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .fill(Color(UIColor.systemGray5))
-                            .frame(height: 120)
+                            .frame(height: 160)
                             .overlay(Text("Image failed").foregroundColor(.secondary))
                     }
                 }
-            } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(UIColor.systemGray5))
-                    .frame(height: 120)
-                    .overlay(Text("No Image").foregroundColor(.secondary))
             }
 
-            if !challenge.description.isEmpty {
-                Text("Description")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                Text(challenge.description)
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
+            LinearGradient(colors: [.black.opacity(0.0), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .frame(height: 160)
 
-            if !challenge.criteria.isEmpty {
-                Text("Criteria")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            HStack(alignment: .bottom) {
+                Text(challenge.title.isEmpty ? "Challenge" : challenge.title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(challenge.criteria, id: \.self) { c in
-                        Text("• \(c)")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            if let start = challenge.startAt, let end = challenge.endAt {
-                Text("Start / End")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                Text("\(start.formatted(date: .numeric, time: .omitted))  →  \(end.formatted(date: .numeric, time: .omitted))")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-
-            HStack(spacing: 12) {
                 Spacer()
 
-                Button {
-                    onDelete()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Delete")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.85))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    onEdit()
-                } label: {
-                    Text("Edit")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 10)
-                        .background(primary)
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(statusText)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(isPast ? .gray : primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.85))
                         .clipShape(Capsule())
+
+                    if !endByText.isEmpty {
+                        Text(endByText)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.95))
+                    }
                 }
-                .buttonStyle(.plain)
             }
+            .padding(16)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(BrandColors.background)
-                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
-        )
+        .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 8)
         .opacity(isPast ? 0.75 : 1)
     }
 }
 
 // =======================================================
-// MARK: - Wheel Date Picker Sheet
+// MARK: - Details Sheet
 // =======================================================
 
-struct WheelDatePickerSheet: View {
-    let title: String
+private struct AdminChallengeDetailsSheet: View {
+    let challenge: AdminChallengeItem
     let primary: Color
-    @Binding var date: Date
+    let onClose: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var isPast: Bool {
+        if let end = challenge.endAt { return Date() > end }
+        return false
+    }
+
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text(challenge.title.isEmpty ? "Challenge" : challenge.title)
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundColor(primary)
+
+                        Spacer()
+
+                        Text(isPast ? "Past" : "Current")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(isPast ? .gray : primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(UIColor.systemGray6))
+                            .clipShape(Capsule())
+                    }
+
+                    if let url = URL(string: challenge.imageURL), !challenge.imageURL.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                RoundedRectangle(cornerRadius: 18)
+                                    .fill(Color(UIColor.systemGray5))
+                                    .frame(height: 190)
+                                    .overlay(ProgressView().tint(primary))
+                            case .success(let image):
+                                image.resizable()
+                                    .scaledToFill()
+                                    .frame(height: 190)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                                    .clipped()
+                            default:
+                                RoundedRectangle(cornerRadius: 18)
+                                    .fill(Color(UIColor.systemGray5))
+                                    .frame(height: 190)
+                                    .overlay(Text("Image failed").foregroundColor(.secondary))
+                            }
+                        }
+                    }
+
+                    sectionTitle("Description")
+                    Text(challenge.description.isEmpty ? "-" : challenge.description)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.secondary)
+
+                    sectionTitle("Criteria")
+                    if challenge.criteria.isEmpty {
+                        Text("-")
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(challenge.criteria, id: \.self) { c in
+                                Text("• \(c)")
+                                    .font(.system(size: 15, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    if let start = challenge.startAt, let end = challenge.endAt {
+                        sectionTitle("Start / End")
+                        Text("\(start.formatted(date: .numeric, time: .omitted))  →  \(end.formatted(date: .numeric, time: .omitted))")
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 14) {
+                        Button {
+                            onDelete()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "trash")
+                                Text("Delete")
+                            }
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.red.opacity(0.9))
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onEdit()
+                        } label: {
+                            Text("Edit")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.vertical, 14)
+                                .frame(maxWidth: .infinity)
+                                .background(primary)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 8)
+
+                    Spacer(minLength: 10)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Close") {
+                    dismiss()
+                    onClose()
+                }
+                .foregroundColor(primary)
+            }
+        }
+    }
+
+    private func sectionTitle(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+            .foregroundColor(.primary)
+            .padding(.top, 6)
+    }
+}
+
+// =======================================================
+// MARK: - ✅ Filters Sheet with ALL years from challenges + Apply turns green
+// =======================================================
+
+private struct AdminChallengeFiltersSheet: View {
+    let challenges: [AdminChallengeItem]
+    let primary: Color
+    @Binding var filters: AdminChallengeFilters
+
+    let onApply: () -> Void
+    let onReset: () -> Void
+    let onDone: () -> Void
+
+    // ✅ Get ALL unique years from existing challenges
+    private var years: [Int] {
+        let cal = Calendar.current
+        let allYears = challenges.compactMap { ch -> Int? in
+            guard let start = ch.startAt else { return nil }
+            return cal.component(.year, from: start)
+        }
+        return Array(Set(allYears)).sorted(by: >)
+    }
+
+    private let months: [(Int, String)] = [
+        (1,"Jan"),(2,"Feb"),(3,"Mar"),(4,"Apr"),(5,"May"),(6,"Jun"),
+        (7,"Jul"),(8,"Aug"),(9,"Sep"),(10,"Oct"),(11,"Nov"),(12,"Dec")
+    ]
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Spacer()
+                Button("Done") { onDone() }
+                    .foregroundColor(primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+
+            Text("Filters")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+
+            VStack(spacing: 10) {
+                filterRow(title: "Challenge") {
+                    Picker("", selection: $filters.status) {
+                        ForEach(AdminChallengeStatusFilter.allCases) { s in
+                            Text(s.rawValue).tag(s)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                filterRow(title: "Year") {
+                    Picker("", selection: Binding(
+                        get: { filters.year ?? 0 },
+                        set: { newVal in filters.year = (newVal == 0 ? nil : newVal) }
+                    )) {
+                        Text("Any").tag(0)
+                        ForEach(years, id: \.self) { y in
+                            Text("\(y)").tag(y)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                filterRow(title: "Month") {
+                    Picker("", selection: Binding(
+                        get: { filters.month ?? 0 },
+                        set: { newVal in filters.month = (newVal == 0 ? nil : newVal) }
+                    )) {
+                        Text("Any").tag(0)
+                        ForEach(months, id: \.0) { m in
+                            Text(m.1).tag(m.0)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+            .padding(.horizontal, 18)
+
+            // ✅ Button turns green when filters are active
+            Button {
+                onApply()
+            } label: {
+                Text("Apply Filters")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(filters.isActive ? .white : primary)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity)
+                    .background(filters.isActive ? primary : Color(UIColor.systemGray6))
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 6)
+
+            Button {
+                onReset()
+            } label: {
+                Text("Reset All")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.red)
+                    .padding(.vertical, 10)
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.bottom, 10)
+    }
+
+    private func filterRow(title: String, @ViewBuilder right: () -> some View) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+            Spacer()
+            right()
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(UIColor.systemGray6)))
+    }
+}
+
+// =======================================================
+// MARK: - ✅ Create Challenge Sheet - Image REQUIRED + Character counter like description
+// =======================================================
+
+private struct AdminCreateMonthlyChallengeSheet: View {
+    let primary: Color
     var onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
-        VStack(spacing: 14) {
-            Text(title)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .foregroundColor(primary)
-                .padding(.top, 10)
-
-            DatePicker("", selection: $date, displayedComponents: .date)
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-
-            Button {
-                dismiss()
-                onDone()
-            } label: {
-                Text("Done")
-                    .foregroundColor(.white)
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(primary)
-                    .clipShape(Capsule())
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 12)
-        }
-        .presentationDetents([.height(420)])
-        .presentationDragIndicator(.visible)
-        .background(BrandColors.background.ignoresSafeArea())
-    }
-}
-
-private struct DateRow: View {
-    let label: String
-    let primary: Color
-    let displayed: String
-    let onTap: () -> Void
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(displayed)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundColor(primary)
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
-        .onTapGesture { onTap() }
-    }
-}
-
-// =======================================================
-// MARK: - Create Challenge Sheet
-// =======================================================
-
-struct CreateChallengeSheet: View {
-    private let primary = BrandColors.darkTeal
-    @Environment(\.dismiss) private var dismiss
-
     @State private var title = ""
     @State private var description = ""
-    @State private var criteriaText = ""
+    @State private var criteria: [String] = ["", "", "", ""]
 
-    @State private var startAt = Date()
-    @State private var endAt = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+    @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var selectedMonth: Int = Calendar.current.component(.month, from: Date())
+    @State private var showMonthYearPicker = false
 
-    @State private var showStartWheel = false
-    @State private var showEndWheel = false
-
+    // ✅ Image is REQUIRED now
     @State private var pickedItem: PhotosPickerItem? = nil
     @State private var pickedImage: UIImage? = nil
 
     @State private var uploading = false
     @State private var errorText: String?
+    @State private var showAlert = false
+    @State private var alertMsg = ""
 
-    var onDone: () -> Void
+    private let titleLimit = 30
+    private let descLimit = 500
+    private let criteriaLimit = 200
 
     var body: some View {
         NavigationStack {
@@ -1178,75 +1499,133 @@ struct CreateChallengeSheet: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        Text("Add Challenge")
+                        Text("Add Monthly Challenge")
                             .font(.system(size: 22, weight: .semibold, design: .rounded))
                             .foregroundColor(primary)
                             .padding(.top, 8)
 
-                        PhotosPicker(selection: $pickedItem, matching: .images) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                                    .foregroundColor(primary.opacity(0.7))
-                                    .frame(height: 140)
+                        Text("This is a monthly challenge. You can't add two challenges in the same month.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 18)
 
-                                if let pickedImage {
-                                    Image(uiImage: pickedImage)
-                                        .resizable()
-                                        .scaledToFill()
+                        // ✅ Image REQUIRED (with asterisk)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Text("Challenge Image")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                Text("*").foregroundColor(.red)
+                            }
+                            .padding(.horizontal, 22)
+                            
+                            PhotosPicker(selection: $pickedItem, matching: .images) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                                        .foregroundColor(primary.opacity(0.7))
                                         .frame(height: 140)
-                                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                                        .clipped()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 22, weight: .medium))
-                                        .foregroundColor(primary.opacity(0.9))
+
+                                    if let pickedImage {
+                                        Image(uiImage: pickedImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(height: 140)
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                            .clipped()
+                                    } else {
+                                        VStack(spacing: 8) {
+                                            Image(systemName: "square.and.arrow.up")
+                                                .font(.system(size: 22, weight: .medium))
+                                                .foregroundColor(primary.opacity(0.9))
+                                            Text("Upload image (required)")
+                                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        .padding(.horizontal, 22)
-                        .onChange(of: pickedItem) { _, newValue in
-                            guard let newValue else { return }
-                            Task {
-                                if let data = try? await newValue.loadTransferable(type: Data.self),
-                                   let ui = UIImage(data: data) {
-                                    await MainActor.run { pickedImage = ui }
+                            .padding(.horizontal, 22)
+                            .onChange(of: pickedItem) { _, newValue in
+                                guard let newValue else { return }
+                                Task {
+                                    if let data = try? await newValue.loadTransferable(type: Data.self),
+                                       let ui = UIImage(data: data) {
+                                        await MainActor.run { pickedImage = ui }
+                                    }
                                 }
                             }
                         }
 
-                        field("Title", placeholder: "Challenge title", text: $title)
-                        field("Description", placeholder: "Write a short description", text: $description)
+                        requiredField(label: "Title", value: $title, limit: titleLimit)
+                            .onChange(of: title) { _, nv in
+                                if nv.count > titleLimit { title = String(nv.prefix(titleLimit)) }
+                            }
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Criteria (one per line)")
-                                .font(.system(size: 13, design: .rounded))
+                        requiredTextEditor(label: "Description", text: $description, placeholder: "Write a short description (max 500)", limit: descLimit)
+
+                        // ✅ Criteria with character counter like description
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Text("Evaluation Criteria")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                Text("*")
+                                    .foregroundColor(.red)
+                            }
+                            Text("Exactly 4 criteria. Each one max 200 characters.")
+                                .font(.system(size: 12, design: .rounded))
                                 .foregroundColor(.secondary)
 
-                            TextEditor(text: $criteriaText)
-                                .frame(height: 90)
-                                .padding(10)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                            ForEach(0..<4, id: \.self) { i in
+                                VStack(spacing: 4) {
+                                    HStack {
+                                        Text("Criteria \(i+1)")
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        // ✅ Character counter like description
+                                        Text("\(criteria[i].count)/\(criteriaLimit)")
+                                            .font(.system(size: 12, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    HStack(spacing: 10) {
+                                        Circle()
+                                            .fill(primary.opacity(0.9))
+                                            .frame(width: 8, height: 8)
+
+                                        TextField("Enter criteria...", text: Binding(
+                                            get: { criteria[i] },
+                                            set: { newVal in
+                                                var v = newVal
+                                                if v.count > criteriaLimit { v = String(v.prefix(criteriaLimit)) }
+                                                criteria[i] = v
+                                            }
+                                        ))
+                                        .textInputAutocapitalization(.sentences)
+                                        .autocorrectionDisabled(true)
+                                    }
+                                    .padding(12)
+                                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                                }
+                            }
                         }
                         .padding(.horizontal, 22)
 
                         VStack(spacing: 10) {
-                            DateRow(
-                                label: "Start Date",
+                            monthYearRow(
+                                label: "Month / Year",
                                 primary: primary,
-                                displayed: startAt.formatted(date: .abbreviated, time: .omitted)
-                            ) { showStartWheel = true }
-
-                            DateRow(
-                                label: "End Date",
-                                primary: primary,
-                                displayed: endAt.formatted(date: .abbreviated, time: .omitted)
-                            ) { showEndWheel = true }
+                                displayed: "\(monthName(selectedMonth)) \(selectedYear)"
+                            ) {
+                                showMonthYearPicker = true
+                            }
                         }
                         .padding(.horizontal, 22)
 
                         Button {
-                            Task { await createChallenge() }
+                            Task { await createMonthlyChallenge() }
                         } label: {
                             Text(uploading ? "Adding..." : "Add")
                                 .foregroundColor(.white)
@@ -1257,7 +1636,7 @@ struct CreateChallengeSheet: View {
                                 .clipShape(Capsule())
                                 .padding(.horizontal, 22)
                         }
-                        .disabled(uploading || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(uploading)
                         .buttonStyle(.plain)
 
                         if let errorText {
@@ -1268,7 +1647,7 @@ struct CreateChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
 
-                        Spacer(minLength: 16)
+                        Spacer(minLength: 18)
                     }
                 }
             }
@@ -1277,84 +1656,118 @@ struct CreateChallengeSheet: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showStartWheel) {
-                WheelDatePickerSheet(
-                    title: "Select start date",
+            .sheet(isPresented: $showMonthYearPicker) {
+                AdminMonthYearPickerSheet(
                     primary: primary,
-                    date: $startAt,
-                    onDone: {}
+                    year: $selectedYear,
+                    month: $selectedMonth,
+                    minYear: 2025,
+                    maxYear: 2035,
+                    onDone: { showMonthYearPicker = false }
                 )
             }
-            .sheet(isPresented: $showEndWheel) {
-                WheelDatePickerSheet(
-                    title: "Select end date",
-                    primary: primary,
-                    date: $endAt,
-                    onDone: {}
-                )
+            .alert("Notice", isPresented: $showAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(alertMsg)
             }
         }
     }
 
-    private func field(_ label: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.system(size: 13, design: .rounded))
-                .foregroundColor(.secondary)
-
-            TextField(placeholder, text: text)
-                .textInputAutocapitalization(.sentences)
-                .autocorrectionDisabled(true)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(BrandColors.background)
-                )
+    private func createMonthlyChallenge() async {
+        guard let user = Auth.auth().currentUser else {
+            alertMsg = "User not authenticated"
+            showAlert = true
+            return
         }
-        .padding(.horizontal, 22)
-    }
-
-    private func createChallenge() async {
+        
         uploading = true
         errorText = nil
 
         do {
-            if endAt < startAt {
-                uploading = false
-                errorText = "End date must be after start date."
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let d = description.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // ✅ Validate image is required
+            guard pickedImage != nil else {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Challenge image is required."])
+            }
+
+            if t.isEmpty || d.isEmpty {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Please fill all required fields."])
+            }
+
+            if t.count > titleLimit {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Title must be max 30 characters."])
+            }
+
+            if d.count > descLimit {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Description must be max 500 characters."])
+            }
+
+            let cArr = criteria.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if cArr.contains(where: { $0.isEmpty }) {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Please fill all 4 criteria."])
+            }
+            if cArr.contains(where: { $0.count > criteriaLimit }) {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Each criteria must be max 200 characters."])
+            }
+
+            let ym = String(format: "%04d-%02d", selectedYear, selectedMonth)
+            let startAt = firstDayOfMonth(year: selectedYear, month: selectedMonth)
+            let endAt = lastDayOfMonth(year: selectedYear, month: selectedMonth)
+
+            let exists = try await monthAlreadyHasChallenge(yearMonth: ym, excludeId: nil)
+            if exists {
+                await MainActor.run {
+                    uploading = false
+                    alertMsg = "Only one monthly challenge is allowed per month. This month already has a challenge."
+                    showAlert = true
+                }
                 return
             }
 
-            var imageURL = ""
-            if let pickedImage {
-                imageURL = try await uploadChallengeImage(pickedImage)
-            }
-
-            let criteriaArr = criteriaText
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            let imageURL = try await uploadChallengeImage(pickedImage!)
 
             let data: [String: Any] = [
-                "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
-                "description": description.trimmingCharacters(in: .whitespacesAndNewlines),
-                "criteria": criteriaArr,
+                "title": t,
+                "description": d,
+                "criteria": cArr,
                 "imageURL": imageURL,
+                "yearMonth": ym,
                 "startAt": Timestamp(date: startAt),
                 "endAt": Timestamp(date: endAt),
                 "createdAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp(),
-                "createdBy": Auth.auth().currentUser?.uid ?? ""
+                "createdBy": user.uid
             ]
 
-            _ = try await Firestore.firestore().collection("challenges").addDocument(data: data)
+            _ = try await Firestore.firestore()
+                .collection("challenges")
+                .addDocument(data: data)
 
-            uploading = false
-            onDone()
-            dismiss()
+            await MainActor.run {
+                uploading = false
+                onDone()
+                dismiss()
+            }
+
         } catch {
-            uploading = false
-            errorText = error.localizedDescription
+            await MainActor.run {
+                uploading = false
+                errorText = error.localizedDescription
+            }
+        }
+    }
+
+    private func monthAlreadyHasChallenge(yearMonth: String, excludeId: String?) async throws -> Bool {
+        let db = Firestore.firestore()
+        var q = db.collection("challenges").whereField("yearMonth", isEqualTo: yearMonth)
+        let snap = try await q.getDocuments()
+        if let excludeId {
+            return snap.documents.contains(where: { $0.documentID != excludeId })
+        } else {
+            return !snap.documents.isEmpty
         }
     }
 
@@ -1363,7 +1776,6 @@ struct CreateChallengeSheet: View {
             throw NSError(domain: "auth", code: 401,
                           userInfo: [NSLocalizedDescriptionKey: "Not signed in"])
         }
-
         guard let data = image.jpegData(compressionQuality: 0.82) else {
             throw NSError(domain: "image", code: 0,
                           userInfo: [NSLocalizedDescriptionKey: "Image encoding failed"])
@@ -1379,34 +1791,130 @@ struct CreateChallengeSheet: View {
         let url = try await ref.downloadURL()
         return url.absoluteString
     }
+
+    private func requiredField(label: String, value: Binding<String>, limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text("*").foregroundColor(.red)
+                Spacer()
+                // ✅ إضافة عداد الحروف
+                Text("\(value.wrappedValue.count)/\(limit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            TextField("", text: value)                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(true)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+        }
+        .padding(.horizontal, 22)
+    }
+
+    private func requiredTextEditor(label: String, text: Binding<String>, placeholder: String, limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text("*").foregroundColor(.red)
+                Spacer()
+                Text("\(text.wrappedValue.count)/\(limit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if text.wrappedValue.isEmpty {
+                    Text(placeholder)
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .padding(.top, 10)
+                        .padding(.leading, 6)
+                }
+                TextEditor(text: text)
+                    .frame(height: 110)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: text.wrappedValue) { _, nv in
+                        if nv.count > limit {
+                            text.wrappedValue = String(nv.prefix(limit))
+                        }
+                    }
+            }
+        }
+        .padding(.horizontal, 22)
+    }
+
+    private func monthYearRow(label: String, primary: Color, displayed: String, onTap: @escaping () -> Void) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(displayed)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(primary)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+        .onTapGesture { onTap() }
+    }
+
+    private func monthName(_ m: Int) -> String {
+        let df = DateFormatter()
+        return df.shortMonthSymbols[(m - 1).clamped(to: 0...11)]
+    }
+
+    private func firstDayOfMonth(year: Int, month: Int) -> Date {
+        var c = DateComponents()
+        c.year = year
+        c.month = month
+        c.day = 1
+        return Calendar.current.date(from: c) ?? Date()
+    }
+
+    private func lastDayOfMonth(year: Int, month: Int) -> Date {
+        let start = firstDayOfMonth(year: year, month: month)
+        let range = Calendar.current.range(of: .day, in: .month, for: start) ?? 1..<29
+        var c = Calendar.current.dateComponents([.year, .month], from: start)
+        c.day = range.count
+        return Calendar.current.date(from: c) ?? start
+    }
 }
 
 // =======================================================
-// MARK: - Edit Challenge Sheet
+// MARK: - ✅ Edit Challenge Sheet - Same fixes as Create
 // =======================================================
 
-struct EditChallengeSheet: View {
-    private let primary = BrandColors.darkTeal
-    @Environment(\.dismiss) private var dismiss
-
+private struct AdminEditMonthlyChallengeSheet: View {
+    let primary: Color
     let challenge: AdminChallengeItem
     var onDone: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var title = ""
     @State private var description = ""
-    @State private var criteriaText = ""
+    @State private var criteria: [String] = ["", "", "", ""]
 
-    @State private var startAt = Date()
-    @State private var endAt = Date()
-
-    @State private var showStartWheel = false
-    @State private var showEndWheel = false
+    @State private var selectedYear: Int = 2025
+    @State private var selectedMonth: Int = 1
+    @State private var showMonthYearPicker = false
 
     @State private var pickedItem: PhotosPickerItem? = nil
     @State private var pickedImage: UIImage? = nil
 
     @State private var saving = false
     @State private var errorText: String?
+    @State private var showAlert = false
+    @State private var alertMsg = ""
+
+    private let titleLimit = 30
+    private let descLimit = 500
+    private let criteriaLimit = 200
 
     var body: some View {
         NavigationStack {
@@ -1415,90 +1923,144 @@ struct EditChallengeSheet: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        Text("Edit Challenge")
+                        Text("Edit Monthly Challenge")
                             .font(.system(size: 22, weight: .semibold, design: .rounded))
                             .foregroundColor(primary)
                             .padding(.top, 8)
 
-                        PhotosPicker(selection: $pickedItem, matching: .images) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                                    .foregroundColor(primary.opacity(0.7))
-                                    .frame(height: 140)
+                        Text("This is a monthly challenge. You can't add two challenges in the same month.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 18)
 
-                                if let pickedImage {
-                                    Image(uiImage: pickedImage)
-                                        .resizable()
-                                        .scaledToFill()
+                        // ✅ Image REQUIRED (with asterisk)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Text("Challenge Image")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                Text("*").foregroundColor(.red)
+                            }
+                            .padding(.horizontal, 22)
+                            
+                            PhotosPicker(selection: $pickedItem, matching: .images) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                                        .foregroundColor(primary.opacity(0.7))
                                         .frame(height: 140)
-                                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                                        .clipped()
-                                } else if let url = URL(string: challenge.imageURL), !challenge.imageURL.isEmpty {
-                                    AsyncImage(url: url) { phase in
-                                        switch phase {
-                                        case .empty:
-                                            RoundedRectangle(cornerRadius: 16)
-                                                .fill(Color(UIColor.systemGray5))
-                                                .frame(height: 140)
-                                                .overlay(ProgressView().tint(primary))
-                                        case .success(let image):
-                                            image.resizable()
-                                                .scaledToFill()
-                                                .frame(height: 140)
-                                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                                .clipped()
-                                        default:
+
+                                    if let pickedImage {
+                                        Image(uiImage: pickedImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(height: 140)
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                            .clipped()
+                                    } else if let url = URL(string: challenge.imageURL), !challenge.imageURL.isEmpty {
+                                        AsyncImage(url: url) { phase in
+                                            switch phase {
+                                            case .empty:
+                                                RoundedRectangle(cornerRadius: 16)
+                                                    .fill(Color(UIColor.systemGray5))
+                                                    .frame(height: 140)
+                                                    .overlay(ProgressView().tint(primary))
+                                            case .success(let image):
+                                                image.resizable()
+                                                    .scaledToFill()
+                                                    .frame(height: 140)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                                    .clipped()
+                                            default:
+                                                RoundedRectangle(cornerRadius: 16)
+                                                    .fill(Color(UIColor.systemGray5))
+                                                    .frame(height: 140)
+                                                    .overlay(Text("Image failed").foregroundColor(.secondary))
+                                            }
+                                        }
+                                    } else {
+                                        VStack(spacing: 8) {
                                             Image(systemName: "square.and.arrow.up")
                                                 .font(.system(size: 22, weight: .medium))
                                                 .foregroundColor(primary.opacity(0.9))
+                                            Text("Upload image (required)")
+                                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                                .foregroundColor(.secondary)
                                         }
                                     }
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 22, weight: .medium))
-                                        .foregroundColor(primary.opacity(0.9))
                                 }
                             }
-                        }
-                        .padding(.horizontal, 22)
-                        .onChange(of: pickedItem) { _, newValue in
-                            guard let newValue else { return }
-                            Task {
-                                if let data = try? await newValue.loadTransferable(type: Data.self),
-                                   let ui = UIImage(data: data) {
-                                    await MainActor.run { pickedImage = ui }
+                            .padding(.horizontal, 22)
+                            .onChange(of: pickedItem) { _, newValue in
+                                guard let newValue else { return }
+                                Task {
+                                    if let data = try? await newValue.loadTransferable(type: Data.self),
+                                       let ui = UIImage(data: data) {
+                                        await MainActor.run { pickedImage = ui }
+                                    }
                                 }
                             }
                         }
 
-                        field("Title", placeholder: "Challenge title", text: $title)
-                        field("Description", placeholder: "Write a short description", text: $description)
+                        requiredField(label: "Title", value: $title, placeholder: "Challenge title (max 30)")
+                            .onChange(of: title) { _, nv in
+                                if nv.count > titleLimit { title = String(nv.prefix(titleLimit)) }
+                            }
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Criteria (one per line)")
-                                .font(.system(size: 13, design: .rounded))
+                        requiredTextEditor(label: "Description", text: $description, placeholder: "Write a short description (max 500)", limit: descLimit)
+
+                        // ✅ Criteria with character counter
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Text("Evaluation Criteria")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                Text("*").foregroundColor(.red)
+                            }
+                            Text("Exactly 4 criteria. Each one max 200 characters.")
+                                .font(.system(size: 12, design: .rounded))
                                 .foregroundColor(.secondary)
 
-                            TextEditor(text: $criteriaText)
-                                .frame(height: 90)
-                                .padding(10)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                            ForEach(0..<4, id: \.self) { i in
+                                VStack(spacing: 4) {
+                                    HStack {
+                                        Text("Criteria \(i+1)")
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        Text("\(criteria[i].count)/\(criteriaLimit)")
+                                            .font(.system(size: 12, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    HStack(spacing: 10) {
+                                        Circle()
+                                            .fill(primary.opacity(0.9))
+                                            .frame(width: 8, height: 8)
+
+                                        TextField("Enter criteria...", text: Binding(
+                                            get: { criteria[i] },
+                                            set: { newVal in
+                                                var v = newVal
+                                                if v.count > criteriaLimit { v = String(v.prefix(criteriaLimit)) }
+                                                criteria[i] = v
+                                            }
+                                        ))
+                                        .textInputAutocapitalization(.sentences)
+                                        .autocorrectionDisabled(true)
+                                    }
+                                    .padding(12)
+                                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                                }
+                            }
                         }
                         .padding(.horizontal, 22)
 
                         VStack(spacing: 10) {
-                            DateRow(
-                                label: "Start Date",
+                            monthYearRow(
+                                label: "Month / Year",
                                 primary: primary,
-                                displayed: startAt.formatted(date: .abbreviated, time: .omitted)
-                            ) { showStartWheel = true }
-
-                            DateRow(
-                                label: "End Date",
-                                primary: primary,
-                                displayed: endAt.formatted(date: .abbreviated, time: .omitted)
-                            ) { showEndWheel = true }
+                                displayed: "\(monthName(selectedMonth)) \(selectedYear)"
+                            ) { showMonthYearPicker = true }
                         }
                         .padding(.horizontal, 22)
 
@@ -1514,7 +2076,7 @@ struct EditChallengeSheet: View {
                                 .clipShape(Capsule())
                                 .padding(.horizontal, 22)
                         }
-                        .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(saving)
                         .buttonStyle(.plain)
 
                         if let errorText {
@@ -1525,7 +2087,7 @@ struct EditChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
 
-                        Spacer(minLength: 16)
+                        Spacer(minLength: 18)
                     }
                 }
             }
@@ -1534,11 +2096,20 @@ struct EditChallengeSheet: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showStartWheel) {
-                WheelDatePickerSheet(title: "Select start date", primary: primary, date: $startAt, onDone: {})
+            .sheet(isPresented: $showMonthYearPicker) {
+                AdminMonthYearPickerSheet(
+                    primary: primary,
+                    year: $selectedYear,
+                    month: $selectedMonth,
+                    minYear: 2025,
+                    maxYear: 2035,
+                    onDone: { showMonthYearPicker = false }
+                )
             }
-            .sheet(isPresented: $showEndWheel) {
-                WheelDatePickerSheet(title: "Select end date", primary: primary, date: $endAt, onDone: {})
+            .alert("Notice", isPresented: $showAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(alertMsg)
             }
             .onAppear { preload() }
         }
@@ -1547,61 +2118,77 @@ struct EditChallengeSheet: View {
     private func preload() {
         title = challenge.title
         description = challenge.description
-        criteriaText = challenge.criteria.joined(separator: "\n")
-        startAt = challenge.startAt ?? Date()
-        endAt = challenge.endAt ?? (Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
-    }
 
-    private func field(_ label: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.system(size: 13, design: .rounded))
-                .foregroundColor(.secondary)
+        var c = challenge.criteria
+        if c.count < 4 { c.append(contentsOf: Array(repeating: "", count: 4 - c.count)) }
+        if c.count > 4 { c = Array(c.prefix(4)) }
+        criteria = c
 
-            TextField(placeholder, text: text)
-                .textInputAutocapitalization(.sentences)
-                .autocorrectionDisabled(true)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(BrandColors.background)
-                )
+        let parts = challenge.yearMonth.split(separator: "-").map(String.init)
+        if parts.count == 2 {
+            selectedYear = Int(parts[0]) ?? Calendar.current.component(.year, from: Date())
+            selectedMonth = Int(parts[1]) ?? Calendar.current.component(.month, from: Date())
+        } else {
+            selectedYear = Calendar.current.component(.year, from: Date())
+            selectedMonth = Calendar.current.component(.month, from: Date())
         }
-        .padding(.horizontal, 22)
     }
 
     private func save() async {
-        saving = true
-        errorText = nil
+        await MainActor.run {
+            saving = true
+            errorText = nil
+        }
 
         do {
-            if endAt < startAt {
-                saving = false
-                errorText = "End date must be after start date."
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let d = description.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if t.isEmpty || d.isEmpty {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Please fill all required fields."])
+            }
+            if t.count > titleLimit {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Title must be max 30 characters."])
+            }
+            if d.count > descLimit {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Description must be max 500 characters."])
+            }
+
+            let cArr = criteria.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if cArr.contains(where: { $0.isEmpty }) {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Please fill all 4 criteria."])
+            }
+            if cArr.contains(where: { $0.count > criteriaLimit }) {
+                throw NSError(domain: "validation", code: 0, userInfo: [NSLocalizedDescriptionKey: "Each criteria must be max 200 characters."])
+            }
+
+            let ym = String(format: "%04d-%02d", selectedYear, selectedMonth)
+            let startAt = firstDayOfMonth(year: selectedYear, month: selectedMonth)
+            let endAt = lastDayOfMonth(year: selectedYear, month: selectedMonth)
+
+            let exists = try await monthAlreadyHasChallenge(yearMonth: ym, excludeId: challenge.id)
+            if exists {
+                await MainActor.run {
+                    saving = false
+                    alertMsg = "Only one monthly challenge is allowed per month. This month already has a challenge."
+                    showAlert = true
+                }
                 return
             }
 
-            var newImageURL: String? = nil
-            if let pickedImage {
-                newImageURL = try await uploadChallengeImage(pickedImage)
-            }
-
-            let criteriaArr = criteriaText
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
             var update: [String: Any] = [
-                "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
-                "description": description.trimmingCharacters(in: .whitespacesAndNewlines),
-                "criteria": criteriaArr,
+                "title": t,
+                "description": d,
+                "criteria": cArr,
+                "yearMonth": ym,
                 "startAt": Timestamp(date: startAt),
                 "endAt": Timestamp(date: endAt),
                 "updatedAt": FieldValue.serverTimestamp()
             ]
 
-            if let newImageURL {
-                update["imageURL"] = newImageURL
+            if let pickedImage {
+                let newURL = try await uploadChallengeImage(pickedImage)
+                update["imageURL"] = newURL
             }
 
             try await Firestore.firestore()
@@ -1609,12 +2196,30 @@ struct EditChallengeSheet: View {
                 .document(challenge.id)
                 .setData(update, merge: true)
 
-            saving = false
-            onDone()
-            dismiss()
+            await MainActor.run {
+                saving = false
+                onDone()
+                dismiss()
+            }
+
         } catch {
-            saving = false
-            errorText = error.localizedDescription
+            await MainActor.run {
+                saving = false
+                errorText = error.localizedDescription
+            }
+        }
+    }
+
+    private func monthAlreadyHasChallenge(yearMonth: String, excludeId: String?) async throws -> Bool {
+        let db = Firestore.firestore()
+        let snap = try await db.collection("challenges")
+            .whereField("yearMonth", isEqualTo: yearMonth)
+            .getDocuments()
+
+        if let excludeId {
+            return snap.documents.contains(where: { $0.documentID != excludeId })
+        } else {
+            return !snap.documents.isEmpty
         }
     }
 
@@ -1623,7 +2228,6 @@ struct EditChallengeSheet: View {
             throw NSError(domain: "auth", code: 401,
                           userInfo: [NSLocalizedDescriptionKey: "Not signed in"])
         }
-
         guard let data = image.jpegData(compressionQuality: 0.82) else {
             throw NSError(domain: "image", code: 0,
                           userInfo: [NSLocalizedDescriptionKey: "Image encoding failed"])
@@ -1639,7 +2243,249 @@ struct EditChallengeSheet: View {
         let url = try await ref.downloadURL()
         return url.absoluteString
     }
+
+    private func requiredField(label: String, value: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text("*").foregroundColor(.red)
+            }
+            TextField(placeholder, text: value)
+                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(true)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+        }
+        .padding(.horizontal, 22)
+    }
+
+    private func requiredTextEditor(label: String, text: Binding<String>, placeholder: String, limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text("*").foregroundColor(.red)
+                Spacer()
+                Text("\(text.wrappedValue.count)/\(limit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if text.wrappedValue.isEmpty {
+                    Text(placeholder)
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .padding(.top, 10)
+                        .padding(.leading, 6)
+                }
+                TextEditor(text: text)
+                    .frame(height: 110)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: text.wrappedValue) { _, nv in
+                        if nv.count > limit {
+                            text.wrappedValue = String(nv.prefix(limit))
+                        }
+                    }
+            }
+        }
+        .padding(.horizontal, 22)
+    }
+
+    private func monthYearRow(label: String, primary: Color, displayed: String, onTap: @escaping () -> Void) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(displayed)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(primary)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+        .onTapGesture { onTap() }
+    }
+
+    private func monthName(_ m: Int) -> String {
+        let df = DateFormatter()
+        return df.shortMonthSymbols[(m - 1).clamped(to: 0...11)]
+    }
+
+    private func firstDayOfMonth(year: Int, month: Int) -> Date {
+        var c = DateComponents()
+        c.year = year
+        c.month = month
+        c.day = 1
+        return Calendar.current.date(from: c) ?? Date()
+    }
+
+    private func lastDayOfMonth(year: Int, month: Int) -> Date {
+        let start = firstDayOfMonth(year: year, month: month)
+        let range = Calendar.current.range(of: .day, in: .month, for: start) ?? 1..<29
+        var c = Calendar.current.dateComponents([.year, .month], from: start)
+        c.day = range.count
+        return Calendar.current.date(from: c) ?? start
+    }
 }
+
+// =======================================================
+// MARK: - Month/Year Picker
+// =======================================================
+
+private struct AdminMonthYearPickerSheet: View {
+    let primary: Color
+    @Binding var year: Int
+    @Binding var month: Int
+
+    let minYear: Int
+    let maxYear: Int
+    let onDone: () -> Void
+
+    private let months: [(Int, String)] = [
+        (1,"Jan"),(2,"Feb"),(3,"Mar"),(4,"Apr"),(5,"May"),(6,"Jun"),
+        (7,"Jul"),(8,"Aug"),(9,"Sep"),(10,"Oct"),(11,"Nov"),(12,"Dec")
+    ]
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Select Month & Year")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundColor(primary)
+                .padding(.top, 10)
+
+            HStack(spacing: 0) {
+                Picker("Month", selection: $month) {
+                    ForEach(months, id: \.0) { m in
+                        Text(m.1).tag(m.0)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+
+                Picker("Year", selection: $year) {
+                    ForEach(minYear...maxYear, id: \.self) { y in
+                        Text("\(y)").tag(y)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+            }
+            .frame(height: 180)
+
+            Button {
+                onDone()
+            } label: {
+                Text("Done")
+                    .foregroundColor(.white)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(primary)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
+        }
+        .presentationDetents([.height(360)])
+        .presentationDragIndicator(.visible)
+        .background(BrandColors.background.ignoresSafeArea())
+    }
+}
+
+// =======================================================
+// MARK: - Confirm Popup
+// =======================================================
+
+private struct AdminConfirmPopup: View {
+    let title: String
+    let message: String
+    let primary: Color
+
+    let isLoading: Bool
+    let errorText: String?
+
+    let cancelTitle: String
+    let confirmTitle: String
+    let confirmColor: Color
+
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack {
+                Spacer()
+
+                VStack(spacing: 16) {
+                    Text(title)
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(.center)
+
+                    Text(message)
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14)
+
+                    if isLoading {
+                        ProgressView().tint(primary)
+                    }
+
+                    if let errorText, !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 14)
+                    }
+
+                    HStack(spacing: 14) {
+                        Button(cancelTitle) { onCancel() }
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundColor(BrandColors.darkGray)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(BrandColors.lightGray)
+                            .cornerRadius(12)
+
+                        Button(confirmTitle) { onConfirm() }
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(confirmColor)
+                            .cornerRadius(12)
+                            .disabled(isLoading)
+                    }
+                }
+                .padding(24)
+                .frame(width: min(340, geo.size.width - 40))
+                .background(BrandColors.background)
+                .cornerRadius(20)
+                .shadow(radius: 12)
+
+                Spacer()
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
+// =======================================================
+// MARK: - Helper
+// =======================================================
+
+private extension Comparable {
+    func clamped(to limits: ClosedRange<Self>) -> Self {
+        min(max(self, limits.lowerBound), limits.upperBound)
+    }
+}
+
+
+
 
 // =======================================================
 // MARK: - 4) Admin Profile

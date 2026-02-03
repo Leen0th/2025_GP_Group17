@@ -41,7 +41,9 @@ struct AppChallenge: Identifiable, Hashable {
     let endAt: Date
 
     var isPast: Bool { Date() >= endAt }
-    var statusText: String { isPast ? "Past" : "New" }
+    
+    // ✅ Changed from "New" to "Current"
+    var statusText: String { isPast ? "Past" : "Current" }
 
     var dateText: String {
         if isPast {
@@ -675,7 +677,7 @@ private struct ChallengeSearchFilterBar: View {
 
 private enum ChallengeStatusFilter: String, CaseIterable, Identifiable {
     case all = "All"
-    case new = "New"
+    case current = "Current"  // ✅ Changed from "new" to "current"
     case past = "Past"
     var id: String { rawValue }
 }
@@ -977,12 +979,12 @@ struct ChallengeView: View {
         }
     }
 
-    // ✅ Search is by challenge title (اسم التحدي)
     private func filterChallenges(_ list: [AppChallenge]) -> [AppChallenge] {
         let cal = Calendar.current
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let now = Date()
 
-        return list.filter { ch in
+        let filtered = list.filter { ch in
             // search by title
             let searchOK = q.isEmpty || ch.title.lowercased().contains(q)
 
@@ -990,7 +992,7 @@ struct ChallengeView: View {
             let statusOK: Bool = {
                 switch statusFilter {
                 case .all: return true
-                case .new: return !ch.isPast
+                case .current: return !ch.isPast
                 case .past: return ch.isPast
                 }
             }()
@@ -1003,6 +1005,20 @@ struct ChallengeView: View {
             let monthOK = (selectedMonth == nil) || (selectedMonth == m)
 
             return searchOK && statusOK && yearOK && monthOK
+        }
+        
+        // ✅ Sort: Current challenges first (newest first), then Past challenges (newest first)
+        return filtered.sorted { first, second in
+            let firstIsPast = (first.endAt) < now
+            let secondIsPast = (second.endAt) < now
+            
+            // Current challenges come before Past
+            if firstIsPast != secondIsPast {
+                return !firstIsPast // Current (false) before Past (true)
+            }
+            
+            // Within same category, newest first (by startAt)
+            return first.startAt > second.startAt
         }
     }
 }
@@ -1066,6 +1082,7 @@ private struct ChallengeListCard: View {
         .padding(.horizontal, 16)
     }
 }
+
 private struct NoMatchingResultsView: View {
     var body: some View {
         VStack(spacing: 12) {
@@ -1091,7 +1108,7 @@ private struct NoMatchingResultsView: View {
 
 
 // =======================================================
-// MARK: - New Challenge Page (unchanged)
+// MARK: - New Challenge Page
 // =======================================================
 
 struct NewChallengePage: View {
@@ -1119,7 +1136,7 @@ struct NewChallengePage: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 18) {
-                    Text("New Challenge")
+                    Text("Current Challenge")  // ✅ Changed from "New Challenge"
                         .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .foregroundColor(accent)
                         .padding(.top, 8)
@@ -1263,7 +1280,7 @@ struct NewChallengePage: View {
 }
 
 // =======================================================
-// MARK: - Past Challenge Page (unchanged)
+// MARK: - Past Challenge Page
 // =======================================================
 
 struct PastChallengePage: View {
@@ -1357,7 +1374,30 @@ struct PastChallengePage: View {
 }
 
 // =======================================================
-// MARK: - Shared Challenge Info Card (unchanged)
+// MARK: - ✅ Shared Challenge Info Card (Shows ALL 4 criteria)
+// =======================================================
+
+// =======================================================
+// MARK: - ✅ FIX: Replace the criteria section in ChallengeInfoCard
+// =======================================================
+
+// Find this section in your ChallengeInfoCard and REPLACE it:
+
+
+
+
+// =======================================================
+// MARK: - ✅ COMPLETE FIXED ChallengeInfoCard
+// =======================================================
+
+// =======================================================
+// MARK: - ✅ FIX: Criteria in 2x2 Grid (2 columns)
+// =======================================================
+
+
+
+// =======================================================
+// MARK: - ✅ COMPLETE FIXED ChallengeInfoCard (2x2 Grid)
 // =======================================================
 
 private struct ChallengeInfoCard: View {
@@ -1418,23 +1458,28 @@ private struct ChallengeInfoCard: View {
                 .alert("Evaluation Method", isPresented: $showEvalInfo) {
                     Button("OK", role: .cancel) {}
                 } message: {
-                    Text("Rating is based on stars. Each star equals 5 points.")
+                    Text("Rating is based on stars. Each star equals 5 points. Evaluation is conducted according to the defined evaluation criteria.")
+
                 }
 
-                let cols = [
-                    GridItem(.flexible(), alignment: .leading),
-                    GridItem(.flexible(), alignment: .leading)
+                // ✅ FIXED: 2x2 Grid showing all 4 criteria properly
+                let columns = [
+                    GridItem(.flexible(), spacing: 16, alignment: .leading),
+                    GridItem(.flexible(), spacing: 16, alignment: .leading)
                 ]
+                
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    ForEach(0..<challenge.criteria.count, id: \.self) { index in
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(BrandColors.darkTeal)
+                                .frame(width: 9, height: 9)
 
-                LazyVGrid(columns: cols, alignment: .leading, spacing: 14) {
-                    if challenge.criteria.isEmpty {
-                        CriteriaDot(text: "Shooting accuracy")
-                        CriteriaDot(text: "Decision making")
-                        CriteriaDot(text: "Ball control")
-                        CriteriaDot(text: "Consistency")
-                    } else {
-                        ForEach(challenge.criteria, id: \.self) { c in
-                            CriteriaDot(text: c)
+                            Text(challenge.criteria[index])
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -1511,10 +1556,14 @@ private struct CriteriaDot: View {
     }
 }
 
+
+// =======================================================
+// MARK: - ✅ WHAT CHANGED
+// =======================================================
+
+
 // =======================================================
 // MARK: - Submission Card / UserAvatar / StarPicker / VideoSheet / RankBadge
-// NOTE: نفس كودك السابق (ما غيرته هنا) عشان ما أطوّل أكثر.
-// إذا تبين ألصقه لك كامل حرفيًا (مع ReportStateService/ReportView) قولي "الصق الباقي".
 // =======================================================
 
 private struct SubmissionCard: View {
@@ -1530,7 +1579,6 @@ private struct SubmissionCard: View {
     @EnvironmentObject private var session: AppSession
     @StateObject private var uploader = ChallengeUploader()
 
-    // NOTE: يفترض عندك هذي بالخارج
     @ObservedObject private var reportState = ReportStateService.shared
 
     @State private var user: UserMini?
@@ -1599,7 +1647,6 @@ private struct SubmissionCard: View {
 
                 HStack(spacing: 12) {
                     Button {
-                        // ✅ Guest -> show Join Haddaf popup instead of report sheet
                         if session.isGuest {
                             onActionNotAllowed(
                                 "To perform this action, you need to be part of Haddaf. Please go to the Profile tab and sign up or sign in to get started."
