@@ -742,6 +742,7 @@ struct AdminChallengeItem: Identifiable, Hashable {
 
 private enum AdminChallengeStatusFilter: String, CaseIterable, Identifiable {
     case all = "All"
+    case upcoming = "Upcoming"  // ✨ NEW
     case current = "Current"
     case past = "Past"
     var id: String { rawValue }
@@ -1004,11 +1005,21 @@ struct AdminChallengesView: View {
         }
 
         list = list.filter { ch in
-            let isPast = (ch.endAt ?? .distantPast) < now
+            let startAt = ch.startAt ?? .distantPast
+            let endAt = ch.endAt ?? .distantPast
+            
+            // ✨ NEW: 3 states instead of 2
+            let isUpcoming = now < startAt
+            let isCurrent = now >= startAt && now < endAt
+            let isPast = now >= endAt
+            
             switch appliedFilters.status {
-            case .all: break
+            case .all:
+                break
+            case .upcoming:
+                if !isUpcoming { return false }
             case .current:
-                if isPast { return false }
+                if !isCurrent { return false }
             case .past:
                 if !isPast { return false }
             }
@@ -1025,6 +1036,15 @@ struct AdminChallengesView: View {
         }
 
         return list.sorted { $0.yearMonth > $1.yearMonth }
+    }
+
+    // ✨ NEW: Helper function
+    private func canEditOrDelete(_ challenge: AdminChallengeItem) -> Bool {
+        let now = Date()
+        let startAt = challenge.startAt ?? .distantPast
+        
+        // Only allow editing/deleting if challenge hasn't started yet (Upcoming)
+        return now < startAt
     }
 
     private func startListening() {
@@ -1117,16 +1137,40 @@ private struct AdminChallengeHeroCard: View {
     let challenge: AdminChallengeItem
     let primary: Color
 
+    // ✨ NEW: 3 states
+    private var challengeStatus: String {
+        let now = Date()
+        guard let start = challenge.startAt, let end = challenge.endAt else {
+            return "Unknown"
+        }
+        
+        if now < start { return "Upcoming" }
+        if now >= start && now < end { return "Current" }
+        return "Past"
+    }
+    
     private var isPast: Bool {
         if let end = challenge.endAt { return Date() > end }
         return false
     }
 
-    private var statusText: String { isPast ? "Past" : "Current" }
-
-    private var endByText: String {
-        guard let end = challenge.endAt else { return "" }
-        return "End by \(end.formatted(.dateTime.day().month(.abbreviated).year()))"
+    private var dateText: String {
+        let now = Date()
+        guard let start = challenge.startAt, let end = challenge.endAt else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM yyyy"
+        
+        if now < start {
+            return "Starts \(formatter.string(from: start))"
+        } else if now >= end {
+            return "Ended \(formatter.string(from: end))"
+        } else {
+            return "Ends \(formatter.string(from: end))"
+        }
     }
 
     var body: some View {
@@ -1171,7 +1215,7 @@ private struct AdminChallengeHeroCard: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(statusText)
+                    Text(challengeStatus)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundColor(isPast ? .gray : primary)
                         .padding(.horizontal, 14)
@@ -1179,10 +1223,10 @@ private struct AdminChallengeHeroCard: View {
                         .background(Color.white.opacity(0.85))
                         .clipShape(Capsule())
 
-                    if !endByText.isEmpty {
-                        Text(endByText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white.opacity(0.95))
+                    if !dateText.isEmpty {
+                        Text(dateText)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.92))
                     }
                 }
             }
@@ -1206,9 +1250,32 @@ private struct AdminChallengeDetailsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private var isPast: Bool {
-        if let end = challenge.endAt { return Date() > end }
-        return false
+    // ✨ NEW: 3 states
+    private var challengeStatus: String {
+        let now = Date()
+        guard let start = challenge.startAt, let end = challenge.endAt else {
+            return "Unknown"
+        }
+        
+        if now < start { return "Upcoming" }
+        if now >= start && now < end { return "Current" }
+        return "Past"
+    }
+    
+    private var statusColor: Color {
+        switch challengeStatus {
+        case "Upcoming": return .orange
+        case "Current": return primary
+        case "Past": return .gray
+        default: return .gray
+        }
+    }
+    
+    // ✨ NEW: Can only edit Upcoming
+    private var canEdit: Bool {
+        let now = Date()
+        guard let start = challenge.startAt else { return false }
+        return now < start
     }
 
     var body: some View {
@@ -1224,12 +1291,13 @@ private struct AdminChallengeDetailsSheet: View {
 
                         Spacer()
 
-                        Text(isPast ? "Past" : "Current")
+                        // ✨ Updated badge
+                        Text(challengeStatus)
                             .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundColor(isPast ? .gray : primary)
+                            .foregroundColor(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(Color(UIColor.systemGray6))
+                            .background(statusColor)
                             .clipShape(Capsule())
                     }
 
@@ -1278,42 +1346,65 @@ private struct AdminChallengeDetailsSheet: View {
 
                     if let start = challenge.startAt, let end = challenge.endAt {
                         sectionTitle("Start / End")
-                        Text("\(start.formatted(date: .numeric, time: .omitted))  →  \(end.formatted(date: .numeric, time: .omitted))")
+                        Text("\(formattedDate(start))  →  \(formattedDate(end))")
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.secondary)
                     }
 
-                    HStack(spacing: 14) {
-                        Button {
-                            onDelete()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "trash")
-                                Text("Delete")
-                            }
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.red.opacity(0.9))
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            onEdit()
-                        } label: {
-                            Text("Edit")
+                    // ✨ NEW: Conditional buttons
+                    if canEdit {
+                        HStack(spacing: 14) {
+                            Button {
+                                onDelete()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "trash")
+                                    Text("Delete")
+                                }
                                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                                 .foregroundColor(.white)
                                 .padding(.vertical, 14)
                                 .frame(maxWidth: .infinity)
-                                .background(primary)
+                                .background(Color.red.opacity(0.9))
                                 .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                onEdit()
+                            } label: {
+                                Text("Edit")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 14)
+                                    .frame(maxWidth: .infinity)
+                                    .background(primary)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                    } else {
+                        VStack(spacing: 8) {
+                            HStack {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.orange)
+                                Text("Cannot edit or delete")
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                            }
+                            
+                            Text("Active and past challenges are locked to preserve data integrity")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.orange.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.top, 8)
                     }
-                    .padding(.top, 8)
 
                     Spacer(minLength: 10)
                 }
@@ -1338,6 +1429,13 @@ private struct AdminChallengeDetailsSheet: View {
             .foregroundColor(.primary)
             .padding(.top, 6)
     }
+    
+    private func formattedDate(_ date: Date) -> String {
+          let formatter = DateFormatter()
+          formatter.locale = Locale(identifier: "en_US_POSIX")
+          formatter.dateFormat = "dd/MM/yyyy"
+          return formatter.string(from: date)
+      }
 }
 
 // =======================================================
@@ -1741,10 +1839,49 @@ private struct AdminCreateMonthlyChallengeSheet: View {
                 "updatedAt": FieldValue.serverTimestamp(),
                 "createdBy": user.uid
             ]
-
-            _ = try await Firestore.firestore()
+            let docRef = try await Firestore.firestore()
                 .collection("challenges")
                 .addDocument(data: data)
+
+            // ✨ Send notification ONLY if challenge is Current
+            // ✨ Send notification ONLY if challenge is Current (not Upcoming, not Past)
+            let challengeId = docRef.documentID
+            let challengeMonth = startAt.formatted(.dateTime.month(.wide))
+            let now = Date()
+
+            // Check if challenge is Current: started AND not ended
+            let isCurrent = now >= startAt && now < endAt
+
+            // Only send if Current (started and not ended)
+            if isCurrent {
+                Task {
+                    do {
+                        // Get all players
+                        let usersSnapshot = try await Firestore.firestore()
+                            .collection("users")
+                            .whereField("role", isEqualTo: "player")
+                            .getDocuments()
+                        
+                        // Send notification to each player
+                        for userDoc in usersSnapshot.documents {
+                            let playerId = userDoc.documentID
+                            
+                            await NotificationService.sendNewChallengeNotification(
+                                userId: playerId,
+                                challengeId: challengeId,
+                                challengeTitle: t,
+                                monthName: challengeMonth
+                            )
+                        }
+                        
+                        print("✅ Sent challenge notifications to \(usersSnapshot.documents.count) players")
+                    } catch {
+                        print("⚠️ Failed to send notifications: \(error.localizedDescription)")
+                    }
+                }
+            } else {
+                print("ℹ️ Challenge is Upcoming - notification will be sent automatically when it starts")
+            }
 
             await MainActor.run {
                 uploading = false
@@ -2503,6 +2640,7 @@ struct AdminProfileView: View {
     @State private var signOutError: String?
     @State private var adminEmail: String = ""
     @State private var adminName: String = ""
+    @State private var showNotifications = false
     
     private var currentEmail: String {
         Auth.auth().currentUser?.email ?? "No email"
@@ -2538,11 +2676,11 @@ struct AdminProfileView: View {
                         NavigationLink {
                             AdminChangeEmailView()
                             .onDisappear {
-                                        // Refresh when we come back
-                                        if let user = Auth.auth().currentUser {
-                                            adminEmail = user.email ?? ""
-                                        }
-                                    }
+                                // Refresh when we come back
+                                if let user = Auth.auth().currentUser {
+                                    adminEmail = user.email ?? ""
+                                }
+                            }
                         } label: {
                             settingsRow(icon: "envelope", title: "Change Email",
                                         iconColor: primary, showChevron: true, showDivider: true)
@@ -2642,15 +2780,77 @@ struct AdminProfileView: View {
             }
             .animation(.easeInOut, value: showLogoutPopup)
             .navigationBarTitleDisplayMode(.inline)
-        }
-        .onAppear {
-            loadAdminName()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showNotifications = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundColor(primary)
+                            
+                            // Unread badge
+                            if NotificationService.shared.unreadCount > 0 {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 18, height: 18)
+                                    
+                                    Text("\(min(NotificationService.shared.unreadCount, 9))")
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                }
+                                .offset(x: 8, y: -8)
+                            }
+                        }
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showNotifications) {
+                NotificationsView()
+                    .environmentObject(session)
+            }
+            .onAppear {
+                loadAdminData()
+                
+                // Start listening to notifications
+                if let adminId = Auth.auth().currentUser?.uid {
+                    NotificationService.shared.startListening(for: adminId)
+                }
+            }
+            .onDisappear {
+                NotificationService.shared.stopListening()
+            }
         }
     }
     
-    private func loadAdminName() {
+    private func loadAdminData() {
         if let user = Auth.auth().currentUser {
-            adminName = user.displayName ?? "Admin"
+            adminEmail = user.email ?? ""
+            
+            // Load admin name from display name or Firestore
+            if let displayName = user.displayName, !displayName.isEmpty {
+                adminName = displayName
+            } else {
+                // Try to load from Firestore
+                Task {
+                    do {
+                        let doc = try await Firestore.firestore()
+                            .collection("users")
+                            .document(user.uid)
+                            .getDocument()
+                        
+                        if let name = doc.data()?["fullName"] as? String {
+                            await MainActor.run {
+                                adminName = name
+                            }
+                        }
+                    } catch {
+                        print("Error loading admin data: \(error)")
+                    }
+                }
+            }
         }
     }
     

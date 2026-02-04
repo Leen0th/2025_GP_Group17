@@ -294,7 +294,19 @@ struct PlayerProfileContentView: View {
                     .padding(.bottom, 100)
                 }
             }
-            .task { await viewModel.fetchAllData() } // Fetch all data on appear
+            .task {
+                await viewModel.fetchAllData()
+                
+                // Start listening to notifications
+                if isCurrentUser, let userId = Auth.auth().currentUser?.uid {
+                    NotificationService.shared.startListening(for: userId)
+                }
+            }
+            .onDisappear {
+                if isCurrentUser {
+                    NotificationService.shared.stopListening()
+                }
+            }
             .onChange(of: viewModel.userProfile.position) { _, _ in
                 // If the user's position changes (in EditProfile), recalculate the score
                 Task {
@@ -342,6 +354,10 @@ struct PlayerProfileContentView: View {
             // MARK: - Sheets & Full Screen Covers
             .fullScreenCover(isPresented: $goToSettings) {
                 NavigationStack { SettingsView(userProfile: viewModel.userProfile) }
+            }
+            .fullScreenCover(isPresented: $showNotificationsList) {
+                NotificationsView()
+                    .environmentObject(session)
             }
             .fullScreenCover(isPresented: $showNotificationsList) {
                 ProfileNotificationsListView()

@@ -53,7 +53,7 @@ struct SettingsView: View {
                        }
                    
                    NavigationLink {
-                       NotificationsView()
+                       NotificationSettingsView()
                    } label: {
                        settingsRow(icon: "bell", title: "Notifications",
                                    iconColor: primary, showChevron: true, showDivider: true)

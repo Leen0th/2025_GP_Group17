@@ -40,16 +40,30 @@ struct AppChallenge: Identifiable, Hashable {
     let startAt: Date
     let endAt: Date
 
+    // ✨ NEW: 3 states instead of 2
+    var isUpcoming: Bool { Date() < startAt }
+    var isCurrent: Bool { Date() >= startAt && Date() < endAt }
     var isPast: Bool { Date() >= endAt }
     
-    // ✅ Changed from "New" to "Current"
-    var statusText: String { isPast ? "Past" : "Current" }
+    var statusText: String {
+        if isUpcoming { return "Upcoming" }
+        if isCurrent { return "Current" }
+        return "Past"
+    }
+    
+    var statusColor: Color {
+        if isUpcoming { return .orange }
+        if isCurrent { return BrandColors.darkTeal }
+        return .gray
+    }
 
     var dateText: String {
-        if isPast {
+        if isUpcoming {
+            return "Starts on \(startAt.formatted(date: .abbreviated, time: .omitted))"
+        } else if isPast {
             return "Ended on \(endAt.formatted(date: .abbreviated, time: .omitted))"
         } else {
-            return "End by \(endAt.formatted(date: .abbreviated, time: .omitted))"
+            return "Ends on \(endAt.formatted(date: .abbreviated, time: .omitted))"
         }
     }
 }
@@ -677,7 +691,8 @@ private struct ChallengeSearchFilterBar: View {
 
 private enum ChallengeStatusFilter: String, CaseIterable, Identifiable {
     case all = "All"
-    case current = "Current"  // ✅ Changed from "new" to "current"
+    case upcoming = "Upcoming"  // ✨ NEW
+    case current = "Current"
     case past = "Past"
     var id: String { rawValue }
 }
@@ -988,12 +1003,17 @@ struct ChallengeView: View {
             // search by title
             let searchOK = q.isEmpty || ch.title.lowercased().contains(q)
 
-            // status
+            // ✨ NEW: status with 3 states
             let statusOK: Bool = {
                 switch statusFilter {
-                case .all: return true
-                case .current: return !ch.isPast
-                case .past: return ch.isPast
+                case .all:
+                    return true
+                case .upcoming:
+                    return ch.isUpcoming
+                case .current:
+                    return ch.isCurrent
+                case .past:
+                    return ch.isPast
                 }
             }()
 
@@ -1007,17 +1027,24 @@ struct ChallengeView: View {
             return searchOK && statusOK && yearOK && monthOK
         }
         
-        // ✅ Sort: Current challenges first (newest first), then Past challenges (newest first)
+        // ✨ NEW: Sort: Upcoming → Current → Past
         return filtered.sorted { first, second in
-            let firstIsPast = (first.endAt) < now
-            let secondIsPast = (second.endAt) < now
+            let firstIsUpcoming = first.isUpcoming
+            let firstIsCurrent = first.isCurrent
+            let secondIsUpcoming = second.isUpcoming
+            let secondIsCurrent = second.isCurrent
             
-            // Current challenges come before Past
-            if firstIsPast != secondIsPast {
-                return !firstIsPast // Current (false) before Past (true)
+            // Upcoming comes first
+            if firstIsUpcoming != secondIsUpcoming {
+                return firstIsUpcoming
             }
             
-            // Within same category, newest first (by startAt)
+            // Then Current
+            if firstIsCurrent != secondIsCurrent {
+                return firstIsCurrent
+            }
+            
+            // Within same category, newest first
             return first.startAt > second.startAt
         }
     }
@@ -1136,12 +1163,18 @@ struct NewChallengePage: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 18) {
-                    Text("Current Challenge")  // ✅ Changed from "New Challenge"
+                    Text(challenge.isCurrent ? "Current Challenge" : "Upcoming Challenge")
                         .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .foregroundColor(accent)
                         .padding(.top, 8)
 
-                    let canShowUpload = (!session.isGuest && roleResolver.isPlayer && !roleResolver.isCoach)
+                    // ✨ NEW: Only show upload if challenge is Current AND user is player
+                    let canShowUpload = (
+                        !session.isGuest &&
+                        roleResolver.isPlayer &&
+                        !roleResolver.isCoach &&
+                        challenge.isCurrent  // ✨ Must be Current, not Upcoming
+                    )
 
                     ChallengeInfoCard(
                         challenge: challenge,
@@ -1485,9 +1518,32 @@ private struct ChallengeInfoCard: View {
                 }
                 .padding(.top, 2)
 
-                if showUploadButton, let onUploadTap {
-                    HStack {
-                        Spacer()
+                // ✨ Show upload button OR upcoming message
+                HStack {
+                    Spacer()
+                    
+                    if challenge.isUpcoming {
+                        // Show "Coming Soon" message for Upcoming
+                        VStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("Coming Soon")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(Color.orange)
+                            .clipShape(Capsule())
+                            
+                            Text("Upload will be available when challenge starts")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    } else if showUploadButton, let onUploadTap {
+                        // Show upload button for Current
                         Button {
                             onUploadTap()
                         } label: {
@@ -1507,10 +1563,11 @@ private struct ChallengeInfoCard: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(uploading)
-                        Spacer()
                     }
-                    .padding(.top, 10)
+                    
+                    Spacer()
                 }
+                .padding(.top, 10)
             }
             .padding(16)
         }

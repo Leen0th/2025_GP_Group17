@@ -16,14 +16,18 @@ struct Haddaf_v1App: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    // ✨ نقل الكود هنا بعد ما Firebase يبدأ
+                    ClientNotificationScheduler.shared.startPeriodicChecks()
+                }
         }
     }
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
-  func application(_ application: UIApplication,
-                   didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
-    FirebaseApp.configure()
-    return true
-  }
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        FirebaseApp.configure()
+        return true
+    }
 }
