@@ -160,6 +160,17 @@ struct CoachRequestItem: Identifiable {
     let submittedAt: Date?
     let verificationFile: String
     let rejectionReason: String?
+    let rejectionCategory: String?
+    let previousRequests: [PreviousRequest]
+}
+
+struct PreviousRequest: Identifiable {
+    let id: String
+    let submittedAt: Date?
+    let reviewedAt: Date?
+    let status: String
+    let rejectionReason: String?
+    let rejectionCategory: String?
 }
 
 struct AdminCoachesApprovalView: View {
@@ -174,6 +185,7 @@ struct AdminCoachesApprovalView: View {
     @State private var selectedCoachForRejection: CoachRequestItem? = nil
     @State private var rejectionReason = ""
     @State private var isRejecting = false
+    @State private var expandedHistoryIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -267,10 +279,10 @@ struct AdminCoachesApprovalView: View {
                         rejectionReason = ""
                         selectedCoachForRejection = nil
                     },
-                    onConfirm: {
+                    onConfirm: { category, reason in
                         if let coach = selectedCoachForRejection {
                             Task {
-                                await rejectWithReason(uid: coach.uid, requestId: coach.id, reason: rejectionReason)
+                                await rejectWithReason(uid: coach.uid, requestId: coach.id, category: category, reason: reason)
                             }
                         }
                     }
@@ -306,13 +318,96 @@ struct AdminCoachesApprovalView: View {
 
     private func coachCard(_ item: CoachRequestItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(item.fullName.isEmpty ? "Coach" : item.fullName)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(primary)
-
-            Text(item.email)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(.secondary)
+            // Clickable Name
+            NavigationLink {
+                CoachProfileContentView(
+                    userID: item.uid,
+                    isAdminViewing: true,
+                    onAdminApprove: {
+                        Task { await approve(uid: item.uid, requestId: item.id) }
+                    },
+                    onAdminReject: {
+                        selectedCoachForRejection = item
+                        showRejectionSheet = true
+                    }
+                )
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.fullName.isEmpty ? "Coach" : item.fullName)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                    
+                    Text(item.email)
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            // Previous Requests History
+            if !item.previousRequests.isEmpty {
+                Button {
+                    if expandedHistoryIDs.contains(item.id) {
+                        expandedHistoryIDs.remove(item.id)
+                    } else {
+                        expandedHistoryIDs.insert(item.id)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: expandedHistoryIDs.contains(item.id) ? "chevron.up.circle.fill" : "clock.arrow.circlepath")
+                            .font(.system(size: 16))
+                            .foregroundColor(.orange)
+                        
+                        Text(expandedHistoryIDs.contains(item.id) ? "Hide Request History" : "View Request History (\(item.previousRequests.count))")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.orange)
+                        
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+                
+                if expandedHistoryIDs.contains(item.id) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(item.previousRequests) { prev in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Previous Request")
+                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text(prev.status.capitalized)
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                        .foregroundColor(prev.status == "rejected" ? .red : .green)
+                                }
+                                
+                                if let date = prev.submittedAt {
+                                    Text("Submitted: \(formatDate(date))")
+                                        .font(.system(size: 11, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                if let reason = prev.rejectionReason, !reason.isEmpty {
+                                    Text("Reason: \(reason)")
+                                        .font(.system(size: 12, design: .rounded))
+                                        .foregroundColor(.primary)
+                                        .padding(8)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.red.opacity(0.1))
+                                        )
+                                }
+                            }
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color(UIColor.systemGray6))
+                            )
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
 
             if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
                 Link(destination: url) {
@@ -326,32 +421,7 @@ struct AdminCoachesApprovalView: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    Task { await approve(uid: item.uid, requestId: item.id) }
-                } label: {
-                    Text("Approve")
-                        .foregroundColor(.white)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(primary)
-                        .clipShape(Capsule())
-                }
-
-                Button {
-                    selectedCoachForRejection = item
-                    showRejectionSheet = true
-                } label: {
-                    Text("Reject")
-                        .foregroundColor(.red)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(Color(UIColor.systemGray6))
-                        .clipShape(Capsule())
-                }
-            }
+            coachApprovalButtons(item: item)
         }
         .padding(16)
         .background(
@@ -359,6 +429,45 @@ struct AdminCoachesApprovalView: View {
                 .fill(BrandColors.background)
                 .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
         )
+    }
+    
+    private func coachApprovalButtons(item: CoachRequestItem) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await approve(uid: item.uid, requestId: item.id) }
+            } label: {
+                Text("Approve")
+                    .foregroundColor(.white)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(primary)
+                    .clipShape(Capsule())
+            }
+
+            Button {
+                selectedCoachForRejection = item
+                showRejectionSheet = true
+            } label: {
+                Text("Reject")
+                    .foregroundColor(.red)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(UIColor.systemGray6))
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(BrandColors.background)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     private func loadPending() async {
@@ -370,20 +479,50 @@ struct AdminCoachesApprovalView: View {
                 .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
-            pending = snap.documents.map { d in
+            // Fetch all requests for each coach to build history
+            var items: [CoachRequestItem] = []
+            
+            for d in snap.documents {
                 let data = d.data()
+                let uid = data["uid"] as? String ?? ""
                 let ts = data["submittedAt"] as? Timestamp
-                return CoachRequestItem(
+                
+                // Fetch previous requests for this coach
+                let historySnap = try await Firestore.firestore().collection("coachRequests")
+                    .whereField("uid", isEqualTo: uid)
+                    .whereField("status", in: ["rejected", "approved"])
+                    .order(by: "submittedAt", descending: true)
+                    .getDocuments()
+                
+                let previousRequests = historySnap.documents.map { prevDoc -> PreviousRequest in
+                    let prevData = prevDoc.data()
+                    return PreviousRequest(
+                        id: prevDoc.documentID,
+                        submittedAt: (prevData["submittedAt"] as? Timestamp)?.dateValue(),
+                        reviewedAt: (prevData["reviewedAt"] as? Timestamp)?.dateValue(),
+                        status: prevData["status"] as? String ?? "",
+                        rejectionReason: prevData["rejectionReason"] as? String,
+                        rejectionCategory: prevData["rejectionCategory"] as? String
+                    )
+                }
+
+                let item = CoachRequestItem(
                     id: d.documentID,
-                    uid: data["uid"] as? String ?? "",
+                    uid: uid,
                     fullName: data["fullName"] as? String ?? "",
                     email: data["email"] as? String ?? "",
                     status: data["status"] as? String ?? "pending",
                     submittedAt: ts?.dateValue(),
                     verificationFile: data["verificationFile"] as? String ?? "",
-                    rejectionReason: data["rejectionReason"] as? String
+                    rejectionReason: data["rejectionReason"] as? String,
+                    rejectionCategory: data["rejectionCategory"] as? String,
+                    previousRequests: previousRequests
                 )
+                
+                items.append(item)
             }
+            
+            pending = items
             loading = false
         } catch {
             loading = false
@@ -416,7 +555,7 @@ struct AdminCoachesApprovalView: View {
         }
     }
 
-    private func rejectWithReason(uid: String, requestId: String, reason: String) async {
+    private func rejectWithReason(uid: String, requestId: String, category: String, reason: String) async {
         errorText = nil
         isRejecting = true
         
@@ -427,6 +566,7 @@ struct AdminCoachesApprovalView: View {
             let reqRef = db.collection("coachRequests").document(requestId)
             batch.updateData([
                 "status": "rejected",
+                "rejectionCategory": category,
                 "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 "reviewedAt": FieldValue.serverTimestamp()
             ], forDocument: reqRef)
@@ -434,6 +574,7 @@ struct AdminCoachesApprovalView: View {
             let userRef = db.collection("users").document(uid)
             batch.updateData([
                 "coachStatus": "rejected",
+                "rejectionCategory": category,
                 "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines)
             ], forDocument: userRef)
 
@@ -463,6 +604,7 @@ struct AdminCoachesApprovalView: View {
 struct UserRowItem: Identifiable {
     let id: String
     let email: String
+    let name: String
     let role: String
     let isActive: Bool
     let createdAt: Date?
@@ -477,6 +619,13 @@ struct AdminManageAccountsView: View {
     @State private var search = ""
     @State private var selectedRole: String = "coach" // "coach" or "player"
     @State private var sortByNew = true // true = newest first, false = oldest first
+    @State private var filterStatus: String = "all" // "all", "active", "inactive"
+    
+    @State private var showConfirmDialog = false
+    @State private var pendingAction: (() -> Void)?
+    @State private var confirmMessage = ""
+    @State private var confirmTitle = ""
+    @State private var isDestructive = false
     
     var body: some View {
         NavigationStack {
@@ -484,6 +633,8 @@ struct AdminManageAccountsView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 12) {
+                    searchBox
+
                     
                     // Role Tabs
                     HStack(spacing: 0) {
@@ -531,9 +682,7 @@ struct AdminManageAccountsView: View {
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 10)
-                    
-                    searchBox
-                    
+                                        
                     if loading {
                         ProgressView().tint(primary)
                     } else if let errorText {
@@ -563,22 +712,110 @@ struct AdminManageAccountsView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { Task { await loadUsers() } }
+            .overlay {
+                if showConfirmDialog {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                    
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer()
+                            VStack(spacing: 20) {
+                                Text(confirmTitle)
+                                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.center)
+                                
+                                Text(confirmMessage)
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 24)
+                                
+                                HStack(spacing: 16) {
+                                    Button("Cancel") {
+                                        withAnimation { showConfirmDialog = false }
+                                        pendingAction = nil
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(BrandColors.darkGray)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(BrandColors.lightGray)
+                                    .cornerRadius(12)
+                                    
+                                    Button("Confirm") {
+                                        withAnimation { showConfirmDialog = false }
+                                        pendingAction?()
+                                        pendingAction = nil
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(isDestructive ? Color.red : primary)
+                                    .cornerRadius(12)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
+                            .frame(width: 320)
+                            .background(BrandColors.background)
+                            .cornerRadius(20)
+                            .shadow(radius: 12)
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
+                    .transition(.scale)
+                }
+            }
+            .animation(.easeInOut, value: showConfirmDialog)
         }
     }
     
     private var searchBox: some View {
         HStack {
-            Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-            TextField("Search by name or email...", text: $search)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Search by name or email...", text: $search)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+            )
+            
+            // Status Filter Icon
+            Menu {
+                Button {
+                    filterStatus = "all"
+                } label: {
+                    Label("All Accounts", systemImage: filterStatus == "all" ? "checkmark" : "")
+                }
+                
+                Button {
+                    filterStatus = "active"
+                } label: {
+                    Label("Active Only", systemImage: filterStatus == "active" ? "checkmark" : "")
+                }
+                
+                Button {
+                    filterStatus = "inactive"
+                } label: {
+                    Label("Inactive Only", systemImage: filterStatus == "inactive" ? "checkmark" : "")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 22))
+                    .foregroundColor(primary)
+                    .padding(8)
+            }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(BrandColors.background)
-                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
-        )
         .padding(.horizontal, 18)
     }
     
@@ -588,12 +825,22 @@ struct AdminManageAccountsView: View {
         // Filter by role first
         let roleFiltered = users.filter { $0.role.lowercased() == selectedRole.lowercased() }
         
+        // Filter by status
+        let statusFiltered: [UserRowItem]
+        if filterStatus == "all" {
+            statusFiltered = roleFiltered
+        } else if filterStatus == "active" {
+            statusFiltered = roleFiltered.filter { $0.isActive }
+        } else {
+            statusFiltered = roleFiltered.filter { !$0.isActive }
+        }
+        
         // Then filter by search
         let searchFiltered: [UserRowItem]
         if s.isEmpty {
-            searchFiltered = roleFiltered
+            searchFiltered = statusFiltered
         } else {
-            searchFiltered = roleFiltered.filter {
+            searchFiltered = statusFiltered.filter {
                 $0.email.lowercased().contains(s) || $0.role.lowercased().contains(s)
             }
         }
@@ -621,24 +868,40 @@ struct AdminManageAccountsView: View {
     }
     
     private func accountCardContent(_ u: UserRowItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(u.email.isEmpty ? u.id : u.email)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(primary)
-            
-            HStack {
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                NavigationLink {
+                    if u.role.lowercased() == "coach" {
+                        CoachProfileContentView(userID: u.id)
+                    } else {
+                        PlayerProfileContentView(userID: u.id)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(u.name)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
+                            .padding(.trailing, 70)
+                        
+                        Text(u.email)
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Text("Role: \(u.role)")
                     .font(.system(size: 13, design: .rounded))
                     .foregroundColor(.secondary)
-                Spacer()
-                Text(u.isActive ? "Active" : "Deactivated")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(u.isActive ? .green : .red)
-            }
-            
+
             HStack(spacing: 10) {
                 Button {
-                    Task { await setActive(uid: u.id, active: true) }
+                    confirmTitle = "Activate Account?"
+                    confirmMessage = "Are you sure you want to activate this account? The user will regain full access."
+                    isDestructive = false
+                    pendingAction = {
+                        Task { await setActive(uid: u.id, active: true) }
+                    }
+                    showConfirmDialog = true
                 } label: {
                     Text("Activate")
                         .foregroundColor(.white)
@@ -651,7 +914,13 @@ struct AdminManageAccountsView: View {
                 .disabled(u.isActive)
                 
                 Button {
-                    Task { await setActive(uid: u.id, active: false) }
+                    confirmTitle = "Deactivate Account?"
+                    confirmMessage = "Are you sure you want to deactivate this account? The user will lose access to their account."
+                    isDestructive = true
+                    pendingAction = {
+                        Task { await setActive(uid: u.id, active: false) }
+                    }
+                    showConfirmDialog = true
                 } label: {
                     Text("Deactivate")
                         .foregroundColor(.red)
@@ -665,6 +934,17 @@ struct AdminManageAccountsView: View {
             }
         }
         .padding(16)
+        
+            // Status Badge - Top Right
+            Text(u.isActive ? "Active" : "Inactive")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(u.isActive ? Color.green : Color.red)
+                .clipShape(Capsule())
+                .padding([.top, .trailing], 12)
+        }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(BrandColors.background)
@@ -684,9 +964,13 @@ struct AdminManageAccountsView: View {
             users = snap.documents.map { d in
                 let data = d.data()
                 let createdAtTimestamp = data["createdAt"] as? Timestamp
+                let firstName = data["firstName"] as? String ?? ""
+                let lastName = data["lastName"] as? String ?? ""
+                let fullName = [firstName, lastName].joined(separator: " ").trimmingCharacters(in: .whitespaces)
                 return UserRowItem(
                     id: d.documentID,
                     email: data["email"] as? String ?? "",
+                    name: fullName.isEmpty ? "User" : fullName,
                     role: data["role"] as? String ?? "player",
                     isActive: data["isActive"] as? Bool ?? true,
                     createdAt: createdAtTimestamp?.dateValue()
@@ -2641,6 +2925,7 @@ struct AdminProfileView: View {
     @State private var adminEmail: String = ""
     @State private var adminName: String = ""
     @State private var showNotifications = false
+    @State private var showEditProfile = false
     
     private var currentEmail: String {
         Auth.auth().currentUser?.email ?? "No email"
@@ -2674,13 +2959,14 @@ struct AdminProfileView: View {
                     // Settings List
                     VStack(spacing: 0) {
                         NavigationLink {
+                            AdminEditProfileView(adminName: adminName, adminEmail: adminEmail)
+                        } label: {
+                            settingsRow(icon: "person.circle", title: "Edit Profile",
+                                        iconColor: primary, showChevron: true, showDivider: true)
+                        }
+                        
+                        NavigationLink {
                             AdminChangeEmailView()
-                            .onDisappear {
-                                // Refresh when we come back
-                                if let user = Auth.auth().currentUser {
-                                    adminEmail = user.email ?? ""
-                                }
-                            }
                         } label: {
                             settingsRow(icon: "envelope", title: "Change Email",
                                         iconColor: primary, showChevron: true, showDivider: true)
@@ -2786,7 +3072,7 @@ struct AdminProfileView: View {
                         showNotifications = true
                     } label: {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell.fill")
+                            Image(systemName: "bell")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundColor(primary)
                             
@@ -3409,7 +3695,8 @@ struct RejectionReasonSheet: View {
     @Binding var rejectionReason: String
     @Binding var isRejecting: Bool
     var onCancel: () -> Void
-    var onConfirm: () -> Void
+    var onConfirm: (String, String) -> Void
+    @State private var rejectionCategory: String = "other"
     
     private let primary = BrandColors.darkTeal
     private let charLimit = 500
@@ -3433,12 +3720,101 @@ struct RejectionReasonSheet: View {
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(primary)
                 
-                Text("Please provide a reason for rejecting \(coachName)'s application.")
-                    .font(.system(size: 14, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                HStack(spacing: 4) {
+                    Text("Please provide a reason")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text("for rejecting \(coachName)'s application.")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text("*")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(.red)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
             }
+            
+            // Category Selection
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    Text("Category")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text("*")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(.red)
+                }
+                
+                Menu {
+                    Button {
+                        rejectionCategory = "insufficient_docs"
+                    } label: {
+                        HStack {
+                            Text("Insufficient Documentation")
+                            Spacer()
+                            if rejectionCategory == "insufficient_docs" {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    
+                    Button {
+                        rejectionCategory = "invalid_credentials"
+                    } label: {
+                        HStack {
+                            Text("Invalid Credentials")
+                            Spacer()
+                            if rejectionCategory == "invalid_credentials" {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    
+                    Button {
+                        rejectionCategory = "policy_violation"
+                    } label: {
+                        HStack {
+                            Text("Policy Violation")
+                            Spacer()
+                            if rejectionCategory == "policy_violation" {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    
+                    Button {
+                        rejectionCategory = "other"
+                    } label: {
+                        HStack {
+                            Text("Other")
+                            Spacer()
+                            if rejectionCategory == "other" {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(categoryDisplayName)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(primary)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                    )
+                }
+            }
+            .padding(.horizontal)
             
             // Text Editor
             VStack(alignment: .trailing, spacing: 4) {
@@ -3486,7 +3862,9 @@ struct RejectionReasonSheet: View {
                         .clipShape(Capsule())
                 }
                 
-                Button(action: onConfirm) {
+                Button(action: {
+                    onConfirm(rejectionCategory, rejectionReason)
+                }) {
                     HStack {
                         Text("Reject")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -3510,5 +3888,251 @@ struct RejectionReasonSheet: View {
         }
         .padding(.vertical, 10)
         .background(BrandColors.background)
+    }
+    
+    private var categoryDisplayName: String {
+        switch rejectionCategory {
+        case "insufficient_docs":
+            return "Insufficient Documentation"
+        case "invalid_credentials":
+            return "Invalid Credentials"
+        case "policy_violation":
+            return "Policy Violation"
+        default:
+            return "Other"
+        }
+    }
+    
+}
+
+// =======================================================
+// MARK: - Admin Edit Profile View
+// =======================================================
+
+struct AdminEditProfileView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let adminEmail: String
+    private let primary = BrandColors.darkTeal
+    private let db = Firestore.firestore()
+    
+    @State private var name: String
+    @State private var profileImage: UIImage?
+    @State private var originalProfileImage: UIImage?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    
+    @State private var isSaving = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var alertIsError = false
+    
+    init(adminName: String, adminEmail: String) {
+        self.adminEmail = adminEmail
+        _name = State(initialValue: adminName)
+    }
+    
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header
+                    Text("Edit Profile")
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
+                        .foregroundColor(primary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 8)
+                    
+                    // Profile Picture Section
+                    VStack {
+                        Image(uiImage: profileImage ?? UIImage(systemName: "person.circle.fill")!)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 100, height: 100)
+                            .clipShape(Circle())
+                            .foregroundColor(.gray.opacity(0.5))
+                        
+                        HStack(spacing: 20) {
+                            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                                Text("Change Picture")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(primary)
+                            }
+                            
+                            if profileImage != nil {
+                                Button(role: .destructive) {
+                                    withAnimation {
+                                        self.profileImage = nil
+                                        self.selectedPhotoItem = nil
+                                    }
+                                } label: {
+                                    Text("Remove Picture")
+                                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 10)
+                    
+                    // Name Field
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("Name")
+                        
+                        roundedField {
+                            TextField("", text: $name)
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(primary)
+                                .tint(primary)
+                                .textInputAutocapitalization(.words)
+                        }
+                    }
+                    
+                    // Save Button
+                    Button {
+                        Task { await saveProfile() }
+                    } label: {
+                        HStack {
+                            Text("Save Changes")
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                                .foregroundColor(.white)
+                            if isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(primary)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(isSaving || name.isEmpty)
+                    .opacity((isSaving || name.isEmpty) ? 0.5 : 1.0)
+                    .padding(.top, 20)
+                    
+                    Spacer(minLength: 24)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(alertIsError ? "Error" : "Success", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {
+                if !alertIsError { dismiss() }
+            }
+        } message: {
+            Text(alertMessage)
+        }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            Task {
+                if let data = try? await newItem?.loadTransferable(type: Data.self),
+                   let newImage = UIImage(data: data) {
+                    await MainActor.run {
+                        self.profileImage = newImage
+                    }
+                }
+            }
+        }
+        .task {
+            await loadCurrentProfile()
+        }
+    }
+    
+    private func loadCurrentProfile() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        
+        do {
+            let doc = try await db.collection("users").document(uid).getDocument()
+            if let data = doc.data() {
+                if let urlString = data["profilePic"] as? String, !urlString.isEmpty, let url = URL(string: urlString) {
+                    let (imageData, _) = try await URLSession.shared.data(from: url)
+                    if let image = UIImage(data: imageData) {
+                        await MainActor.run {
+                            self.profileImage = image
+                            self.originalProfileImage = image
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Error loading profile: \(error)")
+        }
+    }
+    
+    private func saveProfile() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        isSaving = true
+        
+        do {
+            var updates: [String: Any] = [:]
+            
+            // Update display name in Auth
+            if let user = Auth.auth().currentUser {
+                let changeRequest = user.createProfileChangeRequest()
+                changeRequest.displayName = name
+                try await changeRequest.commitChanges()
+            }
+            
+            // Update name in Firestore
+            let parts = name.split(separator: " ").map(String.init)
+            updates["firstName"] = parts.first ?? name
+            updates["lastName"] = parts.count > 1 ? parts[1...].joined(separator: " ") : ""
+            
+            // Handle profile picture (same logic as EditCoachProfileView)
+            let oldImage = originalProfileImage
+            if let newImage = profileImage, newImage != oldImage {
+                // New image selected or image changed
+                if let imageData = newImage.jpegData(compressionQuality: 0.8) {
+                    let fileName = "\(UUID().uuidString).jpg"
+                    let ref = Storage.storage().reference().child("profile/\(uid)/\(fileName)")
+                    
+                    let metadata = StorageMetadata()
+                    metadata.contentType = "image/jpeg"
+                    
+                    _ = try await ref.putDataAsync(imageData, metadata: metadata)
+                    let url = try await ref.downloadURL()
+                    updates["profilePic"] = url.absoluteString
+                }
+            } else if profileImage == nil, oldImage != nil {
+                // Image was removed
+                updates["profilePic"] = ""
+            }
+            
+            updates["updatedAt"] = FieldValue.serverTimestamp()
+            
+            try await db.collection("users").document(uid).setData(updates, merge: true)
+            
+            await MainActor.run {
+                isSaving = false
+                alertMessage = "Profile updated successfully!"
+                alertIsError = false
+                showAlert = true
+            }
+        } catch {
+            await MainActor.run {
+                isSaving = false
+                alertMessage = "Failed to update profile: \(error.localizedDescription)"
+                alertIsError = true
+                showAlert = true
+            }
+        }
+    }
+    
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title).font(.system(size: 14, design: .rounded)).foregroundColor(.gray)
+    }
+    
+    private func roundedField<Content: View>(@ViewBuilder c: () -> Content) -> some View {
+        c()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+            )
     }
 }

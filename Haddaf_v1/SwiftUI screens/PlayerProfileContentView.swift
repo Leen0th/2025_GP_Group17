@@ -195,7 +195,8 @@ struct PlayerProfileContentView: View {
                                 }
                             },
                             reportService: reportService,
-                            reportedID: viewModel.userProfile.email
+                            reportedID: viewModel.userProfile.email,
+                            isAdminViewing: false
                         )
                         ProfileHeaderView(userProfile: viewModel.userProfile)
                             .padding(.bottom, 0)
@@ -610,6 +611,7 @@ struct TopNavigationBar: View {
 
     @ObservedObject var reportService: ReportStateService
     var reportedID: String
+    var isAdminViewing: Bool
 
     var body: some View {
         HStack(spacing: 16) {
@@ -651,7 +653,7 @@ struct TopNavigationBar: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
                 
-            } else {
+            } else if !isAdminViewing{
                 // It's another user. (!isRootProfileView is true)
                 // Show the "Report" button insted
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)

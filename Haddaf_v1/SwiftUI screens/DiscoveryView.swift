@@ -218,25 +218,34 @@ struct DiscoveryView: View {
         VStack(spacing: 0) {
             if session.role == "coach" {
                 if session.coachStatus == "rejected" {
-                    // MARK: - Rejection Banner
-                    VStack(spacing: 6) {
-                        Text("Application Rejected: \(session.rejectionReason ?? "Reason unspecified")")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                        
-                        Button {
-                            showReapplySheet = true
-                        } label: {
-                            Text("Tap here to upload document and reapply")
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                    if let rejectionReason = session.rejectionReason, !rejectionReason.isEmpty {
+                        CoachRejectionStatusView(
+                            rejectionReason: rejectionReason,
+                            rejectionCategory: session.rejectionCategory,
+                            onReapply: { showReapplySheet = true }
+                        )
+                        .padding(.top, 20)
+                    } else {
+                        // Fallback if no reason is provided
+                        VStack(spacing: 6) {
+                            Text("Application Rejected: Reason unspecified")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
-                                .underline()
+                                .multilineTextAlignment(.center)
+                            
+                            Button {
+                                showReapplySheet = true
+                            } label: {
+                                Text("Tap here to upload document and reapply")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .underline()
+                            }
                         }
+                        .padding(8)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.85))
                     }
-                    .padding(8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.red.opacity(0.85)) // Use Red to indicate rejection, but same style
                 } else if !session.isVerifiedCoach {
                     // MARK: - Under Review Banner
                     Text("Your coaching profile is under review (It usually takes 1–2 business days to verify). Social features will be unlocked once approved!")
@@ -1135,5 +1144,131 @@ struct ReapplyCoachSheet: View {
                 errorMessage = "Upload failed: \(error.localizedDescription)"
             }
         }
+    }
+}
+
+// =======================================================
+// MARK: - Coach Rejection Status View
+// =======================================================
+
+struct CoachRejectionStatusView: View {
+    let rejectionReason: String
+    let rejectionCategory: String?
+    var onReapply: () -> Void
+    
+    private let primary = BrandColors.darkTeal
+    
+    @State private var isExpanded = false
+    
+    private var categoryMessage: String {
+        switch rejectionCategory {
+        case "insufficient_docs":
+            return "Insufficient Document"
+        case "invalid_credentials":
+            return "Invalid Credential"
+        case "policy_violation":
+            return "Policy Violation"
+        default:
+            return "Application Rejected"
+        }
+    }
+    
+    private var showReuploadButton: Bool {
+        rejectionCategory == "insufficient_docs"
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header Section
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(.orange)
+                
+                Text(categoryMessage)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 8)
+            
+            // Admin Comments Section
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "bubble.left.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.orange)
+                    Text("Rejection Reason")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.orange)
+                    Spacer()
+                }
+                
+                Text(rejectionReason)
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                    .lineLimit(isExpanded ? nil : 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                if rejectionReason.count > 100 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(isExpanded ? "Show Less" : "Read More")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                                .font(.system(size: 14))
+                        }
+                        .foregroundColor(primary)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.orange.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                    )
+            )
+            
+            // Action Button
+            if showReuploadButton {
+                Button(action: onReapply) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.up.doc.fill")
+                            .font(.system(size: 16))
+                        Text("Re-upload Documents")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(primary)
+                    .clipShape(Capsule())
+                }
+            }
+            
+            // Help Text
+            Text(showReuploadButton ? "Upload new document to resubmit your application." : "Contact Support@Haddaf.com if you believe this decision was incorrect.")
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(BrandColors.background)
+                .shadow(color: .black.opacity(0.1), radius: 15, y: 8)
+        )
+        .padding(.horizontal, 16)
     }
 }

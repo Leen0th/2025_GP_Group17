@@ -17,6 +17,7 @@ final class AppSession: ObservableObject {
     @Published var coachStatus: String? = nil
     @Published var isVerifiedCoach: Bool = false
     @Published var rejectionReason: String? = nil
+    @Published var rejectionCategory: String? = nil
     
     var userListener: ListenerRegistration?
     
@@ -54,11 +55,13 @@ final class AppSession: ObservableObject {
                 let r = data["role"] as? String ?? "player"
                 let status = data["coachStatus"] as? String ?? "pending"
                 let reason = data["rejectionReason"] as? String
+                let category = data["rejectionCategory"] as? String
                 
                 DispatchQueue.main.async {
                     self.role = r
                     self.coachStatus = status
                     self.rejectionReason = reason
+                    self.rejectionCategory = category
                     self.isVerifiedCoach = (r == "coach" && status == "approved")
                 }
             }

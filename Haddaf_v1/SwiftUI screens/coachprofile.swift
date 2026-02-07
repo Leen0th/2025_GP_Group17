@@ -94,6 +94,10 @@ struct CoachProfileContentView: View {
     private var isCurrentUser: Bool
     private var isRootProfileView: Bool = true // Adjust if needed
 
+    var isAdminViewing: Bool
+    var onAdminApprove: (() -> Void)?
+    var onAdminReject: (() -> Void)?
+
     enum ContentType: String, CaseIterable {
         case currentTeam = "Current Team"
         case matchSchedule = "Match Schedule"
@@ -102,12 +106,18 @@ struct CoachProfileContentView: View {
     init() {
         _viewModel = StateObject(wrappedValue: CoachProfileViewModel(userID: nil))
         self.isCurrentUser = true
+        self.isAdminViewing = false
+        self.onAdminApprove = nil
+        self.onAdminReject = nil
     }
 
-    init(userID: String) {
+    init(userID: String, isAdminViewing: Bool = false, onAdminApprove: (() -> Void)? = nil, onAdminReject: (() -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: CoachProfileViewModel(userID: userID))
         self.isCurrentUser = (userID == Auth.auth().currentUser?.uid)
         self.isRootProfileView = false
+        self.isAdminViewing = isAdminViewing
+        self.onAdminApprove = onAdminApprove
+        self.onAdminReject = onAdminReject
     }
 
     var body: some View {
@@ -128,7 +138,10 @@ struct CoachProfileContentView: View {
                             isRootProfileView: isRootProfileView,
                             onReport: {},
                             reportService: ReportStateService.shared,
-                            reportedID: viewModel.coachProfile.email
+                            reportedID: viewModel.coachProfile.email,
+                            isAdminViewing: isAdminViewing,
+                            onAdminApprove: onAdminApprove,
+                            onAdminReject: onAdminReject
                         )
                         ProfileHeaderViewCoach(coachProfile: viewModel.coachProfile)
                         InfoGridViewCoach(coachProfile: viewModel.coachProfile)
@@ -175,6 +188,9 @@ struct TopNavigationBarCoach: View {
     var onReport: () -> Void
     @ObservedObject var reportService: ReportStateService
     var reportedID: String
+    var isAdminViewing: Bool = false
+    var onAdminApprove: (() -> Void)? = nil
+    var onAdminReject: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -188,7 +204,34 @@ struct TopNavigationBarCoach: View {
                 }
             }
             Spacer()
-            if isCurrentUser {
+            if isAdminViewing {
+                // Admin viewing - show approve/reject buttons (same style as in coach cards)
+                HStack(spacing: 8) {
+                    if let onApprove = onAdminApprove {
+                        Button(action: onApprove) {
+                            Text("Approve")
+                                .foregroundColor(.white)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(BrandColors.darkTeal)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    
+                    if let onReject = onAdminReject {
+                        Button(action: onReject) {
+                            Text("Reject")
+                                .foregroundColor(.red)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(Color(UIColor.systemGray6))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            } else if isCurrentUser {
                 Button { showNotifications = true } label: {
                     Image(systemName: "bell")
                         .font(.title2)
@@ -205,7 +248,8 @@ struct TopNavigationBarCoach: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
-            } else {
+            } else if !isAdminViewing {
+                // Only show report flag if not admin
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)
                 Button(action: onReport) {
                     Image(systemName: isReported ? "flag.fill" : "flag")
