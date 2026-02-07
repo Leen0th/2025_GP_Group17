@@ -59,6 +59,8 @@ struct PlayerProfileContentView: View {
     // A boolean to track if this is the root profile (from the tab bar)
     private var isRootProfileView: Bool
     
+    var isAdminViewing: Bool
+    
     // An enum defining the filter options for the post grid (only visible to the current user)
     enum PostFilter: String, CaseIterable {
         case all = "All"
@@ -99,14 +101,16 @@ struct PlayerProfileContentView: View {
         _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: nil))
         self.isCurrentUser = true
         self.isRootProfileView = true
+        self.isAdminViewing = false
     }
-    
+
     // Initializes the view for a specific user
     // - Parameter userID: The UID of the user to display
-    init(userID: String) {
+    init(userID: String, isAdminViewing: Bool = false) {
         _viewModel = StateObject(wrappedValue: PlayerProfileViewModel(userID: userID))
         self.isCurrentUser = (userID == Auth.auth().currentUser?.uid)
         self.isRootProfileView = false
+        self.isAdminViewing = isAdminViewing
     }
 
     // Filters the posts by `searchText` and `postFilter` then sorts them based on `postSort` preferences
@@ -196,7 +200,7 @@ struct PlayerProfileContentView: View {
                             },
                             reportService: reportService,
                             reportedID: viewModel.userProfile.email,
-                            isAdminViewing: false
+                            isAdminViewing: isAdminViewing
                         )
                         ProfileHeaderView(userProfile: viewModel.userProfile)
                             .padding(.bottom, 0)
@@ -653,7 +657,7 @@ struct TopNavigationBar: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
                 
-            } else if !isAdminViewing{
+            } else if !isAdminViewing {
                 // It's another user. (!isRootProfileView is true)
                 // Show the "Report" button insted
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)

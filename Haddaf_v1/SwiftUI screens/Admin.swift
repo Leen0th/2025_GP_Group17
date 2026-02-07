@@ -857,9 +857,9 @@ struct AdminManageAccountsView: View {
     private func accountCard(_ u: UserRowItem) -> some View {
         NavigationLink {
             if u.role.lowercased() == "coach" {
-                CoachProfileContentView(userID: u.id)
+                CoachProfileContentView(userID: u.id, isAdminViewing: true, onAdminApprove: nil, onAdminReject: nil)
             } else {
-                PlayerProfileContentView(userID: u.id)
+                PlayerProfileContentView(userID: u.id, isAdminViewing: true)
             }
         } label: {
             accountCardContent(u)
@@ -872,9 +872,9 @@ struct AdminManageAccountsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 NavigationLink {
                     if u.role.lowercased() == "coach" {
-                        CoachProfileContentView(userID: u.id)
+                        CoachProfileContentView(userID: u.id, isAdminViewing: true, onAdminApprove: nil, onAdminReject: nil)
                     } else {
-                        PlayerProfileContentView(userID: u.id)
+                        PlayerProfileContentView(userID: u.id, isAdminViewing: true)
                     }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
@@ -2926,6 +2926,8 @@ struct AdminProfileView: View {
     @State private var adminName: String = ""
     @State private var showNotifications = false
     @State private var showEditProfile = false
+    @State private var refreshTrigger = false
+    @State private var profileImageURL: String?
     
     private var currentEmail: String {
         Auth.auth().currentUser?.email ?? "No email"
@@ -2940,11 +2942,18 @@ struct AdminProfileView: View {
                     
                     // Profile Header
                     VStack(spacing: 12) {
-                        Image(systemName: "person.circle.fill")
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 100, height: 100)
-                            .foregroundColor(primary.opacity(0.6))
+                        AsyncImage(url: profileImageURL.flatMap(URL.init)) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Image(systemName: "person.circle.fill")
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .foregroundColor(primary.opacity(0.6))
+                        }
+                        .frame(width: 100, height: 100)
+                        .clipShape(Circle())
                         
                         Text(adminName.isEmpty ? "Admin" : adminName)
                             .font(.system(size: 24, weight: .bold, design: .rounded))
@@ -3105,6 +3114,12 @@ struct AdminProfileView: View {
                     NotificationService.shared.startListening(for: adminId)
                 }
             }
+            .onChange(of: refreshTrigger) { _ in
+                loadAdminData()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
+                loadAdminData()
+            }
             .onDisappear {
                 NotificationService.shared.stopListening()
             }
@@ -3112,30 +3127,46 @@ struct AdminProfileView: View {
     }
     
     private func loadAdminData() {
-        if let user = Auth.auth().currentUser {
-            adminEmail = user.email ?? ""
+        Task {
+            // Reload user to get latest data from Auth
+            try? await Auth.auth().currentUser?.reload()
             
-            // Load admin name from display name or Firestore
-            if let displayName = user.displayName, !displayName.isEmpty {
-                adminName = displayName
-            } else {
-                // Try to load from Firestore
-                Task {
-                    do {
-                        let doc = try await Firestore.firestore()
-                            .collection("users")
-                            .document(user.uid)
-                            .getDocument()
-                        
-                        if let name = doc.data()?["fullName"] as? String {
-                            await MainActor.run {
-                                adminName = name
-                            }
+            guard let user = Auth.auth().currentUser else { return }
+            
+            await MainActor.run {
+                adminEmail = user.email ?? ""
+                
+                // Load admin name from display name
+                if let displayName = user.displayName, !displayName.isEmpty {
+                    adminName = displayName
+                }
+            }
+            
+            // Load additional data from Firestore
+            do {
+                let doc = try await Firestore.firestore()
+                    .collection("users")
+                    .document(user.uid)
+                    .getDocument()
+                
+                if let data = doc.data() {
+                    let firestoreName = [
+                        data["firstName"] as? String ?? "",
+                        data["lastName"] as? String ?? ""
+                    ].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                    
+                    let urlString = data["profilePic"] as? String
+                    
+                    await MainActor.run {
+                        // Use Firestore name if display name is empty
+                        if adminName.isEmpty && !firestoreName.isEmpty {
+                            adminName = firestoreName
                         }
-                    } catch {
-                        print("Error loading admin data: \(error)")
+                        profileImageURL = urlString
                     }
                 }
+            } catch {
+                print("Error loading admin profile: \(error)")
             }
         }
     }
@@ -4108,6 +4139,9 @@ struct AdminEditProfileView: View {
                 alertMessage = "Profile updated successfully!"
                 alertIsError = false
                 showAlert = true
+                
+                // Post notification to refresh admin profile
+                NotificationCenter.default.post(name: .profileUpdated, object: nil)
             }
         } catch {
             await MainActor.run {

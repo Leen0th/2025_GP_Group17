@@ -29,6 +29,8 @@ struct DiscoveryView: View {
     
     // --- for re-application ---
     @State private var showReapplySheet = false
+    
+    @State private var showRejectionDetails = false
 
     // MARK: - Filters
     @State private var filterPosition: String? = nil
@@ -219,12 +221,43 @@ struct DiscoveryView: View {
             if session.role == "coach" {
                 if session.coachStatus == "rejected" {
                     if let rejectionReason = session.rejectionReason, !rejectionReason.isEmpty {
-                        CoachRejectionStatusView(
-                            rejectionReason: rejectionReason,
-                            rejectionCategory: session.rejectionCategory,
-                            onReapply: { showReapplySheet = true }
-                        )
-                        .padding(.top, 20)
+                        VStack(spacing: 0) {
+                            // Collapsed Banner
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showRejectionDetails.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(.orange)
+                                    
+                                    Text(showRejectionDetails ? "Application Rejected - Tap to minimize" : "Application Rejected - Tap to view details")                                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                                        .foregroundColor(.white)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: showRejectionDetails ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.white)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                            }
+                            .background(Color.orange.opacity(0.9))
+                            
+                            // Expanded Details
+                            if showRejectionDetails {
+                                CoachRejectionStatusView(
+                                    rejectionReason: rejectionReason,
+                                    rejectionCategory: session.rejectionCategory,
+                                    onReapply: { showReapplySheet = true }
+                                )
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+                        }
                     } else {
                         // Fallback if no reason is provided
                         VStack(spacing: 6) {
