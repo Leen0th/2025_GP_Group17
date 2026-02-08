@@ -409,7 +409,7 @@ struct PlayerProfileContentView: View {
             // --- Open Post Detail view ---
             .fullScreenCover(item: $selectedPost) { post in
                 NavigationStack {
-                    PostDetailView(post: post, showAuthSheet: $showAuthSheet)
+                    PostDetailView(post: post, showAuthSheet: $showAuthSheet, isAdminViewing: session.isAdmin)
                         .environmentObject(session)
                 }
             }

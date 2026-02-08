@@ -82,4 +82,8 @@ final class AppSession: ObservableObject {
         // سجل خروج من Firebase
         try? Auth.auth().signOut()
     }
+    
+    var isAdmin: Bool {
+        return role == "admin"
+    }
 }

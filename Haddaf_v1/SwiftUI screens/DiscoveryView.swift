@@ -337,7 +337,7 @@ struct DiscoveryView: View {
                                 }
                             } else {
                                 // If not hidden, show the post card
-                                NavigationLink(destination: PostDetailView(post: post, showAuthSheet: $showAuthSheet)) {
+                                NavigationLink(destination: PostDetailView(post: post, showAuthSheet: $showAuthSheet, isAdminViewing: session.isAdmin)) {
                                     // get the author's profile from the cache
                                     let authorProfile = post.authorUid.flatMap { viewModel.authorProfiles[$0] } ?? UserProfile()
                                     DiscoveryPostCardView(

@@ -186,6 +186,7 @@ struct AdminCoachesApprovalView: View {
     @State private var rejectionReason = ""
     @State private var isRejecting = false
     @State private var expandedHistoryIDs: Set<String> = []
+    @State private var expandedCommentIDs: Set<String> = [] // Track which history items have expanded comments
 
     var body: some View {
         NavigationStack {
@@ -369,7 +370,8 @@ struct AdminCoachesApprovalView: View {
                 if expandedHistoryIDs.contains(item.id) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(item.previousRequests) { prev in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Header with status
                                 HStack {
                                     Text("Previous Request")
                                         .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -380,22 +382,77 @@ struct AdminCoachesApprovalView: View {
                                         .foregroundColor(prev.status == "rejected" ? .red : .green)
                                 }
                                 
+                                // Submitted date
                                 if let date = prev.submittedAt {
                                     Text("Submitted: \(formatDate(date))")
                                         .font(.system(size: 11, design: .rounded))
                                         .foregroundColor(.secondary)
                                 }
                                 
+                                // Category (if rejected)
+                                if prev.status == "rejected", let category = prev.rejectionCategory {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "tag.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.orange)
+                                        Text(categoryDisplayName(for: category))
+                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.orange)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.orange.opacity(0.15))
+                                    )
+                                }
+                                
+                                // Rejection reason with expand/collapse
                                 if let reason = prev.rejectionReason, !reason.isEmpty {
-                                    Text("Reason: \(reason)")
-                                        .font(.system(size: 12, design: .rounded))
-                                        .foregroundColor(.primary)
-                                        .padding(8)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(Color.red.opacity(0.1))
-                                        )
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("Admin's Comment:")
+                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                        
+                                        // Check if comment is long
+                                        if reason.count > 80 {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(expandedCommentIDs.contains(prev.id) ? reason : String(reason.prefix(80)) + "...")
+                                                    .font(.system(size: 12, design: .rounded))
+                                                    .foregroundColor(.primary)
+                                                    .lineLimit(expandedCommentIDs.contains(prev.id) ? nil : 2)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                                
+                                                Button {
+                                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                                        if expandedCommentIDs.contains(prev.id) {
+                                                            expandedCommentIDs.remove(prev.id)
+                                                        } else {
+                                                            expandedCommentIDs.insert(prev.id)
+                                                        }
+                                                    }
+                                                } label: {
+                                                    HStack(spacing: 4) {
+                                                        Text(expandedCommentIDs.contains(prev.id) ? "Show Less" : "Read More")
+                                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                                        Image(systemName: expandedCommentIDs.contains(prev.id) ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                                                            .font(.system(size: 11))
+                                                    }
+                                                    .foregroundColor(primary)
+                                                }
+                                            }
+                                        } else {
+                                            Text(reason)
+                                                .font(.system(size: 12, design: .rounded))
+                                                .foregroundColor(.primary)
+                                        }
+                                    }
+                                    .padding(8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.red.opacity(0.1))
+                                    )
                                 }
                             }
                             .padding(10)
@@ -468,6 +525,19 @@ struct AdminCoachesApprovalView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    private func categoryDisplayName(for category: String) -> String {
+        switch category {
+        case "insufficient_docs":
+            return "Insufficient Documentation"
+        case "invalid_credentials":
+            return "Invalid Credentials"
+        case "policy_violation":
+            return "Policy Violation"
+        default:
+            return "Other"
+        }
     }
 
     private func loadPending() async {

@@ -16,6 +16,8 @@ struct PostDetailView: View {
     // --- for auth prompt ---
     @Binding var showAuthSheet: Bool
     
+    var isAdminViewing: Bool = false
+    
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
 
@@ -208,7 +210,8 @@ struct PostDetailView: View {
                                 .padding(10)
                                 .background(Circle().fill(Color.red.opacity(0.1)))
                         }
-                    } else {
+                    } else if !isAdminViewing {
+                        // Only show report button if not admin
                         // It checks the *permanent* reported list.
                         let isReported = (post.id != nil && reportService.reportedPostIDs.contains(post.id!))
                         
@@ -232,8 +235,8 @@ struct PostDetailView: View {
                                 .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
                         }
                         .disabled(isReported)
+                    }
                 }
-            }
         }
         .padding(.bottom, 8)
     }
@@ -449,7 +452,7 @@ struct PostDetailView: View {
     private var authorInfoAndInteractions: some View {
         HStack {
             if let uid = post.authorUid, !uid.isEmpty {
-                NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
+                NavigationLink(destination: PlayerProfileContentView(userID: uid, isAdminViewing: isAdminViewing)) {
                     authorHeaderContent
                 }
                 .buttonStyle(.plain)
@@ -459,8 +462,10 @@ struct PostDetailView: View {
             
             Spacer()
             
-            // --- Like Button Action ---
-            Button {
+            // Only show like and comment buttons if not admin
+            if !isAdminViewing {
+                // --- Like Button Action ---
+                Button {
                 if session.isGuest {
                     showAuthSheet = true
                 } else {
@@ -493,10 +498,11 @@ struct PostDetailView: View {
                 .foregroundColor(BrandColors.darkGray)
             }
             .disabled(session.role == "coach" && !session.isVerifiedCoach)
-            .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
-        }
-        .foregroundColor(.primary)
-    }
+                        .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+                    } // End of if !isAdminViewing
+                }
+                .foregroundColor(.primary)
+            }
     
     // --- Helper view to display the fresh profile info ---
     @ViewBuilder
