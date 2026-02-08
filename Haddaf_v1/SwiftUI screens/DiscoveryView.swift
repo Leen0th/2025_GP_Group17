@@ -261,7 +261,7 @@ struct DiscoveryView: View {
                     } else {
                         // Fallback if no reason is provided
                         VStack(spacing: 6) {
-                            Text("Application Rejected: Reason unspecified")
+                            Text("Application Rejected")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
@@ -1197,10 +1197,6 @@ struct CoachRejectionStatusView: View {
         switch rejectionCategory {
         case "insufficient_docs":
             return "Insufficient Document"
-        case "invalid_credentials":
-            return "Invalid Credential"
-        case "policy_violation":
-            return "Policy Violation"
         default:
             return "Application Rejected"
         }

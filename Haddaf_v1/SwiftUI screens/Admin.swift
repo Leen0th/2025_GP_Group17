@@ -187,7 +187,15 @@ struct AdminCoachesApprovalView: View {
     @State private var isRejecting = false
     @State private var expandedHistoryIDs: Set<String> = []
     @State private var expandedCommentIDs: Set<String> = [] // Track which history items have expanded comments
+    @State private var selectedTab: RequestTab = .pending // Tab selection
+    @State private var statusFilter: String = "all" // "all", "approved", "rejected"
+    @State private var reviewed: [CoachRequestItem] = [] // For approved/rejected requests
 
+    enum RequestTab: String, CaseIterable {
+        case pending = "Pending"
+        case reviewed = "Reviewed"
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -197,7 +205,7 @@ struct AdminCoachesApprovalView: View {
                     
                     // Search and Sort Controls
                     VStack(spacing: 10) {
-                        // Search + Sort in one horizontal row
+                        // Search + Sort + Filter in one horizontal row
                         HStack(spacing: 12) {
                             // Search field (takes available space)
                             HStack {
@@ -214,6 +222,34 @@ struct AdminCoachesApprovalView: View {
                                     .fill(BrandColors.background)
                                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
                             )
+                            
+                            // Filter icon (only for reviewed tab)
+                            if selectedTab == .reviewed {
+                                Menu {
+                                    Button {
+                                        statusFilter = "all"
+                                    } label: {
+                                        Label("All Requests", systemImage: statusFilter == "all" ? "checkmark" : "")
+                                    }
+                                    
+                                    Button {
+                                        statusFilter = "approved"
+                                    } label: {
+                                        Label("Approved Only", systemImage: statusFilter == "approved" ? "checkmark" : "")
+                                    }
+                                    
+                                    Button {
+                                        statusFilter = "rejected"
+                                    } label: {
+                                        Label("Rejected Only", systemImage: statusFilter == "rejected" ? "checkmark" : "")
+                                    }
+                                } label: {
+                                    Image(systemName: statusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(statusFilter != "all" ? BrandColors.darkTeal : .secondary)
+                                        .padding(8)
+                                }
+                            }
                             
                             // Sort menu – compact capsule
                             Menu {
@@ -240,6 +276,34 @@ struct AdminCoachesApprovalView: View {
                         .padding(.horizontal, 18)
                     }
 
+                    // Tabs - Discovery Style
+                    HStack(spacing: 0) {
+                        ForEach(RequestTab.allCases, id: \.self) { tab in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedTab = tab
+                                }
+                            } label: {
+                                VStack(spacing: 8) {
+                                    Text(tab.rawValue)
+                                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                                        .foregroundColor(selectedTab == tab ? primary : .secondary)
+                                    
+                                    if selectedTab == tab {
+                                        Rectangle()
+                                            .frame(height: 2)
+                                            .foregroundColor(primary)
+                                    } else {
+                                        Color.clear.frame(height: 2)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 4)
+
                     if loading {
                         ProgressView().tint(primary)
                     } else if let errorText {
@@ -248,14 +312,14 @@ struct AdminCoachesApprovalView: View {
                             .font(.system(size: 13, design: .rounded))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 18)
-                    } else if filteredAndSortedPending.isEmpty {
-                        Text(searchText.isEmpty ? "No pending coach requests." : "No results found.")
+                    } else if displayedRequests.isEmpty {
+                        Text(emptyStateMessage)
                             .foregroundColor(.secondary)
                             .font(.system(size: 14, design: .rounded))
                     } else {
                         ScrollView {
                             VStack(spacing: 12) {
-                                ForEach(filteredAndSortedPending) { item in
+                                ForEach(displayedRequests) { item in
                                     coachCard(item)
                                 }
                             }
@@ -314,6 +378,64 @@ struct AdminCoachesApprovalView: View {
                 return false
             }
             return sortByNew ? (date1 > date2) : (date1 < date2)
+        }
+    }
+
+    private var filteredAndSortedReviewed: [CoachRequestItem] {
+        let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        // Filter by status first
+        let statusFiltered: [CoachRequestItem]
+        if statusFilter == "all" {
+            statusFiltered = reviewed
+        } else {
+            statusFiltered = reviewed.filter { $0.status == statusFilter }
+        }
+        
+        // Filter by search
+        let filtered: [CoachRequestItem]
+        if s.isEmpty {
+            filtered = statusFiltered
+        } else {
+            filtered = statusFiltered.filter {
+                $0.fullName.lowercased().contains(s) || $0.email.lowercased().contains(s)
+            }
+        }
+        
+        // Sort
+        return filtered.sorted { item1, item2 in
+            guard let date1 = item1.submittedAt, let date2 = item2.submittedAt else {
+                return false
+            }
+            return sortByNew ? (date1 > date2) : (date1 < date2)
+        }
+    }
+    
+    private var displayedRequests: [CoachRequestItem] {
+        switch selectedTab {
+        case .pending:
+            return filteredAndSortedPending
+        case .reviewed:
+            return filteredAndSortedReviewed
+        }
+    }
+    
+    private var emptyStateMessage: String {
+        if !searchText.isEmpty {
+            return "No results found."
+        }
+        
+        switch selectedTab {
+        case .pending:
+            return "No pending coach requests."
+        case .reviewed:
+            if statusFilter == "approved" {
+                return "No approved requests."
+            } else if statusFilter == "rejected" {
+                return "No rejected requests."
+            } else {
+                return "No reviewed requests."
+            }
         }
     }
 
@@ -540,64 +662,89 @@ struct AdminCoachesApprovalView: View {
         }
     }
 
-    private func loadPending() async {
+private func loadPending() async {
         loading = true
         errorText = nil
         do {
-            let snap = try await Firestore.firestore().collection("coachRequests")
+            // Fetch pending requests
+            let pendingSnap = try await Firestore.firestore().collection("coachRequests")
                 .whereField("status", isEqualTo: "pending")
                 .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
-            // Fetch all requests for each coach to build history
-            var items: [CoachRequestItem] = []
-            
-            for d in snap.documents {
-                let data = d.data()
-                let uid = data["uid"] as? String ?? ""
-                let ts = data["submittedAt"] as? Timestamp
-                
-                // Fetch previous requests for this coach
-                let historySnap = try await Firestore.firestore().collection("coachRequests")
-                    .whereField("uid", isEqualTo: uid)
-                    .whereField("status", in: ["rejected", "approved"])
-                    .order(by: "submittedAt", descending: true)
-                    .getDocuments()
-                
-                let previousRequests = historySnap.documents.map { prevDoc -> PreviousRequest in
-                    let prevData = prevDoc.data()
-                    return PreviousRequest(
-                        id: prevDoc.documentID,
-                        submittedAt: (prevData["submittedAt"] as? Timestamp)?.dateValue(),
-                        reviewedAt: (prevData["reviewedAt"] as? Timestamp)?.dateValue(),
-                        status: prevData["status"] as? String ?? "",
-                        rejectionReason: prevData["rejectionReason"] as? String,
-                        rejectionCategory: prevData["rejectionCategory"] as? String
-                    )
-                }
+            // Fetch reviewed requests (approved and rejected)
+            let reviewedSnap = try await Firestore.firestore().collection("coachRequests")
+                .whereField("status", in: ["approved", "rejected"])
+                .order(by: "reviewedAt", descending: true)
+                .limit(to: 100)
+                .getDocuments()
 
-                let item = CoachRequestItem(
-                    id: d.documentID,
-                    uid: uid,
-                    fullName: data["fullName"] as? String ?? "",
-                    email: data["email"] as? String ?? "",
-                    status: data["status"] as? String ?? "pending",
-                    submittedAt: ts?.dateValue(),
-                    verificationFile: data["verificationFile"] as? String ?? "",
-                    rejectionReason: data["rejectionReason"] as? String,
-                    rejectionCategory: data["rejectionCategory"] as? String,
-                    previousRequests: previousRequests
-                )
-                
-                items.append(item)
+            // Process pending requests
+            var pendingItems: [CoachRequestItem] = []
+            for d in pendingSnap.documents {
+                let item = try await buildCoachRequestItem(from: d)
+                pendingItems.append(item)
             }
             
-            pending = items
-            loading = false
+            // Process reviewed requests
+            var reviewedItems: [CoachRequestItem] = []
+            for d in reviewedSnap.documents {
+                let item = try await buildCoachRequestItem(from: d)
+                reviewedItems.append(item)
+            }
+            
+            await MainActor.run {
+                pending = pendingItems
+                reviewed = reviewedItems
+                loading = false
+            }
         } catch {
-            loading = false
-            errorText = error.localizedDescription
+            await MainActor.run {
+                loading = false
+                errorText = error.localizedDescription
+            }
         }
+    }
+    
+    private func buildCoachRequestItem(from d: QueryDocumentSnapshot) async throws -> CoachRequestItem {
+        let data = d.data()
+        let uid = data["uid"] as? String ?? ""
+        let ts = data["submittedAt"] as? Timestamp
+        
+        // Fetch previous requests for this coach
+        let historySnap = try await Firestore.firestore().collection("coachRequests")
+            .whereField("uid", isEqualTo: uid)
+            .whereField("status", in: ["rejected", "approved"])
+            .order(by: "submittedAt", descending: true)
+            .getDocuments()
+        
+        let previousRequests = historySnap.documents.compactMap { prevDoc -> PreviousRequest? in
+            // Don't include current request in history
+            guard prevDoc.documentID != d.documentID else { return nil }
+            
+            let prevData = prevDoc.data()
+            return PreviousRequest(
+                id: prevDoc.documentID,
+                submittedAt: (prevData["submittedAt"] as? Timestamp)?.dateValue(),
+                reviewedAt: (prevData["reviewedAt"] as? Timestamp)?.dateValue(),
+                status: prevData["status"] as? String ?? "",
+                rejectionReason: prevData["rejectionReason"] as? String,
+                rejectionCategory: prevData["rejectionCategory"] as? String
+            )
+        }
+        
+        return CoachRequestItem(
+            id: d.documentID,
+            uid: uid,
+            fullName: data["fullName"] as? String ?? "",
+            email: data["email"] as? String ?? "",
+            status: data["status"] as? String ?? "pending",
+            submittedAt: ts?.dateValue(),
+            verificationFile: data["verificationFile"] as? String ?? "",
+            rejectionReason: data["rejectionReason"] as? String,
+            rejectionCategory: data["rejectionCategory"] as? String,
+            previousRequests: previousRequests
+        )
     }
     
     private func approve(uid: String, requestId: String) async {
@@ -846,7 +993,8 @@ struct AdminManageAccountsView: View {
     }
     
     private var searchBox: some View {
-        HStack {
+        HStack(spacing: 12) {
+            // Search field
             HStack {
                 Image(systemName: "magnifyingglass").foregroundColor(.secondary)
                 TextField("Search by name or email...", text: $search)
@@ -880,10 +1028,32 @@ struct AdminManageAccountsView: View {
                     Label("Inactive Only", systemImage: filterStatus == "inactive" ? "checkmark" : "")
                 }
             } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
+                Image(systemName: filterStatus == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                     .font(.system(size: 22))
-                    .foregroundColor(primary)
+                    .foregroundColor(filterStatus != "all" ? primary : .secondary)
                     .padding(8)
+            }
+            
+            // Sort menu
+            Menu {
+                Picker("Sort by date", selection: $sortByNew) {
+                    Text("Newest first").tag(true)
+                    Text("Oldest first").tag(false)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 13, weight: .medium))
+                    
+                    Text(sortByNew ? "Newest" : "Oldest")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(BrandColors.background)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.07), radius: 4, y: 2)
             }
         }
         .padding(.horizontal, 18)
@@ -2999,6 +3169,8 @@ struct AdminProfileView: View {
     @State private var refreshTrigger = false
     @State private var profileImageURL: String?
     
+    @State private var isLoadingProfile = true
+    
     private var currentEmail: String {
         Auth.auth().currentUser?.email ?? "No email"
     }
@@ -3012,26 +3184,46 @@ struct AdminProfileView: View {
                     
                     // Profile Header
                     VStack(spacing: 12) {
-                        AsyncImage(url: profileImageURL.flatMap(URL.init)) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Image(systemName: "person.circle.fill")
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .foregroundColor(primary.opacity(0.6))
+                        if isLoadingProfile {
+                            ProgressView()
+                                .frame(width: 100, height: 100)
+                        } else {
+                            AsyncImage(url: profileImageURL.flatMap(URL.init)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                case .failure(_), .empty:
+                                    Image(systemName: "person.circle.fill")
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .foregroundColor(primary.opacity(0.6))
+                                @unknown default:
+                                    Image(systemName: "person.circle.fill")
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .foregroundColor(primary.opacity(0.6))
+                                }
+                            }
+                            .frame(width: 100, height: 100)
+                            .clipShape(Circle())
                         }
-                        .frame(width: 100, height: 100)
-                        .clipShape(Circle())
                         
-                        Text(adminName.isEmpty ? "Admin" : adminName)
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(primary)
+                        if isLoadingProfile {
+                            Text("Loading...")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(primary.opacity(0.5))
+                        } else {
+                            Text(adminName)
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(primary)
+                        }
                         
                         Text(currentEmail)
                             .font(.system(size: 14, design: .rounded))
                             .foregroundColor(.secondary)
+                            .opacity(isLoadingProfile ? 0.5 : 1.0)
                     }
                     .padding(.bottom, 30)
                     
@@ -3197,11 +3389,16 @@ struct AdminProfileView: View {
     }
     
     private func loadAdminData() {
+        isLoadingProfile = true  // Add this at the start
+        
         Task {
             // Reload user to get latest data from Auth
             try? await Auth.auth().currentUser?.reload()
             
-            guard let user = Auth.auth().currentUser else { return }
+            guard let user = Auth.auth().currentUser else {
+                await MainActor.run { isLoadingProfile = false }
+                return
+            }
             
             await MainActor.run {
                 adminEmail = user.email ?? ""
@@ -3232,11 +3429,29 @@ struct AdminProfileView: View {
                         if adminName.isEmpty && !firestoreName.isEmpty {
                             adminName = firestoreName
                         }
+                        // Set to "Admin" only if still empty
+                        if adminName.isEmpty {
+                            adminName = "Admin"
+                        }
                         profileImageURL = urlString
+                        isLoadingProfile = false  // Add this
+                    }
+                } else {
+                    await MainActor.run {
+                        if adminName.isEmpty {
+                            adminName = "Admin"
+                        }
+                        isLoadingProfile = false  // Add this
                     }
                 }
             } catch {
                 print("Error loading admin profile: \(error)")
+                await MainActor.run {
+                    if adminName.isEmpty {
+                        adminName = "Admin"
+                    }
+                    isLoadingProfile = false  // Add this
+                }
             }
         }
     }
@@ -3861,30 +4076,6 @@ struct RejectionReasonSheet: View {
                     }
                     
                     Button {
-                        rejectionCategory = "invalid_credentials"
-                    } label: {
-                        HStack {
-                            Text("Invalid Credentials")
-                            Spacer()
-                            if rejectionCategory == "invalid_credentials" {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    
-                    Button {
-                        rejectionCategory = "policy_violation"
-                    } label: {
-                        HStack {
-                            Text("Policy Violation")
-                            Spacer()
-                            if rejectionCategory == "policy_violation" {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    
-                    Button {
                         rejectionCategory = "other"
                     } label: {
                         HStack {
@@ -3995,10 +4186,6 @@ struct RejectionReasonSheet: View {
         switch rejectionCategory {
         case "insufficient_docs":
             return "Insufficient Documentation"
-        case "invalid_credentials":
-            return "Invalid Credentials"
-        case "policy_violation":
-            return "Policy Violation"
         default:
             return "Other"
         }
