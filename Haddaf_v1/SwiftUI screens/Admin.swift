@@ -440,174 +440,279 @@ struct AdminCoachesApprovalView: View {
     }
 
     private func coachCard(_ item: CoachRequestItem) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Clickable Name
-            NavigationLink {
-                CoachProfileContentView(
-                    userID: item.uid,
-                    isAdminViewing: true,
-                    onAdminApprove: {
-                        Task { await approve(uid: item.uid, requestId: item.id) }
-                    },
-                    onAdminReject: {
-                        selectedCoachForRejection = item
-                        showRejectionSheet = true
-                    }
-                )
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.fullName.isEmpty ? "Coach" : item.fullName)
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundColor(primary)
-                    
-                    Text(item.email)
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
+        AdminCoachCardView(
+            item: item,
+            primary: primary,
+            onApprove: {
+                Task { await approve(uid: item.uid, requestId: item.id) }
+            },
+            onReject: {
+                selectedCoachForRejection = item
+                showRejectionSheet = true
             }
-            
-            // Previous Requests History
-            if !item.previousRequests.isEmpty {
-                Button {
-                    if expandedHistoryIDs.contains(item.id) {
-                        expandedHistoryIDs.remove(item.id)
-                    } else {
-                        expandedHistoryIDs.insert(item.id)
+        )
+    }
+    
+    struct AdminCoachCardView: View {
+        let item: CoachRequestItem
+        let primary: Color
+        
+        // Actions passed from parent
+        let onApprove: () -> Void
+        let onReject: () -> Void
+        
+        // Local state
+        @State private var showDetails = false
+        @State private var expandedCommentIDs: Set<String> = []
+        
+        var body: some View {
+            ZStack(alignment: .topTrailing) {
+                VStack(alignment: .leading, spacing: 10) {
+                    
+                    // 1. Header (Name & Email)
+                    NavigationLink {
+                        CoachProfileContentView(
+                            userID: item.uid,
+                            isAdminViewing: true,
+                            onAdminApprove: onApprove,
+                            onAdminReject: onReject
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.fullName.isEmpty ? "Coach" : item.fullName)
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                .foregroundColor(primary)
+                                .padding(.trailing, 70)
+                            
+                            Text(item.email)
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
                     }
-                } label: {
-                    HStack {
-                        Image(systemName: expandedHistoryIDs.contains(item.id) ? "chevron.up.circle.fill" : "clock.arrow.circlepath")
-                            .font(.system(size: 16))
-                            .foregroundColor(.orange)
+                    
+                    // 2. Toggle Button
+                    // Show if Reviewed (for details) OR if Pending has history
+                    if item.status != "pending" || !item.previousRequests.isEmpty {
+                        Button {
+                            withAnimation {
+                                showDetails.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: showDetails ? "chevron.up.circle.fill" : (item.status == "pending" ? "clock.arrow.circlepath" : "info.circle"))
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.orange)
+                                
+                                if item.status == "pending" {
+                                    Text(showDetails ? "Hide Request History" : "View Request History (\(item.previousRequests.count))")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.orange)
+                                } else {
+                                    Text(showDetails ? "Hide Request Details" : "View Request Details")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.orange)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
                         
-                        Text(expandedHistoryIDs.contains(item.id) ? "Hide Request History" : "View Request History (\(item.previousRequests.count))")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundColor(.orange)
-                        
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                }
-                
-                if expandedHistoryIDs.contains(item.id) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(item.previousRequests) { prev in
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Header with status
-                                HStack {
-                                    Text("Previous Request")
-                                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Text(prev.status.capitalized)
-                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                        .foregroundColor(prev.status == "rejected" ? .red : .green)
-                                }
+                        // 3. Expanded Content
+                        if showDetails {
+                            VStack(alignment: .leading, spacing: 12) {
                                 
-                                // Submitted date
-                                if let date = prev.submittedAt {
-                                    Text("Submitted: \(formatDate(date))")
-                                        .font(.system(size: 11, design: .rounded))
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                // Category (if rejected)
-                                if prev.status == "rejected", let category = prev.rejectionCategory {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "tag.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.orange)
-                                        Text(categoryDisplayName(for: category))
-                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                            .foregroundColor(.orange)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.orange.opacity(0.15))
-                                    )
-                                }
-                                
-                                // Rejection reason with expand/collapse
-                                if let reason = prev.rejectionReason, !reason.isEmpty {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("Admin's Comment:")
-                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                            .foregroundColor(.secondary)
-                                        
-                                        // Check if comment is long
-                                        if reason.count > 80 {
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(expandedCommentIDs.contains(prev.id) ? reason : String(reason.prefix(80)) + "...")
-                                                    .font(.system(size: 12, design: .rounded))
-                                                    .foregroundColor(.primary)
-                                                    .lineLimit(expandedCommentIDs.contains(prev.id) ? nil : 2)
-                                                    .fixedSize(horizontal: false, vertical: true)
-                                                
-                                                Button {
-                                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                                        if expandedCommentIDs.contains(prev.id) {
-                                                            expandedCommentIDs.remove(prev.id)
-                                                        } else {
-                                                            expandedCommentIDs.insert(prev.id)
-                                                        }
-                                                    }
-                                                } label: {
-                                                    HStack(spacing: 4) {
-                                                        Text(expandedCommentIDs.contains(prev.id) ? "Show Less" : "Read More")
-                                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                                        Image(systemName: expandedCommentIDs.contains(prev.id) ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
-                                                            .font(.system(size: 11))
-                                                    }
-                                                    .foregroundColor(primary)
+                                // A) REVIEWED TAB: Show ONLY Current Details (No History)
+                                if item.status != "pending" {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        if item.status == "rejected" {
+                                            // Category Badge
+                                            if let category = item.rejectionCategory {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "tag.fill")
+                                                        .font(.system(size: 10))
+                                                        .foregroundColor(.orange)
+                                                    Text(categoryDisplayName(for: category))
+                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                                        .foregroundColor(.orange)
+                                                }
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Capsule().fill(Color.orange.opacity(0.15)))
+                                            }
+                                            
+                                            // Rejection Reason
+                                            if let reason = item.rejectionReason, !reason.isEmpty {
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    Text("Admin Comment:")
+                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                                        .foregroundColor(.secondary)
+                                                    
+                                                    Text(reason)
+                                                        .font(.system(size: 13, design: .rounded))
+                                                        .foregroundColor(.primary)
+                                                        .padding(10)
+                                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                                        .background(
+                                                            RoundedRectangle(cornerRadius: 8)
+                                                                .fill(Color.red.opacity(0.08))
+                                                        )
                                                 }
                                             }
                                         } else {
-                                            Text(reason)
-                                                .font(.system(size: 12, design: .rounded))
-                                                .foregroundColor(.primary)
+                                            // Approved State
+                                            HStack {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .foregroundColor(.green)
+                                                Text("This application has been approved.")
+                                                    .font(.system(size: 13, design: .rounded))
+                                                    .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
-                                    .padding(8)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.red.opacity(0.1))
-                                    )
+                                }
+                                
+                                // B) PENDING TAB: Show ONLY History
+                                if item.status == "pending" && !item.previousRequests.isEmpty {
+                                    ForEach(item.previousRequests) { prev in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            // Header
+                                            HStack {
+                                                Text("Previous Request")
+                                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                                    .foregroundColor(.secondary)
+                                                Spacer()
+                                                Text(prev.status.capitalized)
+                                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(prev.status == "rejected" ? .red : .green)
+                                            }
+                                            
+                                            if let date = prev.submittedAt {
+                                                Text("Submitted: \(formatDate(date))")
+                                                    .font(.system(size: 11, design: .rounded))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            
+                                            // Reason
+                                            if let reason = prev.rejectionReason, !reason.isEmpty {
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("Reason:")
+                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                                        .foregroundColor(.secondary)
+                                                    
+                                                    // Expandable Text for History
+                                                    let isExpanded = expandedCommentIDs.contains(prev.id)
+                                                    if reason.count > 80 {
+                                                        VStack(alignment: .leading, spacing: 4) {
+                                                            Text(isExpanded ? reason : String(reason.prefix(80)) + "...")
+                                                                .font(.system(size: 12, design: .rounded))
+                                                                .foregroundColor(.primary)
+                                                            
+                                                            Button {
+                                                                if isExpanded { expandedCommentIDs.remove(prev.id) }
+                                                                else { expandedCommentIDs.insert(prev.id) }
+                                                            } label: {
+                                                                Text(isExpanded ? "Show Less" : "Read More")
+                                                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                                                    .foregroundColor(primary)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        Text(reason)
+                                                            .font(.system(size: 12, design: .rounded))
+                                                            .foregroundColor(.primary)
+                                                    }
+                                                }
+                                                .padding(8)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.1)))
+                                            }
+                                        }
+                                        .padding(10)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(UIColor.systemGray6)))
+                                    }
                                 }
                             }
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(UIColor.systemGray6))
-                            )
+                            .padding(.top, 4)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-
-            if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
-                Link(destination: url) {
-                    HStack {
-                        Image(systemName: "doc.text.magnifyingglass")
-                        Text("View Verification Document")
+                    
+                    // 4. Verification Document
+                    if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
+                        Link(destination: url) {
+                            HStack {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                Text("View Verification Document")
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.blue)
+                            .padding(.vertical, 4)
+                        }
                     }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.blue)
-                    .padding(.vertical, 4)
+                    
+                    // 5. Action Buttons (ONLY Pending)
+                    if item.status == "pending" {
+                        HStack(spacing: 10) {
+                            Button(action: onApprove) {
+                                Text("Approve")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity)
+                                    .background(primary)
+                                    .clipShape(Capsule())
+                            }
+                            
+                            Button(action: onReject) {
+                                Text("Reject")
+                                    .foregroundColor(.red)
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color(UIColor.systemGray6))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                
+                // 6. Status Badge (Top Right)
+                if item.status != "pending" {
+                    Text(item.status.capitalized)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(item.status == "approved" ? Color.green : Color.red)
+                        .clipShape(Capsule())
+                        .padding([.top, .trailing], 12)
                 }
             }
-
-            coachApprovalButtons(item: item)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
+            )
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(BrandColors.background)
-                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
-        )
+        
+        // Helper Helpers
+        private func categoryDisplayName(for category: String) -> String {
+            switch category {
+            case "insufficient_docs": return "Insufficient Documentation"
+            default: return "Other"
+            }
+        }
+        
+        private func formatDate(_ date: Date) -> String {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
     }
     
     private func coachApprovalButtons(item: CoachRequestItem) -> some View {
