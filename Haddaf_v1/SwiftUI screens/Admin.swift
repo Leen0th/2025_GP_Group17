@@ -7,6 +7,17 @@ import PhotosUI
 // =======================================================
 // MARK: - Helpers
 // =======================================================
+// Environment key for passing timeline to child views
+private struct RequestTimelineKey: EnvironmentKey {
+    static let defaultValue: [TimelineEntry]? = nil
+}
+
+extension EnvironmentValues {
+    var requestTimeline: [TimelineEntry]? {
+        get { self[RequestTimelineKey.self] }
+        set { self[RequestTimelineKey.self] = newValue }
+    }
+}
 
 private extension String {
     /// Makes each word start with a capital letter (simple Title Case).
@@ -1438,6 +1449,7 @@ struct CoachRequestStatusView: View {
                                         showDocumentPicker = true
                                     }
                                 )
+                                .environment(\.requestTimeline, data.timeline)
                             }
                         }
                         
@@ -1684,7 +1696,6 @@ struct CoachRequestData {
 }
 
 // Coach Timeline Entry View
-// Coach Timeline Entry View
 struct CoachTimelineEntryView: View {
     let entry: TimelineEntry
     let onRespond: () -> Void
@@ -1693,9 +1704,11 @@ struct CoachTimelineEntryView: View {
     private let primary = BrandColors.darkTeal
     @State private var showFullComment = false
     
+    // Get all timeline entries to check if this request has been answered
+    @Environment(\.requestTimeline) private var allTimelineEntries: [TimelineEntry]?
+    
     // Determine if this is a reupload request or clarification request
     private var isReuploadRequest: Bool {
-        // Check the type first - this is the most reliable way
         return entry.type == .documentReuploadRequest
     }
     
@@ -1704,14 +1717,21 @@ struct CoachTimelineEntryView: View {
         return entry.type == .adminComment || entry.type == .documentReuploadRequest
     }
     
-    // Check if coach has already responded to this entry
-    private var hasResponse: Bool {
-        entry.coachResponse != nil
-    }
-    
-    // Check if this entry has a document upload
-    private var hasDocument: Bool {
-        entry.documentURL != nil
+    // Check if this specific request has been answered by looking at subsequent timeline entries
+    private var hasBeenAnswered: Bool {
+        guard let timeline = allTimelineEntries else { return false }
+        guard let currentIndex = timeline.firstIndex(where: { $0.id == entry.id }) else { return false }
+        
+        // Get entries after this one
+        let subsequentEntries = timeline.suffix(from: timeline.index(after: currentIndex))
+        
+        if isReuploadRequest {
+            // Check if there's a documentReuploaded entry after this request
+            return subsequentEntries.contains { $0.type == .documentReuploaded }
+        } else {
+            // Check if there's a coachResponse entry after this request
+            return subsequentEntries.contains { $0.type == .coachResponse }
+        }
     }
     
     var body: some View {
@@ -1769,39 +1789,52 @@ struct CoachTimelineEntryView: View {
                             }
                         }
                         
-                        // Action buttons based on request type
-                        if isReuploadRequest {
-                            // Document Reupload Request - Show upload button
-                            Button {
-                                onReupload()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "arrow.up.doc.fill")
-                                    Text("Upload New Document")
+                        // Action buttons based on request type - only show if NOT answered
+                        if !hasBeenAnswered {
+                            if isReuploadRequest {
+                                // Document Reupload Request - Show upload button
+                                Button {
+                                    onReupload()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "arrow.up.doc.fill")
+                                        Text("Upload New Document")
+                                    }
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(Color.purple)
+                                    .clipShape(Capsule())
                                 }
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(Color.purple)
-                                .clipShape(Capsule())
+                                .padding(.top, 4)
+                            } else {
+                                // Clarification Request - Show respond button
+                                Button {
+                                    onRespond()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "arrowshape.turn.up.left.fill")
+                                        Text("Respond")
+                                    }
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(primary)
+                                    .clipShape(Capsule())
+                                }
+                                .padding(.top, 4)
                             }
-                            .padding(.top, 4)
                         } else {
-                            // Clarification Request - Show respond button
-                            Button {
-                                onRespond()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "arrowshape.turn.up.left.fill")
-                                    Text("Respond")
-                                }
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(primary)
-                                .clipShape(Capsule())
+                            // Show "Answered" indicator
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.green)
+                                Text("Answered")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(.secondary)
                             }
                             .padding(.top, 4)
                         }
