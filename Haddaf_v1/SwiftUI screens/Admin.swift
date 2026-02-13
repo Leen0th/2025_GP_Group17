@@ -373,7 +373,7 @@ struct AdminCoachesApprovalView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { Task { await loadPending() } }
             .sheet(isPresented: $showRejectionSheet) {
-                RejectionReasonSheet(
+                SimpleRejectionSheet(
                     coachName: selectedCoachForRejection?.fullName ?? "Coach",
                     rejectionReason: $rejectionReason,
                     isRejecting: $isRejecting,
@@ -382,10 +382,10 @@ struct AdminCoachesApprovalView: View {
                         rejectionReason = ""
                         selectedCoachForRejection = nil
                     },
-                    onConfirm: { category, reason in
+                    onConfirm: { reason in
                         if let coach = selectedCoachForRejection {
                             Task {
-                                await rejectWithReason(uid: coach.uid, requestId: coach.id, category: category, reason: reason)
+                                await rejectWithReason(uid: coach.uid, requestId: coach.id, category: "other", reason: reason)
                             }
                         }
                     }
@@ -541,7 +541,7 @@ struct AdminCoachesApprovalView: View {
                     if isResubmission {
                         Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(.orange)
+                            .foregroundColor(BrandColors.gold)
                             .background(
                                 Circle()
                                     .fill(Color.white)
@@ -906,7 +906,7 @@ struct CoachRequestDetailView: View {
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
-                                    .background(Color.orange)
+                                    .background(BrandColors.gold)
                                     .clipShape(Capsule())
                             }
                             
@@ -920,7 +920,7 @@ struct CoachRequestDetailView: View {
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
-                                    .background(Color.green)
+                                    .background(BrandColors.actionGreen)
                                     .clipShape(Capsule())
                             }
                         }
@@ -1128,7 +1128,7 @@ private func rejectRequest(reason: String) async {
         }
     }
 }
-// Timeline Entry View
+// Timeline Entry View (Admin's view of the timeline)
 struct TimelineEntryView: View {
     let entry: TimelineEntry
     private let primary = BrandColors.darkTeal
@@ -1159,46 +1159,70 @@ struct TimelineEntryView: View {
                         .foregroundColor(.secondary)
                 }
                 
+                // Admin Comment
                 if let adminComment = entry.adminComment {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Admin:")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Image(systemName: "person.badge.shield.checkmark")
+                                .font(.system(size: 13))
+                                .foregroundColor(BrandColors.gold)
+                            Text("Admin:")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
                         Text(adminComment)
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.primary)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.1))
+                    .background(BrandColors.gold.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
+                    )
                 }
                 
+                // Coach Response
                 if let coachResponse = entry.coachResponse {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Coach Response:")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundColor(.secondary)
+                        HStack {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 13))
+                                .foregroundColor(BrandColors.turquoise)
+                            Text("Coach Response:")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
                         Text(coachResponse)
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.primary)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.blue.opacity(0.1))
+                    .background(BrandColors.turquoise.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
+                    )
                 }
                 
+                // Document
                 if let docURL = entry.documentURL {
                     Link(destination: URL(string: docURL)!) {
                         HStack {
                             Image(systemName: "doc.fill")
+                                .foregroundColor(primary)
                             Text("View Document")
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
                             Spacer()
                             Image(systemName: "arrow.up.right")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
                         }
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(primary)
                         .padding(10)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -1213,14 +1237,14 @@ struct TimelineEntryView: View {
     
     private var iconColor: Color {
         switch entry.type {
-        case .submitted: return .blue
-        case .adminComment: return .orange
-        case .coachResponse: return .green
-        case .documentReuploaded: return .purple
-        case .rejected: return .red
-        case .approved: return .green
-        case .underReview: return .orange
-        case .documentReuploadRequest: return .orange
+        case .submitted: return BrandColors.turquoise
+        case .adminComment: return BrandColors.gold
+        case .coachResponse: return BrandColors.actionGreen
+        case .documentReuploaded: return BrandColors.teal
+        case .rejected: return Color.red
+        case .approved: return BrandColors.actionGreen
+        case .underReview: return BrandColors.gold
+        case .documentReuploadRequest: return BrandColors.teal
         }
     }
 }
@@ -1416,7 +1440,7 @@ struct CoachRequestStatusView: View {
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
                                     .padding()
-                                    .background(Color.orange.opacity(0.1))
+                                    .background(BrandColors.gold.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                             } else if data.status == "approved" {
                                 Text("Congratulations! Your application has been approved.")
@@ -1424,7 +1448,7 @@ struct CoachRequestStatusView: View {
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
                                     .padding()
-                                    .background(Color.green.opacity(0.1))
+                                    .background(BrandColors.actionGreen.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                         }
@@ -1767,7 +1791,7 @@ struct CoachTimelineEntryView: View {
                         HStack {
                             Image(systemName: "person.badge.shield.checkmark")
                                 .font(.system(size: 14))
-                                .foregroundColor(.orange)
+                                .foregroundColor(BrandColors.gold)
                             
                             Text(isReuploadRequest ? "Document Reupload Required" : "Admin Message")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -1804,7 +1828,7 @@ struct CoachTimelineEntryView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 10)
-                                    .background(Color.purple)
+                                    .background(BrandColors.teal)
                                     .clipShape(Capsule())
                                 }
                                 .padding(.top, 4)
@@ -1831,7 +1855,7 @@ struct CoachTimelineEntryView: View {
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(.green)
+                                    .foregroundColor(BrandColors.actionGreen)
                                 Text("Answered")
                                     .font(.system(size: 13, weight: .medium, design: .rounded))
                                     .foregroundColor(.secondary)
@@ -1841,11 +1865,11 @@ struct CoachTimelineEntryView: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.08))
+                    .background(BrandColors.gold.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                            .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
                     )
                 }
                 
@@ -1855,7 +1879,7 @@ struct CoachTimelineEntryView: View {
                         HStack {
                             Image(systemName: "person.fill")
                                 .font(.system(size: 14))
-                                .foregroundColor(.blue)
+                                .foregroundColor(BrandColors.turquoise)
                             
                             Text("Your Response")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -1868,11 +1892,11 @@ struct CoachTimelineEntryView: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.blue.opacity(0.08))
+                    .background(BrandColors.turquoise.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
                     )
                 }
                 
@@ -1919,14 +1943,14 @@ struct CoachTimelineEntryView: View {
     
     private var iconColor: Color {
         switch entry.type {
-        case .submitted: return .blue
-        case .adminComment: return .orange
-        case .coachResponse: return .green
-        case .documentReuploaded: return .purple
-        case .rejected: return .red
-        case .approved: return .green
-        case .underReview: return .orange
-        case .documentReuploadRequest: return .purple
+        case .submitted: return BrandColors.turquoise
+        case .adminComment: return BrandColors.gold
+        case .coachResponse: return BrandColors.actionGreen
+        case .documentReuploaded: return BrandColors.teal
+        case .rejected: return Color.red
+        case .approved: return BrandColors.actionGreen
+        case .underReview: return BrandColors.gold
+        case .documentReuploadRequest: return BrandColors.teal
         }
     }
 }
@@ -1968,10 +1992,10 @@ struct StatusBadge: View {
     
     private var backgroundColor: Color {
         switch status {
-        case "approved": return .green
-        case "rejected": return .red
-        case "under_review": return .orange
-        default: return .gray
+        case "approved": return BrandColors.actionGreen
+        case "rejected": return Color.red
+        case "under_review": return BrandColors.gold
+        default: return BrandColors.darkGray
         }
     }
 }
@@ -5601,197 +5625,6 @@ struct AdminEmailVerifySheet: View {
         .background(Color.clear)
         .allowsHitTesting(true)
     }
-}
-
-// =======================================================
-// MARK: - Rejection Reason Sheet
-// =======================================================
-
-struct RejectionReasonSheet: View {
-    let coachName: String
-    @Binding var rejectionReason: String
-    @Binding var isRejecting: Bool
-    var onCancel: () -> Void
-    var onConfirm: (String, String) -> Void
-    @State private var rejectionCategory: String = "other"
-    
-    private let primary = BrandColors.darkTeal
-    private let charLimit = 500
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            HStack {
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-            
-            VStack(spacing: 8) {
-                Text("Reject Coach Application")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundColor(primary)
-                
-                HStack(spacing: 4) {
-                    Text("Please provide a reason")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                    Text("for rejecting \(coachName)'s application.")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                    Text("*")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.red)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            }
-            
-            // Category Selection
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    Text("Category")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(.secondary)
-                    Text("*")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.red)
-                }
-                
-                Menu {
-                    Button {
-                        rejectionCategory = "insufficient_docs"
-                    } label: {
-                        HStack {
-                            Text("Insufficient Documentation")
-                            Spacer()
-                            if rejectionCategory == "insufficient_docs" {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    
-                    Button {
-                        rejectionCategory = "other"
-                    } label: {
-                        HStack {
-                            Text("Other")
-                            Spacer()
-                            if rejectionCategory == "other" {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Text(categoryDisplayName)
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(primary)
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(BrandColors.background)
-                            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
-                    )
-                }
-            }
-            .padding(.horizontal)
-            
-            // Text Editor
-            VStack(alignment: .trailing, spacing: 4) {
-                ZStack(alignment: .topLeading) {
-                    if rejectionReason.isEmpty {
-                        Text("Explain why the application was rejected...")
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(.gray.opacity(0.6))
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
-                    }
-                    
-                    TextEditor(text: $rejectionReason)
-                        .font(.system(size: 15, design: .rounded))
-                        .foregroundColor(primary)
-                        .frame(height: 120)
-                        .scrollContentBackground(.hidden)
-                        .onChange(of: rejectionReason) { _, newValue in
-                            if newValue.count > charLimit {
-                                rejectionReason = String(newValue.prefix(charLimit))
-                            }
-                        }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(UIColor.systemGray6))
-                )
-                
-                Text("\(rejectionReason.count)/\(charLimit)")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal)
-            
-            // Action Buttons
-            HStack(spacing: 12) {
-                Button(action: onCancel) {
-                    Text("Cancel")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(BrandColors.darkGray)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(BrandColors.lightGray)
-                        .clipShape(Capsule())
-                }
-                
-                Button(action: {
-                    onConfirm(rejectionCategory, rejectionReason)
-                }) {
-                    HStack {
-                        Text("Reject")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                        if isRejecting {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.red.opacity(0.5) : Color.red)
-                    .clipShape(Capsule())
-                }
-                .disabled(rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRejecting)
-            }
-            .padding(.horizontal)
-            
-            Spacer()
-        }
-        .padding(.vertical, 10)
-        .background(BrandColors.background)
-    }
-    
-    private var categoryDisplayName: String {
-        switch rejectionCategory {
-        case "insufficient_docs":
-            return "Insufficient Documentation"
-        default:
-            return "Other"
-        }
-    }
-    
 }
 
 // =======================================================
