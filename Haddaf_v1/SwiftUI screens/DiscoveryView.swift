@@ -280,14 +280,48 @@ struct DiscoveryView: View {
                         .background(Color.red.opacity(0.85))
                     }
                 } else if !session.isVerifiedCoach {
-                    // MARK: - Under Review Banner
-                    Text("Your coaching profile is under review (It usually takes 1–2 business days to verify). Social features will be unlocked once approved!")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(8)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange.opacity(0.9))
+                    // MARK: - Under Review / Pending Banner
+                    if session.coachStatus == "under_review" {
+                        // Under Review - Action might be required
+                        NavigationLink {
+                            CoachRequestStatusView()
+                        } label: {
+                            HStack {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Action Required")
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                    
+                                    Text("Admin has requested additional information")
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                        .foregroundColor(.white.opacity(0.9))
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.orange.opacity(0.9))
+                        }
+                    } else {
+                        // Pending - Normal review
+                        Text("Your coaching profile is under review (It usually takes 1–2 business days to verify). Social features will be unlocked once approved!")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(8)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.blue.opacity(0.9))
+                    }
                 }
             }
             // Search & Filters

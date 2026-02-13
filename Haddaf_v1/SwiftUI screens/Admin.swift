@@ -156,12 +156,13 @@ struct CoachRequestItem: Identifiable {
     let uid: String
     let fullName: String
     let email: String
-    let status: String
+    let status: String // "pending", "approved", "rejected", "under_review"
     let submittedAt: Date?
     let verificationFile: String
     let rejectionReason: String?
     let rejectionCategory: String?
     let previousRequests: [PreviousRequest]
+    let timeline: [TimelineEntry]
 }
 
 struct PreviousRequest: Identifiable {
@@ -171,6 +172,27 @@ struct PreviousRequest: Identifiable {
     let status: String
     let rejectionReason: String?
     let rejectionCategory: String?
+}
+
+struct TimelineEntry: Identifiable {
+    let id: String
+    let timestamp: Date
+    let type: TimelineEntryType
+    let adminComment: String?
+    let coachResponse: String?
+    let documentURL: String?
+    let status: String?
+}
+
+enum TimelineEntryType: String {
+    case submitted = "Submitted"
+    case adminComment = "Admin Comment"
+    case coachResponse = "Coach Response"
+    case documentReuploaded = "Document Reuploaded"
+    case rejected = "Rejected"
+    case approved = "Approved"
+    case underReview = "Under Review"
+    case documentReuploadRequest = "documentReuploadRequest"
 }
 
 struct AdminCoachesApprovalView: View {
@@ -242,6 +264,11 @@ struct AdminCoachesApprovalView: View {
                                         statusFilter = "rejected"
                                     } label: {
                                         Label("Rejected Only", systemImage: statusFilter == "rejected" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        statusFilter = "under_review"
+                                    } label: {
+                                        Label("Under Review", systemImage: statusFilter == "under_review" ? "checkmark" : "")
                                     }
                                 } label: {
                                     Image(systemName: statusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -433,6 +460,8 @@ struct AdminCoachesApprovalView: View {
                 return "No approved requests."
             } else if statusFilter == "rejected" {
                 return "No rejected requests."
+            } else if statusFilter == "under_review" {
+                return "No requests under review."
             } else {
                 return "No reviewed requests."
             }
@@ -461,257 +490,56 @@ struct AdminCoachesApprovalView: View {
         let onApprove: () -> Void
         let onReject: () -> Void
         
-        // Local state
-        @State private var showDetails = false
-        @State private var expandedCommentIDs: Set<String> = []
+        // Check if this is a resubmission (has responses or reuploads in timeline)
+        private var isResubmission: Bool {
+            item.timeline.contains { entry in
+                entry.type == .coachResponse || entry.type == .documentReuploaded
+            }
+        }
         
         var body: some View {
-            ZStack(alignment: .topTrailing) {
-                VStack(alignment: .leading, spacing: 10) {
-                    
-                    // 1. Header (Name & Email)
-                    NavigationLink {
-                        CoachProfileContentView(
-                            userID: item.uid,
-                            isAdminViewing: true,
-                            onAdminApprove: onApprove,
-                            onAdminReject: onReject
-                        )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.fullName.isEmpty ? "Coach" : item.fullName)
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundColor(primary)
-                                .padding(.trailing, 70)
-                            
-                            Text(item.email)
-                                .font(.system(size: 14, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
+            NavigationLink {
+                CoachRequestDetailView(
+                    request: item,
+                    onApprove: onApprove,
+                    onReject: onReject,
+                    onUnderReview: {
+                        // Reload will happen automatically
                     }
-                    
-                    // 2. Toggle Button
-                    // Show if Reviewed (for details) OR if Pending has history
-                    if item.status != "pending" || !item.previousRequests.isEmpty {
-                        Button {
-                            withAnimation {
-                                showDetails.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Image(systemName: showDetails ? "chevron.up.circle.fill" : (item.status == "pending" ? "clock.arrow.circlepath" : "info.circle"))
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.orange)
-                                
-                                if item.status == "pending" {
-                                    Text(showDetails ? "Hide Request History" : "View Request History (\(item.previousRequests.count))")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.orange)
-                                } else {
-                                    Text(showDetails ? "Hide Request Details" : "View Request Details")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.orange)
-                                }
-                                Spacer()
-                            }
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
+                )
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.fullName.isEmpty ? "Coach" : item.fullName)
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
                         
-                        // 3. Expanded Content
-                        if showDetails {
-                            VStack(alignment: .leading, spacing: 12) {
-                                
-                                // A) REVIEWED TAB: Show ONLY Current Details (No History)
-                                if item.status != "pending" {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        if item.status == "rejected" {
-                                            // Category Badge
-                                            if let category = item.rejectionCategory {
-                                                HStack(spacing: 4) {
-                                                    Image(systemName: "tag.fill")
-                                                        .font(.system(size: 10))
-                                                        .foregroundColor(.orange)
-                                                    Text(categoryDisplayName(for: category))
-                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                                        .foregroundColor(.orange)
-                                                }
-                                                .padding(.horizontal, 8)
-                                                .padding(.vertical, 4)
-                                                .background(Capsule().fill(Color.orange.opacity(0.15)))
-                                            }
-                                            
-                                            // Rejection Reason
-                                            if let reason = item.rejectionReason, !reason.isEmpty {
-                                                VStack(alignment: .leading, spacing: 4) {
-                                                    Text("Admin Comment:")
-                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                                        .foregroundColor(.secondary)
-                                                    
-                                                    Text(reason)
-                                                        .font(.system(size: 13, design: .rounded))
-                                                        .foregroundColor(.primary)
-                                                        .padding(10)
-                                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                                        .background(
-                                                            RoundedRectangle(cornerRadius: 8)
-                                                                .fill(Color.red.opacity(0.08))
-                                                        )
-                                                }
-                                            }
-                                        } else {
-                                            // Approved State
-                                            HStack {
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .foregroundColor(.green)
-                                                Text("This application has been approved.")
-                                                    .font(.system(size: 13, design: .rounded))
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                // B) PENDING TAB: Show ONLY History
-                                if item.status == "pending" && !item.previousRequests.isEmpty {
-                                    ForEach(item.previousRequests) { prev in
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            // Header
-                                            HStack {
-                                                Text("Previous Request")
-                                                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                                                    .foregroundColor(.secondary)
-                                                Spacer()
-                                                Text(prev.status.capitalized)
-                                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(prev.status == "rejected" ? .red : .green)
-                                            }
-                                            
-                                            if let date = prev.submittedAt {
-                                                Text("Submitted: \(formatDate(date))")
-                                                    .font(.system(size: 11, design: .rounded))
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            
-                                            // Reason
-                                            if let reason = prev.rejectionReason, !reason.isEmpty {
-                                                VStack(alignment: .leading, spacing: 6) {
-                                                    Text("Reason:")
-                                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                                        .foregroundColor(.secondary)
-                                                    
-                                                    // Expandable Text for History
-                                                    let isExpanded = expandedCommentIDs.contains(prev.id)
-                                                    if reason.count > 80 {
-                                                        VStack(alignment: .leading, spacing: 4) {
-                                                            Text(isExpanded ? reason : String(reason.prefix(80)) + "...")
-                                                                .font(.system(size: 12, design: .rounded))
-                                                                .foregroundColor(.primary)
-                                                            
-                                                            Button {
-                                                                if isExpanded { expandedCommentIDs.remove(prev.id) }
-                                                                else { expandedCommentIDs.insert(prev.id) }
-                                                            } label: {
-                                                                Text(isExpanded ? "Show Less" : "Read More")
-                                                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                                                    .foregroundColor(primary)
-                                                            }
-                                                        }
-                                                    } else {
-                                                        Text(reason)
-                                                            .font(.system(size: 12, design: .rounded))
-                                                            .foregroundColor(.primary)
-                                                    }
-                                                }
-                                                .padding(8)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.1)))
-                                            }
-                                        }
-                                        .padding(10)
-                                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(UIColor.systemGray6)))
-                                    }
-                                }
-                            }
-                            .padding(.top, 4)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
+                        Text(item.email)
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(.secondary)
                     }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
+                    )
                     
-                    // 4. Verification Document
-                    if let url = URL(string: item.verificationFile), !item.verificationFile.isEmpty {
-                        Link(destination: url) {
-                            HStack {
-                                Image(systemName: "doc.text.magnifyingglass")
-                                Text("View Verification Document")
-                            }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.blue)
-                            .padding(.vertical, 4)
-                        }
-                    }
-                    
-                    // 5. Action Buttons (ONLY Pending)
-                    if item.status == "pending" {
-                        HStack(spacing: 10) {
-                            Button(action: onApprove) {
-                                Text("Approve")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .padding(.vertical, 10)
-                                    .frame(maxWidth: .infinity)
-                                    .background(primary)
-                                    .clipShape(Capsule())
-                            }
-                            
-                            Button(action: onReject) {
-                                Text("Reject")
-                                    .foregroundColor(.red)
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .padding(.vertical, 10)
-                                    .frame(maxWidth: .infinity)
-                                    .background(Color(UIColor.systemGray6))
-                                    .clipShape(Capsule())
-                            }
-                        }
-                        .padding(.top, 4)
+                    // Badge for resubmissions
+                    if isResubmission {
+                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.orange)
+                            .background(
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 28, height: 28)
+                            )
+                            .offset(x: -8, y: 8)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                
-                // 6. Status Badge (Top Right)
-                if item.status != "pending" {
-                    Text(item.status.capitalized)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(item.status == "approved" ? Color.green : Color.red)
-                        .clipShape(Capsule())
-                        .padding([.top, .trailing], 12)
-                }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(BrandColors.background)
-                    .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
-            )
-        }
-        
-        // Helper Helpers
-        private func categoryDisplayName(for category: String) -> String {
-            switch category {
-            case "insufficient_docs": return "Insufficient Documentation"
-            default: return "Other"
-            }
-        }
-        
-        private func formatDate(_ date: Date) -> String {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            return formatter.string(from: date)
         }
     }
     
@@ -777,9 +605,9 @@ private func loadPending() async {
                 .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
-            // Fetch reviewed requests (approved and rejected)
+            // Fetch reviewed requests (approved, rejected, and under_review)
             let reviewedSnap = try await Firestore.firestore().collection("coachRequests")
-                .whereField("status", in: ["approved", "rejected"])
+                .whereField("status", in: ["approved", "rejected", "under_review"])
                 .order(by: "reviewedAt", descending: true)
                 .limit(to: 100)
                 .getDocuments()
@@ -838,6 +666,53 @@ private func loadPending() async {
             )
         }
         
+        // Build timeline
+        var timelineEntries: [TimelineEntry] = []
+        
+        // Add initial submission
+        if let submittedAt = ts {
+            timelineEntries.append(TimelineEntry(
+                id: UUID().uuidString,
+                timestamp: submittedAt.dateValue(),
+                type: .submitted,
+                adminComment: nil,
+                coachResponse: nil,
+                documentURL: data["verificationFile"] as? String,
+                status: "pending"
+            ))
+        }
+        
+        // Add timeline entries from Firestore
+        if let timelineData = data["timeline"] as? [[String: Any]] {
+            for entry in timelineData {
+                let typeString = entry["type"] as? String ?? ""
+                let entryType = TimelineEntryType(rawValue: typeString) ?? .adminComment
+                
+                // Handle both Timestamp and Date objects
+                let timestamp: Date
+                if let ts = entry["timestamp"] as? Timestamp {
+                    timestamp = ts.dateValue()
+                } else if let date = entry["timestamp"] as? Date {
+                    timestamp = date
+                } else {
+                    timestamp = Date()
+                }
+                
+                timelineEntries.append(TimelineEntry(
+                    id: entry["id"] as? String ?? UUID().uuidString,
+                    timestamp: timestamp,
+                    type: entryType,
+                    adminComment: entry["adminComment"] as? String,
+                    coachResponse: entry["coachResponse"] as? String,
+                    documentURL: entry["documentURL"] as? String,
+                    status: entry["status"] as? String
+                ))
+            }
+        }
+        
+        // Sort timeline chronologically
+        timelineEntries.sort { $0.timestamp < $1.timestamp }
+        
         return CoachRequestItem(
             id: d.documentID,
             uid: uid,
@@ -848,7 +723,8 @@ private func loadPending() async {
             verificationFile: data["verificationFile"] as? String ?? "",
             rejectionReason: data["rejectionReason"] as? String,
             rejectionCategory: data["rejectionCategory"] as? String,
-            previousRequests: previousRequests
+            previousRequests: previousRequests,
+            timeline: timelineEntries
         )
     }
     
@@ -918,7 +794,1594 @@ private func loadPending() async {
         }
     }
 }
+struct CoachRequestDetailView: View {
+    let request: CoachRequestItem
+    let onApprove: () -> Void
+    let onReject: () -> Void
+    let onUnderReview: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var showActionSheet = false
+    @State private var actionType: ActionType?
+    @State private var adminComment = ""
+    @State private var isProcessing = false
+    @State private var showRejectionSheet = false
+    
+    private let primary = BrandColors.darkTeal
+    private let db = Firestore.firestore()
+    
+    enum ActionType {
+        case askClarification
+        case askReupload
+    }
+    
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Coach Info Header - Clickable to profile
+                    NavigationLink {
+                        CoachProfileContentView(userID: request.uid, isAdminViewing: true)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(request.fullName)
+                                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                    .foregroundColor(primary)
+                                
+                                Text(request.email)
+                                    .font(.system(size: 15, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(BrandColors.background)
+                                .shadow(color: .black.opacity(0.05), radius: 4)
+                        )
+                    }
+                    .padding(.horizontal)
+                    
+                    // Request Timeline
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Request Timeline")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
+                            .padding(.horizontal)
+                        
+                        ForEach(request.timeline) { entry in
+                            TimelineEntryView(entry: entry)
+                        }
+                    }
+                    
+                    // Add spacing at bottom for footer buttons
+                    Spacer(minLength: 120)
+                }
+                .padding(.vertical)
+            }
+            
+            // Action Buttons (Fixed at bottom with proper padding)
+            if request.status == "pending" || request.status == "under_review" {
+                VStack {
+                    Spacer()
+                    
+                    VStack(spacing: 12) {
+                        HStack(spacing: 12) {
+                            Button {
+                                showRejectionSheet = true
+                            } label: {
+                                Text("Reject")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(Color.red)
+                                    .clipShape(Capsule())
+                            }
+                            
+                            Button {
+                                showActionSheet = true
+                            } label: {
+                                Text("Under Review")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(Color.orange)
+                                    .clipShape(Capsule())
+                            }
+                            
+                            Button {
+                                Task {
+                                    await approveRequest()
+                                }
+                            } label: {
+                                Text("Approve")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(Color.green)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .padding(.bottom, 60) // Extra padding from bottom
+                    .background(
+                        Color.white
+                            .ignoresSafeArea(edges: .bottom)
+                            .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
+                    )
+                }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showActionSheet) {
+            UnderReviewActionSheet(
+                coachName: request.fullName,
+                adminComment: $adminComment,
+                isProcessing: $isProcessing,
+                onSubmit: { actionType in
+                    Task {
+                        await handleUnderReviewAction(actionType: actionType)
+                    }
+                }
+            )
+            .presentationDetents([.height(500)])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
+        }
+        .sheet(isPresented: $showRejectionSheet) {
+            SimpleRejectionSheet(
+                coachName: request.fullName,
+                rejectionReason: $adminComment,
+                isRejecting: $isProcessing,
+                onCancel: {
+                    showRejectionSheet = false
+                    adminComment = ""
+                },
+                onConfirm: { reason in
+                    Task {
+                        await rejectRequest(reason: reason)
+                    }
+                }
+            )
+            .presentationDetents([.height(400)])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
+        }
+    }
+    
+    
+private func approveRequest() async {
+    do {
+        let batch = db.batch()
+        
+        let reqRef = db.collection("coachRequests").document(request.id)
+        batch.setData([
+            "status": "approved",
+            "reviewedAt": FieldValue.serverTimestamp()
+        ], forDocument: reqRef, merge: true)
+        
+        let userRef = db.collection("users").document(request.uid)
+        batch.setData([
+            "role": "coach",
+            "coachStatus": "approved",
+            "updatedAt": FieldValue.serverTimestamp()
+        ], forDocument: userRef, merge: true)
+        
+        try await batch.commit()
+        
+        await MainActor.run {
+            onApprove()
+            dismiss()
+        }
+    } catch {
+        print("Error approving request: \(error)")
+    }
+}
 
+private func rejectRequest(reason: String) async {
+    isProcessing = true
+    
+    do {
+        let batch = db.batch()
+        
+        let reqRef = db.collection("coachRequests").document(request.id)
+        batch.updateData([
+            "status": "rejected",
+            "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
+            "reviewedAt": FieldValue.serverTimestamp()
+        ], forDocument: reqRef)
+        
+        let userRef = db.collection("users").document(request.uid)
+        batch.updateData([
+            "coachStatus": "rejected",
+            "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        ], forDocument: userRef)
+        
+        try await batch.commit()
+        
+        await MainActor.run {
+            isProcessing = false
+            showRejectionSheet = false
+            adminComment = ""
+            onReject()
+            dismiss()
+        }
+    } catch {
+        await MainActor.run {
+            isProcessing = false
+            print("Error rejecting request: \(error)")
+        }
+    }
+}
+
+    private func handleUnderReviewAction(actionType: UnderReviewType) async {
+        guard !adminComment.isEmpty else { return }
+        isProcessing = true
+        
+        do {
+            // First, get current timeline or create empty array
+            let doc = try await db.collection("coachRequests").document(request.id).getDocument()
+            var timeline = doc.data()?["timeline"] as? [[String: Any]] ?? []
+            
+            // Add new entry to timeline array
+            let newEntry: [String: Any] = [
+                "id": UUID().uuidString,
+                "timestamp": Timestamp(date: Date()),
+                "type": actionType == .askClarification ? "adminComment" : "documentReuploadRequest", // Changed this
+                "adminComment": adminComment,
+                "status": "under_review"
+            ]
+            
+            timeline.append(newEntry)
+            
+            // Prepare updates
+            let updates: [String: Any] = [
+                "timeline": timeline,
+                "status": "under_review",
+                "reviewedAt": FieldValue.serverTimestamp()
+            ]
+            
+            // Update both collections
+            try await db.collection("coachRequests").document(request.id).updateData(updates)
+            try await db.collection("users").document(request.uid).updateData([
+                "coachStatus": "under_review"
+            ])
+            
+            await MainActor.run {
+                isProcessing = false
+                showActionSheet = false
+                adminComment = ""
+                onUnderReview()
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isProcessing = false
+                print("Error: \(error)")
+            }
+        }
+    }
+    
+    private func handleAction() {
+        guard !adminComment.isEmpty else { return }
+        isProcessing = true
+        
+        Task {
+            do {
+                let newEntry: [String: Any] = [
+                    "id": UUID().uuidString,
+                    "timestamp": FieldValue.serverTimestamp(),
+                    "type": actionType == .askClarification ? "adminComment" : "documentReuploaded",
+                    "adminComment": adminComment,
+                    "status": "under_review"
+                ]
+                
+                var updates: [String: Any] = [
+                    "timeline": FieldValue.arrayUnion([newEntry]),
+                    "status": "under_review",
+                    "reviewedAt": FieldValue.serverTimestamp()
+                ]
+                
+                // Update both coachRequests and users collection
+                try await db.collection("coachRequests").document(request.id).updateData(updates)
+                try await db.collection("users").document(request.uid).updateData([
+                    "coachStatus": "under_review"
+                ])
+                
+                await MainActor.run {
+                    isProcessing = false
+                    showActionSheet = false
+                    adminComment = ""
+                    onUnderReview()
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isProcessing = false
+                    print("Error: \(error)")
+                }
+            }
+        }
+    }
+}
+// Timeline Entry View
+struct TimelineEntryView: View {
+    let entry: TimelineEntry
+    private let primary = BrandColors.darkTeal
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // Timeline indicator
+            VStack {
+                Circle()
+                    .fill(iconColor)
+                    .frame(width: 12, height: 12)
+                
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 2)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(entry.type.rawValue)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                    
+                    Spacer()
+                    
+                    Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                
+                if let adminComment = entry.adminComment {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Admin:")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                        Text(adminComment)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.primary)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                
+                if let coachResponse = entry.coachResponse {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Coach Response:")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                        Text(coachResponse)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.primary)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.blue.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                
+                if let docURL = entry.documentURL {
+                    Link(destination: URL(string: docURL)!) {
+                        HStack {
+                            Image(systemName: "doc.fill")
+                            Text("View Document")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(primary)
+                        .padding(10)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(color: .black.opacity(0.05), radius: 2)
+                    }
+                }
+            }
+            .padding(.bottom, 16)
+        }
+        .padding(.horizontal)
+    }
+    
+    private var iconColor: Color {
+        switch entry.type {
+        case .submitted: return .blue
+        case .adminComment: return .orange
+        case .coachResponse: return .green
+        case .documentReuploaded: return .purple
+        case .rejected: return .red
+        case .approved: return .green
+        case .underReview: return .orange
+        case .documentReuploadRequest: return .orange
+        }
+    }
+}
+
+// Admin Action Sheet
+struct AdminActionSheet: View {
+    let actionType: CoachRequestDetailView.ActionType
+    @Binding var adminComment: String
+    @Binding var isProcessing: Bool
+    let onSubmit: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 300
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                
+                VStack(spacing: 20) {
+                    // Title
+                    Text(title)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                        .padding(.top, 20)
+                    
+                    // Subtitle
+                    Text(subtitle)
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    // Text Editor
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.05), radius: 4)
+                        
+                        if adminComment.isEmpty {
+                            Text("Type your message here...")
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .font(.system(size: 16, design: .rounded))
+                                .padding(.horizontal, 16)
+                                .padding(.top, 20)
+                        }
+                        
+                        TextEditor(text: $adminComment)
+                            .font(.system(size: 16, design: .rounded))
+                            .padding(12)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .onChange(of: adminComment) { _, newValue in
+                                if newValue.count > charLimit {
+                                    adminComment = String(newValue.prefix(charLimit))
+                                }
+                            }
+                    }
+                    .frame(height: 150)
+                    
+                    // Character count
+                    HStack {
+                        Spacer()
+                        Text("\(adminComment.count)/\(charLimit)")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(adminComment.count >= charLimit ? .red : .secondary)
+                    }
+                    .padding(.horizontal)
+                    
+                    // Required field indicator
+                    HStack {
+                        Image(systemName: "asterisk")
+                            .font(.system(size: 8))
+                            .foregroundColor(.red)
+                        Text("Required field")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    
+                    // Submit Button
+                    Button {
+                        onSubmit()
+                    } label: {
+                        HStack {
+                            Text("Submit")
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                            if isProcessing {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(adminComment.isEmpty ? Color.gray : primary)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(adminComment.isEmpty || isProcessing)
+                    .padding(.horizontal)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(primary)
+                }
+            }
+        }
+    }
+    
+    private var title: String {
+        switch actionType {
+        case .askClarification: return "Ask for Clarification"
+        case .askReupload: return "Request Document Reupload"
+        }
+    }
+    
+    private var subtitle: String {
+        switch actionType {
+        case .askClarification:
+            return "Ask the coach to clarify or provide more information"
+        case .askReupload:
+            return "Explain what's wrong with the current document"
+        }
+    }
+}
+struct CoachRequestStatusView: View {
+    @State private var requestData: CoachRequestData?
+    @State private var isLoading = true
+    @State private var responseText = ""
+    @State private var showResponseSheet = false
+    @State private var selectedEntry: TimelineEntry?
+    @State private var isSubmitting = false
+    @State private var showDocumentPicker = false
+    @State private var selectedDocument: URL?
+    
+    private let primary = BrandColors.darkTeal
+    private let db = Firestore.firestore()
+    
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            
+            if isLoading {
+                ProgressView()
+                    .tint(primary)
+            } else if let data = requestData {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Status Header
+                        VStack(spacing: 12) {
+                            StatusBadge(status: data.status)
+                            
+                            if data.status == "rejected" {
+                                VStack(spacing: 8) {
+                                    Text("Your application was not approved")
+                                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                                        .foregroundColor(.primary)
+                                    
+                                    if let reason = data.rejectionReason {
+                                        Text(reason)
+                                            .font(.system(size: 14, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                            .multilineTextAlignment(.center)
+                                            .padding()
+                                            .background(Color.red.opacity(0.1))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    }
+                                    
+                                    Text("If you think this is a mistake, contact support@haddaf.com")
+                                        .font(.system(size: 13, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.top, 4)
+                                }
+                                .padding()
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .shadow(color: .black.opacity(0.05), radius: 4)
+                            } else if data.status == "under_review" {
+                                Text("Your application is being reviewed. Please check for any admin requests below.")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding()
+                                    .background(Color.orange.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            } else if data.status == "approved" {
+                                Text("Congratulations! Your application has been approved.")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding()
+                                    .background(Color.green.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                        .padding(.horizontal)
+                        
+                        // Request Timeline
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Request Timeline")
+                                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                .foregroundColor(primary)
+                                .padding(.horizontal)
+                            
+                            ForEach(data.timeline) { entry in
+                                CoachTimelineEntryView(
+                                    entry: entry,
+                                    onRespond: {
+                                        selectedEntry = entry
+                                        showResponseSheet = true
+                                    },
+                                    onReupload: {
+                                        selectedEntry = entry
+                                        showDocumentPicker = true
+                                    }
+                                )
+                            }
+                        }
+                        
+                        Spacer(minLength: 40)
+                    }
+                    .padding(.vertical)
+                }
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 60))
+                        .foregroundColor(.secondary)
+                    
+                    Text("No active coach application found")
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
+                        .foregroundColor(.primary)
+                }
+            }
+        }
+        .navigationTitle("Application Status")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showResponseSheet) {
+            CoachResponseSheet(
+                responseText: $responseText,
+                isSubmitting: $isSubmitting,
+                onSubmit: submitResponse
+            )
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPicker(selectedDocument: $selectedDocument)
+        }
+        .onChange(of: selectedDocument) { _, newValue in
+            if newValue != nil {
+                Task { await uploadDocument() }
+            }
+        }
+        .task {
+            await fetchRequestStatus()
+        }
+    }
+    
+    private func fetchRequestStatus() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        
+        do {
+            // Fetch from coachRequests collection, not users collection
+            let requestSnap = try await db.collection("coachRequests")
+                .whereField("uid", isEqualTo: uid)
+                .whereField("status", in: ["pending", "under_review", "approved", "rejected"])
+                .order(by: "submittedAt", descending: true)
+                .limit(to: 1)
+                .getDocuments()
+            
+            guard let requestDoc = requestSnap.documents.first else {
+                await MainActor.run { isLoading = false }
+                return
+            }
+            
+            let data = requestDoc.data()
+            let status = data["status"] as? String ?? "pending"
+            let rejectionReason = data["rejectionReason"] as? String
+            
+            var timelineEntries: [TimelineEntry] = []
+            
+            // Add initial submission
+            if let submittedAt = data["submittedAt"] as? Timestamp {
+                timelineEntries.append(TimelineEntry(
+                    id: UUID().uuidString,
+                    timestamp: submittedAt.dateValue(),
+                    type: .submitted,
+                    adminComment: nil,
+                    coachResponse: nil,
+                    documentURL: data["verificationFile"] as? String,
+                    status: "pending"
+                ))
+            }
+            
+            // Add timeline entries
+            if let timelineData = data["timeline"] as? [[String: Any]] {
+                for entry in timelineData {
+                    let typeString = entry["type"] as? String ?? ""
+                    let entryType = TimelineEntryType(rawValue: typeString) ?? .adminComment
+                    
+                    // Handle both Timestamp and Date objects
+                    let timestamp: Date
+                    if let ts = entry["timestamp"] as? Timestamp {
+                        timestamp = ts.dateValue()
+                    } else if let date = entry["timestamp"] as? Date {
+                        timestamp = date
+                    } else {
+                        timestamp = Date()
+                    }
+                    
+                    timelineEntries.append(TimelineEntry(
+                        id: entry["id"] as? String ?? UUID().uuidString,
+                        timestamp: timestamp,
+                        type: entryType,
+                        adminComment: entry["adminComment"] as? String,
+                        coachResponse: entry["coachResponse"] as? String,
+                        documentURL: entry["documentURL"] as? String,
+                        status: entry["status"] as? String
+                    ))
+                }
+            }
+            
+            timelineEntries.sort { $0.timestamp < $1.timestamp }
+            
+            await MainActor.run {
+                self.requestData = CoachRequestData(
+                    status: status,
+                    rejectionReason: rejectionReason,
+                    timeline: timelineEntries
+                )
+                self.isLoading = false
+            }
+        } catch {
+            print("Error fetching request status: \(error)")
+            await MainActor.run { isLoading = false }
+        }
+    }
+    
+    private func submitResponse() {
+        guard let entry = selectedEntry,
+              let uid = Auth.auth().currentUser?.uid,
+              !responseText.isEmpty else { return }
+        
+        isSubmitting = true
+        
+        Task {
+            do {
+                // Get current request document from coachRequests collection
+                let requestSnap = try await db.collection("coachRequests")
+                    .whereField("uid", isEqualTo: uid)
+                    .whereField("status", isEqualTo: "under_review")
+                    .limit(to: 1)
+                    .getDocuments()
+                
+                guard let requestDoc = requestSnap.documents.first else {
+                    await MainActor.run {
+                        isSubmitting = false
+                    }
+                    return
+                }
+                
+                // Get current timeline
+                var timeline = requestDoc.data()["timeline"] as? [[String: Any]] ?? []
+                
+                // Add new timeline entry for the response - REMOVE duplicate adminComment
+                let responseEntry: [String: Any] = [
+                    "id": UUID().uuidString,
+                    "timestamp": Timestamp(date: Date()),
+                    "type": TimelineEntryType.coachResponse.rawValue,
+                    "coachResponse": responseText,
+                    "status": "under_review"
+                ]
+                timeline.append(responseEntry)
+                
+                // Update the request and move back to pending
+                try await db.collection("coachRequests").document(requestDoc.documentID).updateData([
+                    "timeline": timeline,
+                    "status": "pending"  // Move back to pending so admin sees it
+                ])
+                
+                await MainActor.run {
+                    isSubmitting = false
+                    showResponseSheet = false
+                    responseText = ""
+                }
+                
+                await fetchRequestStatus()
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    print("Error submitting response: \(error)")
+                }
+            }
+        }
+    }
+    
+    private func uploadDocument() async {
+        guard let entry = selectedEntry,
+              let uid = Auth.auth().currentUser?.uid,
+              let docURL = selectedDocument else { return }
+        
+        do {
+            // Get current request document from coachRequests collection
+            let requestSnap = try await db.collection("coachRequests")
+                .whereField("uid", isEqualTo: uid)
+                .whereField("status", isEqualTo: "under_review")
+                .limit(to: 1)
+                .getDocuments()
+            
+            guard let requestDoc = requestSnap.documents.first else { return }
+            
+            // Upload document to Storage
+            let fileName = "\(UUID().uuidString)_\(docURL.lastPathComponent)"
+            let ref = Storage.storage().reference().child("coach_verifications/\(uid)/\(fileName)")
+            
+            let data = try Data(contentsOf: docURL)
+            _ = try await ref.putDataAsync(data)
+            let downloadURL = try await ref.downloadURL()
+            
+            // Get current timeline
+            var timeline = requestDoc.data()["timeline"] as? [[String: Any]] ?? []
+            
+            // Create new timeline entry for the reupload - REMOVE adminComment
+            let newEntry: [String: Any] = [
+                "id": UUID().uuidString,
+                "timestamp": Timestamp(date: Date()),
+                "type": TimelineEntryType.documentReuploaded.rawValue,
+                "documentURL": downloadURL.absoluteString,
+                "status": "under_review"
+            ]
+            
+            timeline.append(newEntry)
+            
+            // Update both collections and move back to pending
+            try await db.collection("coachRequests").document(requestDoc.documentID).updateData([
+                "timeline": timeline,
+                "verificationFile": downloadURL.absoluteString,
+                "status": "pending"  // Move back to pending so admin sees it
+            ])
+            
+            try await db.collection("users").document(uid).updateData([
+                "verificationFile": downloadURL.absoluteString
+            ])
+            
+            await MainActor.run {
+                selectedDocument = nil
+                showDocumentPicker = false
+            }
+            
+            await fetchRequestStatus()
+        } catch {
+            print("Error uploading document: \(error)")
+        }
+    }
+}
+
+struct CoachRequestData {
+    let status: String
+    let rejectionReason: String?
+    let timeline: [TimelineEntry]
+}
+
+// Coach Timeline Entry View
+// Coach Timeline Entry View
+struct CoachTimelineEntryView: View {
+    let entry: TimelineEntry
+    let onRespond: () -> Void
+    let onReupload: () -> Void
+    
+    private let primary = BrandColors.darkTeal
+    @State private var showFullComment = false
+    
+    // Determine if this is a reupload request or clarification request
+    private var isReuploadRequest: Bool {
+        // Check the type first - this is the most reliable way
+        return entry.type == .documentReuploadRequest
+    }
+    
+    // Check if this entry should show action buttons (only admin comments and reupload requests)
+    private var shouldShowActionButtons: Bool {
+        return entry.type == .adminComment || entry.type == .documentReuploadRequest
+    }
+    
+    // Check if coach has already responded to this entry
+    private var hasResponse: Bool {
+        entry.coachResponse != nil
+    }
+    
+    // Check if this entry has a document upload
+    private var hasDocument: Bool {
+        entry.documentURL != nil
+    }
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // Timeline indicator
+            VStack {
+                Circle()
+                    .fill(iconColor)
+                    .frame(width: 14, height: 14)
+                
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 2)
+            }
+            
+            VStack(alignment: .leading, spacing: 12) {
+                // Entry Header
+                HStack {
+                    Text(displayTitle)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                    
+                    Spacer()
+                    
+                    Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                
+                // Admin Comment - Only show for admin messages and reupload requests
+                if shouldShowActionButtons, let adminComment = entry.adminComment {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "person.badge.shield.checkmark")
+                                .font(.system(size: 14))
+                                .foregroundColor(.orange)
+                            
+                            Text(isReuploadRequest ? "Document Reupload Required" : "Admin Message")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Text(adminComment)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(showFullComment ? nil : 3)
+                        
+                        if adminComment.count > 100 {
+                            Button {
+                                withAnimation { showFullComment.toggle() }
+                            } label: {
+                                Text(showFullComment ? "Show less" : "Show more")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(primary)
+                            }
+                        }
+                        
+                        // Action buttons based on request type
+                        if isReuploadRequest {
+                            // Document Reupload Request - Show upload button
+                            Button {
+                                onReupload()
+                            } label: {
+                                HStack {
+                                    Image(systemName: "arrow.up.doc.fill")
+                                    Text("Upload New Document")
+                                }
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(Color.purple)
+                                .clipShape(Capsule())
+                            }
+                            .padding(.top, 4)
+                        } else {
+                            // Clarification Request - Show respond button
+                            Button {
+                                onRespond()
+                            } label: {
+                                HStack {
+                                    Image(systemName: "arrowshape.turn.up.left.fill")
+                                    Text("Respond")
+                                }
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(primary)
+                                .clipShape(Capsule())
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                
+                // Coach Response - Only show if this is a response entry
+                if entry.type == .coachResponse, let coachResponse = entry.coachResponse {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(.blue)
+                            
+                            Text("Your Response")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Text(coachResponse)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.primary)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.blue.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                
+                // Document - Show for initial submission and reuploads
+                if let docURL = entry.documentURL, let url = URL(string: docURL) {
+                    Link(destination: url) {
+                        HStack {
+                            Image(systemName: "doc.fill")
+                                .foregroundColor(primary)
+                            
+                            Text(entry.type == .submitted ? "Initial Document" : "Reuploaded Document")
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                            
+                            Image(systemName: "arrow.up.right.square")
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(12)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(color: .black.opacity(0.05), radius: 3)
+                    }
+                }
+            }
+            .padding(.bottom, 20)
+        }
+        .padding(.horizontal)
+    }
+    
+    private var displayTitle: String {
+        switch entry.type {
+        case .submitted: return "Submitted"
+        case .adminComment: return "Admin Comment"
+        case .coachResponse: return "Coach Response"
+        case .documentReuploaded: return "Document Reuploaded"
+        case .documentReuploadRequest: return "Reupload Request"
+        case .rejected: return "Rejected"
+        case .approved: return "Approved"
+        case .underReview: return "Under Review"
+        }
+    }
+    
+    private var iconColor: Color {
+        switch entry.type {
+        case .submitted: return .blue
+        case .adminComment: return .orange
+        case .coachResponse: return .green
+        case .documentReuploaded: return .purple
+        case .rejected: return .red
+        case .approved: return .green
+        case .underReview: return .orange
+        case .documentReuploadRequest: return .purple
+        }
+    }
+}
+
+// Status Badge
+struct StatusBadge: View {
+    let status: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: iconName)
+            Text(displayText)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(backgroundColor)
+        .clipShape(Capsule())
+    }
+    
+    private var iconName: String {
+        switch status {
+        case "approved": return "checkmark.circle.fill"
+        case "rejected": return "xmark.circle.fill"
+        case "under_review": return "clock.fill"
+        default: return "hourglass"
+        }
+    }
+    
+    private var displayText: String {
+        switch status {
+        case "approved": return "Approved"
+        case "rejected": return "Rejected"
+        case "under_review": return "Under Review"
+        default: return "Pending"
+        }
+    }
+    
+    private var backgroundColor: Color {
+        switch status {
+        case "approved": return .green
+        case "rejected": return .red
+        case "under_review": return .orange
+        default: return .gray
+        }
+    }
+}
+
+// Coach Response Sheet
+            // Coach Response Sheet
+            struct CoachResponseSheet: View {
+                @Binding var responseText: String
+                @Binding var isSubmitting: Bool
+                let onSubmit: () -> Void
+                
+                @Environment(\.dismiss) private var dismiss
+                private let primary = BrandColors.darkTeal
+                private let charLimit = 300
+                
+                var body: some View {
+                    NavigationStack {
+                        ZStack {
+                            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                            
+                            VStack(spacing: 20) {
+                                Text("Respond to Admin")
+                                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                    .foregroundColor(primary)
+                                    .padding(.top)
+                                
+                                Text("Provide the clarification requested by the admin")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                
+                                // Text Editor with placeholder
+                                ZStack(alignment: .topLeading) {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.white)
+                                        .shadow(color: .black.opacity(0.05), radius: 4)
+                                    
+                                    if responseText.isEmpty {
+                                        Text("Type your response here...")
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                            .font(.system(size: 16, design: .rounded))
+                                            .padding(.horizontal, 16)
+                                            .padding(.top, 20)
+                                    }
+                                    
+                                    TextEditor(text: $responseText)
+                                        .font(.system(size: 16, design: .rounded))
+                                        .padding(12)
+                                        .scrollContentBackground(.hidden)
+                                        .background(Color.clear)
+                                        .onChange(of: responseText) { _, newValue in
+                                            if newValue.count > charLimit {
+                                                responseText = String(newValue.prefix(charLimit))
+                                            }
+                                        }
+                                }
+                                .frame(height: 200)
+                                
+                                // Character count
+                                HStack {
+                                    Spacer()
+                                    Text("\(responseText.count)/\(charLimit)")
+                                        .font(.system(size: 13, design: .rounded))
+                                        .foregroundColor(responseText.count >= charLimit ? .red : .secondary)
+                                }
+                                .padding(.horizontal)
+                                
+                                // Required field indicator
+                                HStack {
+                                    Image(systemName: "asterisk")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.red)
+                                    Text("Required field")
+                                        .font(.system(size: 13, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal)
+                                
+                                Button {
+                                    onSubmit()
+                                } label: {
+                                    HStack {
+                                        Text("Submit Response")
+                                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.white)
+                                        if isSubmitting {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.8)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(responseText.isEmpty ? Color.gray : primary)
+                                    .clipShape(Capsule())
+                                }
+                                .disabled(responseText.isEmpty || isSubmitting)
+                                .padding(.horizontal)
+                                
+                                Spacer()
+                            }
+                            .padding()
+                        }
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("Cancel") {
+                                    dismiss()
+                                }
+                                .foregroundColor(primary)
+                            }
+                        }
+                    }
+                }
+            }
+
+// Document Picker
+struct DocumentPicker: UIViewControllerRepresentable {
+    @Binding var selectedDocument: URL?
+    
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf, .jpeg, .png])
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: DocumentPicker
+        
+        init(_ parent: DocumentPicker) {
+            self.parent = parent
+        }
+        
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            parent.selectedDocument = urls.first
+        }
+    }
+}
+enum UnderReviewType {
+    case askClarification
+    case requestReupload
+}
+
+// Simple Rejection Sheet (No category)
+struct SimpleRejectionSheet: View {
+    let coachName: String
+    @Binding var rejectionReason: String
+    @Binding var isRejecting: Bool
+    let onCancel: () -> Void
+    let onConfirm: (String) -> Void
+    
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 300
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            VStack(spacing: 8) {
+                Text("Reject Coach Application")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+                
+                Text("Coach: \(coachName)")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            
+            // Text Editor
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4)
+                
+                if rejectionReason.isEmpty {
+                    Text("Explain why this application is being rejected...")
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: 16, design: .rounded))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                }
+                
+                TextEditor(text: $rejectionReason)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .onChange(of: rejectionReason) { _, newValue in
+                        if newValue.count > charLimit {
+                            rejectionReason = String(newValue.prefix(charLimit))
+                        }
+                    }
+            }
+            .frame(height: 150)
+            .padding(.horizontal)
+            
+            // Character count
+            HStack {
+                Spacer()
+                Text("\(rejectionReason.count)/\(charLimit)")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(rejectionReason.count >= charLimit ? .red : .secondary)
+            }
+            .padding(.horizontal)
+            
+            // Required field
+            HStack {
+                Image(systemName: "asterisk")
+                    .font(.system(size: 8))
+                    .foregroundColor(.red)
+                Text("Required field")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button {
+                    onCancel()
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 25)
+                                .stroke(primary, lineWidth: 2)
+                        )
+                        .clipShape(Capsule())
+                }
+                
+                Button {
+                    onConfirm(rejectionReason)
+                } label: {
+                    HStack {
+                        Text("Reject")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                        if isRejecting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(rejectionReason.isEmpty ? Color.gray : Color.red)
+                    .clipShape(Capsule())
+                }
+                .disabled(rejectionReason.isEmpty || isRejecting)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+    }
+}
+
+// Under Review Action Sheet (with category selection)
+struct UnderReviewActionSheet: View {
+    let coachName: String
+    @Binding var adminComment: String
+    @Binding var isProcessing: Bool
+    let onSubmit: (UnderReviewType) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedAction: UnderReviewType? = nil
+    
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 300
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            VStack(spacing: 8) {
+                Text("Under Review")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+                
+                Text("Coach: \(coachName)")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            
+            // Action Selection (Category)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Select Action")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                
+                VStack(spacing: 8) {
+                    // Ask for Clarification
+                    Button {
+                        selectedAction = .askClarification
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedAction == .askClarification ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(selectedAction == .askClarification ? primary : .secondary)
+                            
+                            Text("Ask for Clarification")
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(selectedAction == .askClarification ? primary.opacity(0.1) : Color.white)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(selectedAction == .askClarification ? primary : Color.gray.opacity(0.3), lineWidth: 1.5)
+                                )
+                        )
+                    }
+                    
+                    // Request Document Reupload
+                    Button {
+                        selectedAction = .requestReupload
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedAction == .requestReupload ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(selectedAction == .requestReupload ? primary : .secondary)
+
+                            Text("Request Document Reupload")
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(selectedAction == .requestReupload ? primary.opacity(0.1) : Color.white)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(selectedAction == .requestReupload ? primary : Color.gray.opacity(0.3), lineWidth: 1.5)
+                                )
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
+            
+            // Comment Field
+            VStack(alignment: .leading, spacing: 8) {
+                Text(selectedAction == .askClarification ? "Your Question" : "What's wrong with the document?")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.05), radius: 4)
+                    
+                    if adminComment.isEmpty {
+                        Text("Type your message here...")
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .font(.system(size: 16, design: .rounded))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 20)
+                    }
+                    
+                    TextEditor(text: $adminComment)
+                        .font(.system(size: 16, design: .rounded))
+                        .padding(12)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .onChange(of: adminComment) { _, newValue in
+                            if newValue.count > charLimit {
+                                adminComment = String(newValue.prefix(charLimit))
+                            }
+                        }
+                }
+                .frame(height: 120)
+                .padding(.horizontal)
+            }
+            
+            // Character count
+            HStack {
+                Spacer()
+                Text("\(adminComment.count)/\(charLimit)")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(adminComment.count >= charLimit ? .red : .secondary)
+            }
+            .padding(.horizontal)
+            
+            // Required field
+            HStack {
+                Image(systemName: "asterisk")
+                    .font(.system(size: 8))
+                    .foregroundColor(.red)
+                Text("Required field")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Submit Button
+            // Submit Button
+            Button {
+                if let action = selectedAction {
+                    onSubmit(action)
+                }
+            } label: {
+                HStack {
+                    Text("Submit")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    if isProcessing {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background((adminComment.isEmpty || selectedAction == nil) ? Color.gray : primary)
+                .clipShape(Capsule())
+            }
+            .disabled(adminComment.isEmpty || selectedAction == nil || isProcessing)
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+    }
+}
 // =======================================================
 // MARK: - 2) Manage Accounts
 // =======================================================
