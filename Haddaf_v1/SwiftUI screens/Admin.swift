@@ -742,20 +742,35 @@ private func loadPending() async {
     private func approve(uid: String, requestId: String) async {
         do {
             let db = Firestore.firestore()
+            
+            // Get current timeline
+            let doc = try await db.collection("coachRequests").document(requestId).getDocument()
+            var timeline = doc.data()?["timeline"] as? [[String: Any]] ?? []
+            
+            // Add approval entry to timeline
+            let approvalEntry: [String: Any] = [
+                "id": UUID().uuidString,
+                "timestamp": Timestamp(date: Date()),
+                "type": TimelineEntryType.approved.rawValue,
+                "status": "approved"
+            ]
+            timeline.append(approvalEntry)
+            
             let batch = db.batch()
 
             let reqRef = db.collection("coachRequests").document(requestId)
-            batch.setData([
+            batch.updateData([
                 "status": "approved",
-                "reviewedAt": FieldValue.serverTimestamp()
-            ], forDocument: reqRef, merge: true)
+                "reviewedAt": FieldValue.serverTimestamp(),
+                "timeline": timeline
+            ], forDocument: reqRef)
 
             let userRef = db.collection("users").document(uid)
-            batch.setData([
+            batch.updateData([
                 "role": "coach",
                 "coachStatus": "approved",
                 "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: userRef, merge: true)
+            ], forDocument: userRef)
 
             try await batch.commit()
             await loadPending()
@@ -770,6 +785,21 @@ private func loadPending() async {
         
         do {
             let db = Firestore.firestore()
+            
+            // Get current timeline
+            let doc = try await db.collection("coachRequests").document(requestId).getDocument()
+            var timeline = doc.data()?["timeline"] as? [[String: Any]] ?? []
+            
+            // Add rejection entry to timeline
+            let rejectionEntry: [String: Any] = [
+                "id": UUID().uuidString,
+                "timestamp": Timestamp(date: Date()),
+                "type": TimelineEntryType.rejected.rawValue,
+                "adminComment": reason.trimmingCharacters(in: .whitespacesAndNewlines),
+                "status": "rejected"
+            ]
+            timeline.append(rejectionEntry)
+            
             let batch = db.batch()
 
             let reqRef = db.collection("coachRequests").document(requestId)
@@ -777,7 +807,8 @@ private func loadPending() async {
                 "status": "rejected",
                 "rejectionCategory": category,
                 "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
-                "reviewedAt": FieldValue.serverTimestamp()
+                "reviewedAt": FieldValue.serverTimestamp(),
+                "timeline": timeline
             ], forDocument: reqRef)
 
             let userRef = db.collection("users").document(uid)
@@ -860,6 +891,15 @@ struct CoachRequestDetailView: View {
                         )
                     }
                     .padding(.horizontal)
+                    
+                    // Status Badge
+                    HStack {
+                        Spacer()
+                        StatusBadge(status: request.status)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                     
                     // Request Timeline
                     VStack(alignment: .leading, spacing: 8) {
@@ -974,69 +1014,65 @@ struct CoachRequestDetailView: View {
     }
     
     
-private func approveRequest() async {
-    do {
-        let batch = db.batch()
-        
-        let reqRef = db.collection("coachRequests").document(request.id)
-        batch.setData([
-            "status": "approved",
-            "reviewedAt": FieldValue.serverTimestamp()
-        ], forDocument: reqRef, merge: true)
-        
-        let userRef = db.collection("users").document(request.uid)
-        batch.setData([
-            "role": "coach",
-            "coachStatus": "approved",
-            "updatedAt": FieldValue.serverTimestamp()
-        ], forDocument: userRef, merge: true)
-        
-        try await batch.commit()
-        
+    private func approveRequest() async {
         await MainActor.run {
             onApprove()
             dismiss()
         }
-    } catch {
-        print("Error approving request: \(error)")
     }
-}
 
-private func rejectRequest(reason: String) async {
-    isProcessing = true
-    
-    do {
-        let batch = db.batch()
+    private func rejectRequest(reason: String) async {
+        isProcessing = true
         
-        let reqRef = db.collection("coachRequests").document(request.id)
-        batch.updateData([
-            "status": "rejected",
-            "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
-            "reviewedAt": FieldValue.serverTimestamp()
-        ], forDocument: reqRef)
-        
-        let userRef = db.collection("users").document(request.uid)
-        batch.updateData([
-            "coachStatus": "rejected",
-            "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        ], forDocument: userRef)
-        
-        try await batch.commit()
-        
-        await MainActor.run {
-            isProcessing = false
-            showRejectionSheet = false
-            adminComment = ""
-            onReject()
-            dismiss()
-        }
-    } catch {
-        await MainActor.run {
-            isProcessing = false
-            print("Error rejecting request: \(error)")
+        do {
+            let db = Firestore.firestore()
+            
+            // Get current timeline
+            let doc = try await db.collection("coachRequests").document(request.id).getDocument()
+            var timeline = doc.data()?["timeline"] as? [[String: Any]] ?? []
+            
+            // Add rejection entry to timeline
+            let rejectionEntry: [String: Any] = [
+                "id": UUID().uuidString,
+                "timestamp": Timestamp(date: Date()),
+                "type": TimelineEntryType.rejected.rawValue,
+                "adminComment": reason.trimmingCharacters(in: .whitespacesAndNewlines),
+                "status": "rejected"
+            ]
+            timeline.append(rejectionEntry)
+            
+            let batch = db.batch()
+            
+            let reqRef = db.collection("coachRequests").document(request.id)
+            batch.updateData([
+                "status": "rejected",
+                "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines),
+                "reviewedAt": FieldValue.serverTimestamp(),
+                "timeline": timeline
+            ], forDocument: reqRef)
+            
+            let userRef = db.collection("users").document(request.uid)
+            batch.updateData([
+                "coachStatus": "rejected",
+                "rejectionReason": reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            ], forDocument: userRef)
+            
+            try await batch.commit()
+            
+            await MainActor.run {
+                isProcessing = false
+                showRejectionSheet = false
+                adminComment = ""
+                // DON'T call onReject() - just dismiss
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isProcessing = false
+                print("Error rejecting request: \(error)")
+            }
         }
     }
-}
 
     private func handleUnderReviewAction(actionType: UnderReviewType) async {
         guard !adminComment.isEmpty else { return }
@@ -1134,105 +1170,207 @@ struct TimelineEntryView: View {
     private let primary = BrandColors.darkTeal
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Timeline indicator
-            VStack {
-                Circle()
-                    .fill(iconColor)
-                    .frame(width: 12, height: 12)
-                
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 2)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
+        // Special handling for rejection and approval - show as standalone final cards
+        if entry.type == .rejected, let rejectionReason = entry.adminComment {
+            // Rejection Card
+            VStack(spacing: 12) {
                 HStack {
-                    Text(entry.type.rawValue)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(primary)
+                    Image(systemName: "xmark.shield.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.red)
+                    
+                    Text("Application Rejected")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.red)
                     
                     Spacer()
-                    
-                    Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.secondary)
                 }
                 
-                // Admin Comment
-                if let adminComment = entry.adminComment {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "person.badge.shield.checkmark")
-                                .font(.system(size: 13))
-                                .foregroundColor(BrandColors.gold)
-                            Text("Admin:")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
-                        Text(adminComment)
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(.red)
+                        Text("Rejection Reason:")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(BrandColors.gold.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
-                    )
+                    Text(rejectionReason)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.primary)
                 }
-                
-                // Coach Response
-                if let coachResponse = entry.coachResponse {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(BrandColors.turquoise)
-                            Text("Coach Response:")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
-                        Text(coachResponse)
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(.primary)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(BrandColors.turquoise.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                
-                // Document
-                if let docURL = entry.documentURL {
-                    Link(destination: URL(string: docURL)!) {
-                        HStack {
-                            Image(systemName: "doc.fill")
-                                .foregroundColor(primary)
-                            Text("View Document")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(10)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .shadow(color: .black.opacity(0.05), radius: 2)
-                    }
-                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                )
             }
-            .padding(.bottom, 16)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.red.opacity(0.2), lineWidth: 1.5)
+            )
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        } else if entry.type == .approved {
+            // Approval Card
+            VStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "checkmark.shield.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(BrandColors.actionGreen)
+                    
+                    Text("Application Approved")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.actionGreen)
+                    
+                    Spacer()
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(BrandColors.actionGreen)
+                        Text("Status:")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Text("This coach application has been approved. The coach now has full access to coach features.")
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.primary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(BrandColors.actionGreen.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(BrandColors.actionGreen.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(BrandColors.actionGreen.opacity(0.2), lineWidth: 1.5)
+            )
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        } else {
+            // Normal timeline entries (with timeline dot)
+            HStack(alignment: .top, spacing: 12) {
+                // Timeline indicator
+                VStack {
+                    Circle()
+                        .fill(iconColor)
+                        .frame(width: 12, height: 12)
+                    
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 2)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(entry.type.rawValue)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
+                        
+                        Spacer()
+                        
+                        Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // Admin Comment
+                    if let adminComment = entry.adminComment {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "person.badge.shield.checkmark")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(BrandColors.gold)
+                                Text("Admin:")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            Text(adminComment)
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(BrandColors.gold.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    
+                    // Coach Response
+                    if let coachResponse = entry.coachResponse {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(BrandColors.turquoise)
+                                Text("Coach Response:")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            Text(coachResponse)
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(BrandColors.turquoise.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    
+                    // Document
+                    if let docURL = entry.documentURL {
+                        Link(destination: URL(string: docURL)!) {
+                            HStack {
+                                Image(systemName: "doc.fill")
+                                    .foregroundColor(primary)
+                                Text("View Document")
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(10)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.05), radius: 2)
+                        }
+                    }
+                }
+                .padding(.bottom, 16)
+            }
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
     
     private var iconColor: Color {
@@ -1408,33 +1546,7 @@ struct CoachRequestStatusView: View {
                         VStack(spacing: 12) {
                             StatusBadge(status: data.status)
                             
-                            if data.status == "rejected" {
-                                VStack(spacing: 8) {
-                                    Text("Your application was not approved")
-                                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                                        .foregroundColor(.primary)
-                                    
-                                    if let reason = data.rejectionReason {
-                                        Text(reason)
-                                            .font(.system(size: 14, design: .rounded))
-                                            .foregroundColor(.secondary)
-                                            .multilineTextAlignment(.center)
-                                            .padding()
-                                            .background(Color.red.opacity(0.1))
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    }
-                                    
-                                    Text("If you think this is a mistake, contact support@haddaf.com")
-                                        .font(.system(size: 13, design: .rounded))
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.top, 4)
-                                }
-                                .padding()
-                                .background(Color.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .shadow(color: .black.opacity(0.05), radius: 4)
-                            } else if data.status == "under_review" {
+                            if data.status == "under_review" {
                                 Text("Your application is being reviewed. Please check for any admin requests below.")
                                     .font(.system(size: 14, design: .rounded))
                                     .foregroundColor(.secondary)
@@ -1759,173 +1871,275 @@ struct CoachTimelineEntryView: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Timeline indicator
-            VStack {
-                Circle()
-                    .fill(iconColor)
-                    .frame(width: 14, height: 14)
-                
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 2)
-            }
-            
-            VStack(alignment: .leading, spacing: 12) {
-                // Entry Header
-                HStack {
-                    Text(displayTitle)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(primary)
+        // Special handling for rejection - show as standalone final card
+        if entry.type == .rejected, let rejectionReason = entry.adminComment {
+            VStack(spacing: 16) {
+                // Header with icon
+                VStack(spacing: 12) {
+                    Image(systemName: "xmark.shield.fill")
+                        .font(.system(size: 50))
+                        .foregroundColor(.red)
                     
-                    Spacer()
-                    
-                    Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.secondary)
+                    Text("Application Rejected")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
                 }
                 
-                // Admin Comment - Only show for admin messages and reupload requests
-                if shouldShowActionButtons, let adminComment = entry.adminComment {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "person.badge.shield.checkmark")
+                // Rejection reason card
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.red)
+                        
+                        Text("Reason")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Text(rejectionReason)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(showFullComment ? nil : 3)
+                    
+                    if rejectionReason.count > 100 {
+                        Button {
+                            withAnimation { showFullComment.toggle() }
+                        } label: {
+                            Text(showFullComment ? "Show less" : "Show more")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(primary)
+                        }
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                )
+                
+                // Divider
+                Rectangle()
+                    .fill(Color.red.opacity(0.3))
+                    .frame(height: 1)
+                    .padding(.horizontal, 20)
+                
+                // Support message
+                VStack(spacing: 8) {
+                    Text("Think this is a mistake?")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                    
+                    Text("If you believe this decision was made in error, please contact our support team:")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Link(destination: URL(string: "mailto:support@haddaf.com")!) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "envelope.fill")
                                 .font(.system(size: 14))
-                                .foregroundColor(BrandColors.gold)
-                            
-                            Text(isReuploadRequest ? "Document Reupload Required" : "Admin Message")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(.secondary)
+                            Text("support@haddaf.com")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
                         }
+                        .foregroundColor(primary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(BrandColors.background)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(primary, lineWidth: 1.5)
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.red.opacity(0.2), lineWidth: 2)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 40) // Extra padding as this is the final entry
+        } else {
+            // Normal timeline entries (with timeline dot)
+            HStack(alignment: .top, spacing: 12) {
+                // Timeline indicator
+                VStack {
+                    Circle()
+                        .fill(iconColor)
+                        .frame(width: 14, height: 14)
+                    
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 2)
+                }
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    // Entry Header
+                    HStack {
+                        Text(displayTitle)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
                         
-                        Text(adminComment)
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(.primary)
-                            .lineLimit(showFullComment ? nil : 3)
+                        Spacer()
                         
-                        if adminComment.count > 100 {
-                            Button {
-                                withAnimation { showFullComment.toggle() }
-                            } label: {
-                                Text(showFullComment ? "Show less" : "Show more")
-                                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                                    .foregroundColor(primary)
-                            }
-                        }
-                        
-                        // Action buttons based on request type - only show if NOT answered
-                        if !hasBeenAnswered {
-                            if isReuploadRequest {
-                                // Document Reupload Request - Show upload button
-                                Button {
-                                    onReupload()
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "arrow.up.doc.fill")
-                                        Text("Upload New Document")
-                                    }
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
-                                    .background(BrandColors.teal)
-                                    .clipShape(Capsule())
-                                }
-                                .padding(.top, 4)
-                            } else {
-                                // Clarification Request - Show respond button
-                                Button {
-                                    onRespond()
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "arrowshape.turn.up.left.fill")
-                                        Text("Respond")
-                                    }
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
-                                    .background(primary)
-                                    .clipShape(Capsule())
-                                }
-                                .padding(.top, 4)
-                            }
-                        } else {
-                            // Show "Answered" indicator
+                        Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // Admin Comment - Only show for admin messages and reupload requests
+                    if shouldShowActionButtons, let adminComment = entry.adminComment {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Image(systemName: "checkmark.circle.fill")
+                                Image(systemName: "person.badge.shield.checkmark")
                                     .font(.system(size: 14))
-                                    .foregroundColor(BrandColors.actionGreen)
-                                Text("Answered")
-                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(BrandColors.gold)
+                                
+                                Text(isReuploadRequest ? "Document Reupload Required" : "Admin Message")
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
                                     .foregroundColor(.secondary)
                             }
-                            .padding(.top, 4)
-                        }
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(BrandColors.gold.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                
-                // Coach Response - Only show if this is a response entry
-                if entry.type == .coachResponse, let coachResponse = entry.coachResponse {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(BrandColors.turquoise)
                             
-                            Text("Your Response")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Text(coachResponse)
-                            .font(.system(size: 15, design: .rounded))
-                            .foregroundColor(.primary)
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(BrandColors.turquoise.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                
-                // Document - Show for initial submission and reuploads
-                if let docURL = entry.documentURL, let url = URL(string: docURL) {
-                    Link(destination: url) {
-                        HStack {
-                            Image(systemName: "doc.fill")
-                                .foregroundColor(primary)
-                            
-                            Text(entry.type == .submitted ? "Initial Document" : "Reuploaded Document")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                            Text(adminComment)
+                                .font(.system(size: 15, design: .rounded))
                                 .foregroundColor(.primary)
+                                .lineLimit(showFullComment ? nil : 3)
                             
-                            Spacer()
+                            if adminComment.count > 100 {
+                                Button {
+                                    withAnimation { showFullComment.toggle() }
+                                } label: {
+                                    Text(showFullComment ? "Show less" : "Show more")
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                        .foregroundColor(primary)
+                                }
+                            }
                             
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundColor(.secondary)
+                            // Action buttons based on request type - only show if NOT answered
+                            if !hasBeenAnswered {
+                                if isReuploadRequest {
+                                    // Document Reupload Request - Show upload button
+                                    Button {
+                                        onReupload()
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "arrow.up.doc.fill")
+                                            Text("Upload New Document")
+                                        }
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(BrandColors.teal)
+                                        .clipShape(Capsule())
+                                    }
+                                    .padding(.top, 4)
+                                } else {
+                                    // Clarification Request - Show respond button
+                                    Button {
+                                        onRespond()
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "arrowshape.turn.up.left.fill")
+                                            Text("Respond")
+                                        }
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(primary)
+                                        .clipShape(Capsule())
+                                    }
+                                    .padding(.top, 4)
+                                }
+                            } else {
+                                // Show "Answered" indicator
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(BrandColors.actionGreen)
+                                    Text("Answered")
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.top, 4)
+                            }
                         }
-                        .padding(12)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .shadow(color: .black.opacity(0.05), radius: 3)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(BrandColors.gold.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(BrandColors.gold.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    
+                    // Coach Response - Only show if this is a response entry
+                    if entry.type == .coachResponse, let coachResponse = entry.coachResponse {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(BrandColors.turquoise)
+                                
+                                Text("Your Response")
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Text(coachResponse)
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(BrandColors.turquoise.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(BrandColors.turquoise.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    
+                    // Document - Show for initial submission and reuploads
+                    if let docURL = entry.documentURL, let url = URL(string: docURL) {
+                        Link(destination: url) {
+                            HStack {
+                                Image(systemName: "doc.fill")
+                                    .foregroundColor(primary)
+                                
+                                Text(entry.type == .submitted ? "Initial Document" : "Reuploaded Document")
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundColor(.primary)
+                                
+                                Spacer()
+                                
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(12)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.05), radius: 3)
+                        }
                     }
                 }
+                .padding(.bottom, 20)
             }
-            .padding(.bottom, 20)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
     
     private var displayTitle: String {
