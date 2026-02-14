@@ -185,8 +185,8 @@ struct CustomTabBar: View {
                 } else if session.role == "coach" {
                     selectedTab = .lineupBuilder
                 } else {
-                    // Players (and theoretically guests if they weren't caught above)
-                    // see the upload flow
+                    // Check if account is active before allowing upload
+                    guard session.isActive else { return }
                     showVideoUpload = true
                 }
             }) {

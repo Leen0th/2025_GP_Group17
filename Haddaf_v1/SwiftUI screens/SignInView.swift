@@ -249,13 +249,6 @@ struct SignInView: View {
                 }
             }
             
-            // Block access if the account is deactivated
-            if !isActive {
-                try? Auth.auth().signOut()
-                signInError = "Your account is deactivated. Please contact support."
-                return
-            }
-            
             // ✅ Admin: allow direct access WITHOUT email verification
             if role == "admin" {
                 _ = try? await user.getIDTokenResult(forcingRefresh: true)

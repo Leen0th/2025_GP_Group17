@@ -186,6 +186,10 @@ struct PlayerProfileContentView: View {
                             isRootProfileView: isRootProfileView,
                             onReport: {
                                 // --- Check for guest ---
+                                guard session.isActive else {
+                                    // Show alert that account is deactivated
+                                    return
+                                }
                                 if session.isGuest {
                                     showAuthSheet = true
                                 } else {

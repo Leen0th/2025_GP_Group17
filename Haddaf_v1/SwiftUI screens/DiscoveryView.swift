@@ -26,7 +26,7 @@ struct DiscoveryView: View {
 
     // --- for auth prompt ---
     @State private var showAuthSheet = false
-    
+    @State private var showDeactivationDetails = false
     // --- for re-application ---
     @State private var showReapplySheet = false
     
@@ -218,6 +218,65 @@ struct DiscoveryView: View {
     @ViewBuilder
     private var discoveryContent: some View {
         VStack(spacing: 0) {
+            // Deactivation Banner - Show for all deactivated accounts
+            if !session.isActive {
+                VStack(spacing: 0) {
+                    // Collapsed Banner - Always visible
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            showDeactivationDetails.toggle()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "exclamationmark.octagon.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                            
+                            Text(showDeactivationDetails ? "Account Deactivated - Tap to minimize" : "Account Deactivated - Tap to view details")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                            
+                            Spacer()
+                            
+                            Image(systemName: showDeactivationDetails ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    .background(Color.red.opacity(0.9))
+                    
+                    // Expanded Details
+                    if showDeactivationDetails, let reason = session.deactivationReason {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.red)
+                                Text("Reason:")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Text(reason)
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            
+                            Text("If you think this is a mistake, contact support@haddaf.com")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .padding(.top, 4)
+                        }
+                        .padding(16)
+                        .background(Color.white)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+            }
+            
             if session.role == "coach" {
                 if session.coachStatus == "rejected" {
                     // Navigate to request status to see rejection in timeline
@@ -441,6 +500,10 @@ struct DiscoveryPostCardView: View {
                     
                     // --- Report Button Action ---
                     Button {
+                        guard session.isActive else {
+                            // Show alert that account is deactivated
+                            return
+                        }
                         if session.isGuest {
                             showAuthSheet = true
                         } else {
@@ -485,6 +548,10 @@ struct DiscoveryPostCardView: View {
             HStack(spacing: 16) {
                 // --- LIKE BUTTON Action ---
                 Button {
+                    guard session.isActive else {
+                        // Show alert that account is deactivated
+                        return
+                    }
                     if session.isGuest {
                         showAuthSheet = true
                     } else {
@@ -503,6 +570,10 @@ struct DiscoveryPostCardView: View {
 
                 // --- COMMENT BUTTON Action ---
                 Button {
+                    guard session.isActive else {
+                        // Show alert that account is deactivated
+                        return
+                    }
                     if session.isGuest {
                         showAuthSheet = true
                     } else {

@@ -217,6 +217,10 @@ struct PostDetailView: View {
                         
                         // --- Report Button Action ---
                         Button {
+                            guard session.isActive else {
+                                // Show alert that account is deactivated
+                                return
+                            }
                             if session.isGuest {
                                 showAuthSheet = true
                             } else {
@@ -466,6 +470,10 @@ struct PostDetailView: View {
             if !isAdminViewing {
                 // --- Like Button Action ---
                 Button {
+                guard session.isActive else {
+                    // Show alert that account is deactivated
+                    return
+                }
                 if session.isGuest {
                     showAuthSheet = true
                 } else {
@@ -484,6 +492,10 @@ struct PostDetailView: View {
             
             // --- Comment Button Action ---
             Button {
+                guard session.isActive else {
+                    // Show alert that account is deactivated
+                    return
+                }
                 if session.isGuest {
                     showAuthSheet = true
                 } else {
@@ -1262,6 +1274,10 @@ fileprivate struct CommentRowView: View {
                 
                 // --- Report Button Action ---
                 Button {
+                    guard session.isActive else {
+                        // Show alert that account is deactivated
+                        return
+                    }
                     if session.isGuest {
                         showAuthSheet = true
                     } else {

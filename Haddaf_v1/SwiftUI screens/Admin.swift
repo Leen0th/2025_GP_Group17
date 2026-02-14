@@ -2480,6 +2480,125 @@ struct SimpleRejectionSheet: View {
     }
 }
 
+// Deactivation Reason Sheet
+struct DeactivationReasonSheet: View {
+    let userName: String
+    @Binding var deactivationReason: String
+    @Binding var isProcessing: Bool
+    let onCancel: () -> Void
+    let onConfirm: (String) -> Void
+    
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 300
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            VStack(spacing: 8) {
+                Text("Deactivate Account")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+                
+                Text("User: \(userName)")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            
+            // Text Editor
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4)
+                
+                if deactivationReason.isEmpty {
+                    Text("Explain why this account is being deactivated...")
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: 16, design: .rounded))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                }
+                
+                TextEditor(text: $deactivationReason)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .onChange(of: deactivationReason) { _, newValue in
+                        if newValue.count > charLimit {
+                            deactivationReason = String(newValue.prefix(charLimit))
+                        }
+                    }
+            }
+            .frame(height: 150)
+            .padding(.horizontal)
+            
+            // Character count
+            HStack {
+                Spacer()
+                Text("\(deactivationReason.count)/\(charLimit)")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(deactivationReason.count >= charLimit ? .red : .secondary)
+            }
+            .padding(.horizontal)
+            
+            // Required field
+            HStack {
+                Image(systemName: "asterisk")
+                    .font(.system(size: 8))
+                    .foregroundColor(.red)
+                Text("Required field - This will be shown to the user")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button {
+                    onCancel()
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 25)
+                                .stroke(primary, lineWidth: 2)
+                        )
+                        .clipShape(Capsule())
+                }
+                
+                Button {
+                    onConfirm(deactivationReason)
+                } label: {
+                    HStack {
+                        Text("Deactivate")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                        if isProcessing {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(deactivationReason.isEmpty ? Color.gray : Color.red)
+                    .clipShape(Capsule())
+                }
+                .disabled(deactivationReason.isEmpty || isProcessing)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+    }
+}
+
 // Under Review Action Sheet (with category selection)
 struct UnderReviewActionSheet: View {
     let coachName: String
@@ -2683,6 +2802,11 @@ struct AdminManageAccountsView: View {
     @State private var confirmTitle = ""
     @State private var isDestructive = false
     
+    @State private var showDeactivationSheet = false
+    @State private var selectedUserForDeactivation: UserRowItem?
+    @State private var deactivationReason = ""
+    @State private var isProcessingDeactivation = false
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -2829,6 +2953,31 @@ struct AdminManageAccountsView: View {
             }
             .animation(.easeInOut, value: showConfirmDialog)
         }
+        .sheet(isPresented: $showDeactivationSheet) {
+            DeactivationReasonSheet(
+                userName: selectedUserForDeactivation?.name ?? "User",
+                deactivationReason: $deactivationReason,
+                isProcessing: $isProcessingDeactivation,
+                onCancel: {
+                    showDeactivationSheet = false
+                    deactivationReason = ""
+                    selectedUserForDeactivation = nil
+                },
+                onConfirm: { reason in
+                    if let user = selectedUserForDeactivation {
+                        Task {
+                            await setActive(uid: user.id, active: false, reason: reason)
+                            showDeactivationSheet = false
+                            deactivationReason = ""
+                            selectedUserForDeactivation = nil
+                        }
+                    }
+                }
+            )
+            .presentationDetents([.height(450)])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
+        }
     }
     
     private var searchBox: some View {
@@ -2934,21 +3083,13 @@ struct AdminManageAccountsView: View {
     }
     
     private func accountCard(_ u: UserRowItem) -> some View {
-        NavigationLink {
-            if u.role.lowercased() == "coach" {
-                CoachProfileContentView(userID: u.id, isAdminViewing: true, onAdminApprove: nil, onAdminReject: nil)
-            } else {
-                PlayerProfileContentView(userID: u.id, isAdminViewing: true)
-            }
-        } label: {
-            accountCardContent(u)
-        }
-        .buttonStyle(.plain)
+        accountCardContent(u)
     }
-    
+
     private func accountCardContent(_ u: UserRowItem) -> some View {
         ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Name and Email - Clickable
                 NavigationLink {
                     if u.role.lowercased() == "coach" {
                         CoachProfileContentView(userID: u.id, isAdminViewing: true, onAdminApprove: nil, onAdminReject: nil)
@@ -2967,53 +3108,48 @@ struct AdminManageAccountsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+                .buttonStyle(.plain)
 
-                Text("Role: \(u.role)")
-                    .font(.system(size: 13, design: .rounded))
-                    .foregroundColor(.secondary)
-
-            HStack(spacing: 10) {
-                Button {
-                    confirmTitle = "Activate Account?"
-                    confirmMessage = "Are you sure you want to activate this account? The user will regain full access."
-                    isDestructive = false
-                    pendingAction = {
-                        Task { await setActive(uid: u.id, active: true) }
+                // Action Buttons
+                HStack(spacing: 10) {
+                    Button {
+                        confirmTitle = "Activate Account?"
+                        confirmMessage = "Are you sure you want to activate this account? The user will regain full access."
+                        isDestructive = false
+                        pendingAction = {
+                            Task { await setActive(uid: u.id, active: true, reason: nil) }
+                        }
+                        showConfirmDialog = true
+                    } label: {
+                        Text("Activate")
+                            .foregroundColor(u.isActive ? .secondary : .white)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity)
+                            .background(u.isActive ? Color(UIColor.systemGray5) : primary)
+                            .clipShape(Capsule())
                     }
-                    showConfirmDialog = true
-                } label: {
-                    Text("Activate")
-                        .foregroundColor(.white)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(primary)
-                        .clipShape(Capsule())
-                }
-                .disabled(u.isActive)
-                
-                Button {
-                    confirmTitle = "Deactivate Account?"
-                    confirmMessage = "Are you sure you want to deactivate this account? The user will lose access to their account."
-                    isDestructive = true
-                    pendingAction = {
-                        Task { await setActive(uid: u.id, active: false) }
+                    .disabled(u.isActive)
+                    .opacity(u.isActive ? 0.5 : 1.0)
+                    
+                    Button {
+                        selectedUserForDeactivation = u
+                        showDeactivationSheet = true
+                    } label: {
+                        Text("Deactivate")
+                            .foregroundColor(u.isActive ? .red : .secondary)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity)
+                            .background(u.isActive ? Color.red.opacity(0.1) : Color(UIColor.systemGray5))
+                            .clipShape(Capsule())
                     }
-                    showConfirmDialog = true
-                } label: {
-                    Text("Deactivate")
-                        .foregroundColor(.red)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(Color(UIColor.systemGray6))
-                        .clipShape(Capsule())
+                    .disabled(!u.isActive)
+                    .opacity(u.isActive ? 1.0 : 0.5)
                 }
-                .disabled(!u.isActive)
             }
-        }
-        .padding(16)
-        
+            .padding(16)
+            
             // Status Badge - Top Right
             Text(u.isActive ? "Active" : "Inactive")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -3062,14 +3198,26 @@ struct AdminManageAccountsView: View {
         }
     }
 
-    private func setActive(uid: String, active: Bool) async {
+    private func setActive(uid: String, active: Bool, reason: String?) async {
         do {
+            var data: [String: Any] = [
+                "isActive": active,
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+            
+            // If deactivating and reason provided, store it
+            if !active, let reason = reason, !reason.isEmpty {
+                data["deactivationReason"] = reason
+            }
+            
+            // If activating, remove deactivation reason
+            if active {
+                data["deactivationReason"] = FieldValue.delete()
+            }
+            
             try await Firestore.firestore()
                 .collection("users").document(uid)
-                .setData([
-                    "isActive": active,
-                    "updatedAt": FieldValue.serverTimestamp()
-                ], merge: true)
+                .setData(data, merge: true)
 
             await loadUsers()
         } catch {

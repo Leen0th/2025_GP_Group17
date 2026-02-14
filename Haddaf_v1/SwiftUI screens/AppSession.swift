@@ -19,6 +19,9 @@ final class AppSession: ObservableObject {
     @Published var rejectionReason: String? = nil
     @Published var rejectionCategory: String? = nil
     
+    @Published var isActive: Bool = true
+    @Published var deactivationReason: String? = nil
+    
     var userListener: ListenerRegistration?
     
     init() {
@@ -56,12 +59,16 @@ final class AppSession: ObservableObject {
                 let status = data["coachStatus"] as? String ?? "pending"
                 let reason = data["rejectionReason"] as? String
                 let category = data["rejectionCategory"] as? String
-                
+                let active = data["isActive"] as? Bool ?? true
+                let deactivation = data["deactivationReason"] as? String
+
                 DispatchQueue.main.async {
                     self.role = r
                     self.coachStatus = status
                     self.rejectionReason = reason
                     self.rejectionCategory = category
+                    self.isActive = active
+                    self.deactivationReason = deactivation
                     self.isVerifiedCoach = (r == "coach" && status == "approved")
                 }
             }
@@ -78,6 +85,8 @@ final class AppSession: ObservableObject {
         self.coachStatus = nil
         self.isVerifiedCoach = false
         self.isGuest = false
+        self.isActive = true
+        self.deactivationReason = nil
         
         // سجل خروج من Firebase
         try? Auth.auth().signOut()
@@ -85,5 +94,9 @@ final class AppSession: ObservableObject {
     
     var isAdmin: Bool {
         return role == "admin"
+    }
+    
+    var canUseSocialFeatures: Bool {
+        return isActive && user != nil && !isGuest
     }
 }
