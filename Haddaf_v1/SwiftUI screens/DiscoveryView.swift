@@ -277,7 +277,8 @@ struct DiscoveryView: View {
                 }
             }
             
-            if session.role == "coach" {
+            // Coach banners - only show if account is active
+            if session.role == "coach" && session.isActive {
                 if session.coachStatus == "rejected" {
                     // Navigate to request status to see rejection in timeline
                     NavigationLink {
@@ -286,9 +287,9 @@ struct DiscoveryView: View {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(.red)
+                                .foregroundColor(.white)
                             
-                            Text("Application Rejected - View Details")
+                            Text("Application Rejected - Tap to view")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
                             

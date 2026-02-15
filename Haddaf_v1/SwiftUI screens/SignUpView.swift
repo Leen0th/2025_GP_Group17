@@ -841,17 +841,27 @@ struct SignUpView: View {
             
             // Admin Approval Request for Coaches
             if roleString == "coach" {
-                let requestData: [String: Any] = [
-                    "uid": user.uid,
-                    "fullName": fullName,
-                    "email": accountEmail,
-                    "status": "pending",
-                    "submittedAt": FieldValue.serverTimestamp(),
-                    "verificationFile": draft["verificationFile"] as? String ?? ""
+            let initialDocURL = draft["verificationFile"] as? String ?? ""
+            let requestData: [String: Any] = [
+                "uid": user.uid,
+                "fullName": fullName,
+                "email": accountEmail,
+                "status": "pending",
+                "submittedAt": FieldValue.serverTimestamp(),
+                "verificationFile": initialDocURL,
+                "timeline": [
+                    [
+                        "id": UUID().uuidString,
+                        "timestamp": Timestamp(date: Date()), 
+                        "type": "Submitted",
+                        "documentURL": initialDocURL,
+                        "status": "pending"
+                    ]
                 ]
-                
-                // We use user.uid as the document ID so we can find it easily later
-                try? await db.collection("coachRequests").document(user.uid).setData(requestData)
+            ]
+
+            // We use user.uid as the document ID so we can find it easily later
+            try? await db.collection("coachRequests").document(user.uid).setData(requestData)
             }
             
             UserDefaults.standard.removeObject(forKey: "profile_draft")

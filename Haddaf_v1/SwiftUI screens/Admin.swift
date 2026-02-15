@@ -203,7 +203,7 @@ enum TimelineEntryType: String {
     case rejected = "Rejected"
     case approved = "Approved"
     case underReview = "Under Review"
-    case documentReuploadRequest = "documentReuploadRequest"
+    case documentReuploadRequest = "Document Reupload Request"
 }
 
 struct AdminCoachesApprovalView: View {
@@ -680,19 +680,6 @@ private func loadPending() async {
         // Build timeline
         var timelineEntries: [TimelineEntry] = []
         
-        // Add initial submission
-        if let submittedAt = ts {
-            timelineEntries.append(TimelineEntry(
-                id: UUID().uuidString,
-                timestamp: submittedAt.dateValue(),
-                type: .submitted,
-                adminComment: nil,
-                coachResponse: nil,
-                documentURL: data["verificationFile"] as? String,
-                status: "pending"
-            ))
-        }
-        
         // Add timeline entries from Firestore
         if let timelineData = data["timeline"] as? [[String: Any]] {
             for entry in timelineData {
@@ -724,10 +711,29 @@ private func loadPending() async {
         // Sort timeline chronologically
         timelineEntries.sort { $0.timestamp < $1.timestamp }
         
+        // Fetch actual user name from users collection
+        var actualFullName = ""
+        do {
+            let userDoc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+            if let userData = userDoc.data() {
+                let firstName = userData["firstName"] as? String ?? ""
+                let lastName = userData["lastName"] as? String ?? ""
+                actualFullName = [firstName, lastName]
+                    .joined(separator: " ")
+                    .trimmingCharacters(in: .whitespaces)
+                if actualFullName.isEmpty {
+                    actualFullName = userData["email"] as? String ?? "Coach"
+                }
+            }
+        } catch {
+            print("Error fetching user name: \(error)")
+            actualFullName = data["email"] as? String ?? "Coach"
+        }
+        
         return CoachRequestItem(
             id: d.documentID,
             uid: uid,
-            fullName: data["fullName"] as? String ?? "",
+            fullName: actualFullName,
             email: data["email"] as? String ?? "",
             status: data["status"] as? String ?? "pending",
             submittedAt: ts?.dateValue(),
@@ -1087,7 +1093,7 @@ struct CoachRequestDetailView: View {
             let newEntry: [String: Any] = [
                 "id": UUID().uuidString,
                 "timestamp": Timestamp(date: Date()),
-                "type": actionType == .askClarification ? "adminComment" : "documentReuploadRequest", // Changed this
+                "type": actionType == .askClarification ? TimelineEntryType.adminComment.rawValue : TimelineEntryType.documentReuploadRequest.rawValue,
                 "adminComment": adminComment,
                 "status": "under_review"
             ]
@@ -1131,7 +1137,7 @@ struct CoachRequestDetailView: View {
                 let newEntry: [String: Any] = [
                     "id": UUID().uuidString,
                     "timestamp": FieldValue.serverTimestamp(),
-                    "type": actionType == .askClarification ? "adminComment" : "documentReuploaded",
+                    "type": actionType == .askClarification ? TimelineEntryType.adminComment.rawValue : TimelineEntryType.documentReuploadRequest.rawValue,
                     "adminComment": adminComment,
                     "status": "under_review"
                 ]
@@ -1650,19 +1656,6 @@ struct CoachRequestStatusView: View {
             
             var timelineEntries: [TimelineEntry] = []
             
-            // Add initial submission
-            if let submittedAt = data["submittedAt"] as? Timestamp {
-                timelineEntries.append(TimelineEntry(
-                    id: UUID().uuidString,
-                    timestamp: submittedAt.dateValue(),
-                    type: .submitted,
-                    adminComment: nil,
-                    coachResponse: nil,
-                    documentURL: data["verificationFile"] as? String,
-                    status: "pending"
-                ))
-            }
-            
             // Add timeline entries
             if let timelineData = data["timeline"] as? [[String: Any]] {
                 for entry in timelineData {
@@ -1744,12 +1737,17 @@ struct CoachRequestStatusView: View {
                 timeline.append(responseEntry)
                 
                 // Update the request and move back to pending
-                try await db.collection("coachRequests").document(requestDoc.documentID).updateData([
-                    "timeline": timeline,
-                    "status": "pending"  // Move back to pending so admin sees it
-                ])
-                
-                await MainActor.run {
+                    try await db.collection("coachRequests").document(requestDoc.documentID).updateData([
+                        "timeline": timeline,
+                        "status": "pending"  // Move back to pending so admin sees it
+                    ])
+                    
+                    // Also update user's coachStatus to pending
+                    try await db.collection("users").document(uid).updateData([
+                        "coachStatus": "pending"
+                    ])
+                    
+                    await MainActor.run {
                     isSubmitting = false
                     showResponseSheet = false
                     responseText = ""
@@ -1810,7 +1808,8 @@ struct CoachRequestStatusView: View {
             ])
             
             try await db.collection("users").document(uid).updateData([
-                "verificationFile": downloadURL.absoluteString
+                "verificationFile": downloadURL.absoluteString,
+                "coachStatus": "pending"  
             ])
             
             await MainActor.run {
@@ -2120,7 +2119,7 @@ struct CoachTimelineEntryView: View {
                                 Image(systemName: "doc.fill")
                                     .foregroundColor(primary)
                                 
-                                Text(entry.type == .submitted ? "Initial Document" : "Reuploaded Document")
+                                Text(entry.type == .submitted ? "View Document" : "View Document")
                                     .font(.system(size: 15, weight: .medium, design: .rounded))
                                     .foregroundColor(.primary)
                                 
@@ -2547,7 +2546,7 @@ struct DeactivationReasonSheet: View {
                 Image(systemName: "asterisk")
                     .font(.system(size: 8))
                     .foregroundColor(.red)
-                Text("Required field - This will be shown to the user")
+                Text("Required field")
                     .font(.system(size: 13, design: .rounded))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -3181,11 +3180,15 @@ struct AdminManageAccountsView: View {
                 let createdAtTimestamp = data["createdAt"] as? Timestamp
                 let firstName = data["firstName"] as? String ?? ""
                 let lastName = data["lastName"] as? String ?? ""
-                let fullName = [firstName, lastName].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                let fullName = [firstName, lastName]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                    .trimmingCharacters(in: .whitespaces)
+                let email = data["email"] as? String ?? ""
                 return UserRowItem(
                     id: d.documentID,
-                    email: data["email"] as? String ?? "",
-                    name: fullName.isEmpty ? "User" : fullName,
+                    email: email,
+                    name: fullName.isEmpty ? (email.isEmpty ? "User" : email) : fullName,
                     role: data["role"] as? String ?? "player",
                     isActive: data["isActive"] as? Bool ?? true,
                     createdAt: createdAtTimestamp?.dateValue()
