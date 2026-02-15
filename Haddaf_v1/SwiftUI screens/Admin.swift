@@ -3289,11 +3289,8 @@ struct AdminChallengesView: View {
     @State private var appliedFilters = AdminChallengeFilters()
 
     @State private var showCreateSheet = false
-    @State private var selectedChallenge: AdminChallengeItem? = nil
-    @State private var showDetailsSheet = false
 
     @State private var editingChallenge: AdminChallengeItem? = nil
-    @State private var showEditSheet = false
 
     @State private var showDeletePopup = false
     @State private var deletingChallenge: AdminChallengeItem? = nil
@@ -3363,20 +3360,30 @@ struct AdminChallengesView: View {
                         .font(.system(size: 14, design: .rounded))
                         .padding(.top, 16)
                     } else {
-                        ScrollView {
-                            VStack(spacing: 12) {
-                                ForEach(filteredChallenges) { ch in
-                                    AdminChallengeHeroCard(challenge: ch, primary: primary)
-                                        .onTapGesture {
-                                            selectedChallenge = ch
-                                            showDetailsSheet = true
+                                            ScrollView {
+                                                VStack(spacing: 12) {
+                                                    ForEach(filteredChallenges) { ch in
+                                                        NavigationLink(destination: AdminChallengeDetailsView(
+                                                            challenge: ch,
+                                                            primary: primary,
+                                                            onEdit: {
+                                                                editingChallenge = ch
+                                                            },
+                                                            onDelete: {
+                                                                self.deletingChallenge = ch
+                                                                self.deleteError = nil
+                                                                withAnimation { self.showDeletePopup = true }
+                                                            }
+                                                            )) {
+                                                                AdminChallengeHeroCard(challenge: ch, primary: primary)
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                    }
+                                                }
+                                                .padding(.horizontal, 18)
+                                                .padding(.bottom, 20)
+                                            }
                                         }
-                                }
-                            }
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 20)
-                        }
-                    }
 
                     Spacer()
                 }
@@ -3442,51 +3449,15 @@ struct AdminChallengesView: View {
                 }
             }
 
-            .sheet(isPresented: $showDetailsSheet, onDismiss: {
-                selectedChallenge = nil
-            }) {
-                if let ch = selectedChallenge {
-                    AdminChallengeDetailsSheet(
-                        challenge: ch,
-                        primary: primary,
-                        onClose: { showDetailsSheet = false },
-                        onEdit: {
-                            editingChallenge = ch
-                            showDetailsSheet = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                showEditSheet = true
-                            }
-                        },
-                        onDelete: {
-                            self.deletingChallenge = ch
-                            self.deleteError = nil
-                            self.showDetailsSheet = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                withAnimation { self.showDeletePopup = true }
-                            }
-                        }
-                    )
-                } else {
-                    Text("No challenge selected")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .padding()
+            .sheet(item: $editingChallenge) { ch in
+                AdminEditMonthlyChallengeSheet(primary: primary, challenge: ch) {
+                    editingChallenge = nil
+                    // إعادة الاستماع للتحديثات
+                    listener?.remove()
+                    startListening()
                 }
             }
-
-            .sheet(isPresented: $showEditSheet, onDismiss: { editingChallenge = nil }) {
-                if let ch = editingChallenge {
-                    AdminEditMonthlyChallengeSheet(primary: primary, challenge: ch) {
-                        showEditSheet = false
-                        editingChallenge = nil
-                    }
-                } else {
-                    Text("No challenge selected")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .padding()
-                }
-            }
+        
         }
     }
 
@@ -3751,14 +3722,14 @@ private struct AdminChallengeHeroCard: View {
 // =======================================================
 // MARK: - Details Sheet
 // =======================================================
-
-private struct AdminChallengeDetailsSheet: View {
+// =======================================================
+// =======================================================
+private struct AdminChallengeDetailsView: View {
     let challenge: AdminChallengeItem
     let primary: Color
-    let onClose: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
-
+    
     @Environment(\.dismiss) private var dismiss
 
     // ✨ NEW: 3 states
@@ -3846,11 +3817,28 @@ private struct AdminChallengeDetailsSheet: View {
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.secondary)
                     } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(challenge.criteria, id: \.self) { c in
-                                Text("• \(c)")
-                                    .font(.system(size: 15, design: .rounded))
-                                    .foregroundColor(.secondary)
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 12) {
+                            ForEach(Array(challenge.criteria.enumerated()), id: \.offset) { index, c in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Circle()
+                                        .fill(primary.opacity(0.8))
+                                        .frame(width: 6, height: 6)
+                                        .padding(.top, 6)
+                                    
+                                    Text(c)
+                                        .font(.system(size: 14, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(3)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(BrandColors.background)
+                                )
                             }
                         }
                     }
@@ -3866,7 +3854,10 @@ private struct AdminChallengeDetailsSheet: View {
                     if canEdit {
                         HStack(spacing: 14) {
                             Button {
-                                onDelete()
+                                dismiss()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    onDelete()
+                                }
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "trash")
@@ -3899,54 +3890,49 @@ private struct AdminChallengeDetailsSheet: View {
                         VStack(spacing: 8) {
                             HStack {
                                 Image(systemName: "lock.fill")
-                                    .foregroundColor(.orange)
+                                    .font(.system(size: 13))
                                 Text("Cannot edit or delete")
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.primary)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
                             }
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color(UIColor.systemGray6))
+                            )
                             
                             Text("Active and past challenges are locked to preserve data integrity")
                                 .font(.system(size: 12, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                         }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.top, 8)
+                        .padding(.top, 12)
                     }
 
-                    Spacer(minLength: 10)
+                    Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 14)
+                .padding(.top, 6)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Close") {
-                    dismiss()
-                    onClose()
-                }
-                .foregroundColor(primary)
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
+
     }
 
-    private func sectionTitle(_ t: String) -> some View {
-        Text(t)
-            .font(.system(size: 18, weight: .semibold, design: .rounded))
-            .foregroundColor(.primary)
-            .padding(.top, 6)
+    private func sectionTitle(_ s: String) -> some View {
+        Text(s)
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundColor(primary)
+            .padding(.top, 4)
     }
-    
-    private func formattedDate(_ date: Date) -> String {
-          let formatter = DateFormatter()
-          formatter.locale = Locale(identifier: "en_US_POSIX")
-          formatter.dateFormat = "dd/MM/yyyy"
-          return formatter.string(from: date)
-      }
+
+    private func formattedDate(_ d: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "d MMM yyyy"
+        return fmt.string(from: d)
+    }
 }
 
 // =======================================================
@@ -4274,6 +4260,8 @@ private struct AdminCreateMonthlyChallengeSheet: View {
                     maxYear: 2035,
                     onDone: { showMonthYearPicker = false }
                 )
+                .presentationDetents([.height(400)])
+                .presentationDragIndicator(.visible)
             }
             .alert("Notice", isPresented: $showAlert) {
                 Button("OK", role: .cancel) {}
@@ -4753,6 +4741,8 @@ private struct AdminEditMonthlyChallengeSheet: View {
                     maxYear: 2035,
                     onDone: { showMonthYearPicker = false }
                 )
+                .presentationDetents([.height(400)])
+                .presentationDragIndicator(.visible)
             }
             .alert("Notice", isPresented: $showAlert) {
                 Button("OK", role: .cancel) {}
@@ -4986,35 +4976,33 @@ private struct AdminMonthYearPickerSheet: View {
     let primary: Color
     @Binding var year: Int
     @Binding var month: Int
-
     let minYear: Int
     let maxYear: Int
-    let onDone: () -> Void
-
-    private let months: [(Int, String)] = [
-        (1,"Jan"),(2,"Feb"),(3,"Mar"),(4,"Apr"),(5,"May"),(6,"Jun"),
-        (7,"Jul"),(8,"Aug"),(9,"Sep"),(10,"Oct"),(11,"Nov"),(12,"Dec")
-    ]
+    var onDone: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 20) {
             Text("Select Month & Year")
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .foregroundColor(primary)
-                .padding(.top, 10)
+                .padding(.top, 20)
 
             HStack(spacing: 0) {
+                // Month Picker
                 Picker("Month", selection: $month) {
-                    ForEach(months, id: \.0) { m in
-                        Text(m.1).tag(m.0)
+                    ForEach(1...12, id: \.self) { m in
+                        Text(monthName(m))
+                            .tag(m)
                     }
                 }
                 .pickerStyle(.wheel)
                 .frame(maxWidth: .infinity)
 
+                // Year Picker
                 Picker("Year", selection: $year) {
                     ForEach(minYear...maxYear, id: \.self) { y in
-                        Text("\(y)").tag(y)
+                        Text(String(format: "%d", y))
+                            .tag(y)
                     }
                 }
                 .pickerStyle(.wheel)
@@ -5026,19 +5014,22 @@ private struct AdminMonthYearPickerSheet: View {
                 onDone()
             } label: {
                 Text("Done")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.white)
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .padding()
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
                     .background(primary)
                     .clipShape(Capsule())
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
         }
-        .presentationDetents([.height(360)])
-        .presentationDragIndicator(.visible)
-        .background(BrandColors.background.ignoresSafeArea())
+        .background(Color.white)
+    }
+
+    private func monthName(_ m: Int) -> String {
+        let df = DateFormatter()
+        return df.monthSymbols[(m - 1).clamped(to: 0...11)]
     }
 }
 
