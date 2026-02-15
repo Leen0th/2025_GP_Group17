@@ -1809,7 +1809,7 @@ struct CoachRequestStatusView: View {
             
             try await db.collection("users").document(uid).updateData([
                 "verificationFile": downloadURL.absoluteString,
-                "coachStatus": "pending"  
+                "coachStatus": "pending"
             ])
             
             await MainActor.run {
@@ -3291,14 +3291,12 @@ struct AdminChallengesView: View {
     @State private var filters = AdminChallengeFilters()
     @State private var appliedFilters = AdminChallengeFilters()
 
-    @State private var showCreateSheet = false
-
-    @State private var editingChallenge: AdminChallengeItem? = nil
-
     @State private var showDeletePopup = false
     @State private var deletingChallenge: AdminChallengeItem? = nil
     @State private var isDeleting = false
     @State private var deleteError: String? = nil
+    
+    @State private var selectedChallenge: AdminChallengeItem? = nil
 
     var body: some View {
         NavigationStack {
@@ -3327,7 +3325,7 @@ struct AdminChallengesView: View {
                     .padding(.top, 6)
 
                     // Add Challenge Button
-                    Button { showCreateSheet = true } label: {
+                    NavigationLink(destination: AdminCreateMonthlyChallengeSheet(primary: primary, onDismiss: {})) {
                         VStack(spacing: 10) {
                             Text("Add Challenge")
                                 .font(.system(size: 20, weight: .medium, design: .rounded))
@@ -3366,19 +3364,10 @@ struct AdminChallengesView: View {
                                             ScrollView {
                                                 VStack(spacing: 12) {
                                                     ForEach(filteredChallenges) { ch in
-                                                        NavigationLink(destination: AdminChallengeDetailsView(
-                                                            challenge: ch,
-                                                            primary: primary,
-                                                            onEdit: {
-                                                                editingChallenge = ch
-                                                            },
-                                                            onDelete: {
-                                                                self.deletingChallenge = ch
-                                                                self.deleteError = nil
-                                                                withAnimation { self.showDeletePopup = true }
-                                                            }
-                                                            )) {
-                                                                AdminChallengeHeroCard(challenge: ch, primary: primary)
+                                                        Button {
+                                                            selectedChallenge = ch
+                                                        } label: {
+                                                            AdminChallengeHeroCard(challenge: ch, primary: primary)
                                                         }
                                                         .buttonStyle(.plain)
                                                     }
@@ -3419,6 +3408,20 @@ struct AdminChallengesView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $selectedChallenge) { ch in
+                AdminChallengeDetailsView(
+                    challenge: ch,
+                    primary: primary,
+                    onDelete: {
+                        selectedChallenge = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            self.deletingChallenge = ch
+                            self.deleteError = nil
+                            withAnimation { self.showDeletePopup = true }
+                        }
+                    }
+                )
+            }
             .onAppear { startListening() }
             .onDisappear { listener?.remove(); listener = nil }
 
@@ -3444,21 +3447,6 @@ struct AdminChallengesView: View {
                 .presentationDetents([.height(360)])
                 .presentationCornerRadius(28)
                 .presentationBackground(BrandColors.background)
-            }
-
-            .sheet(isPresented: $showCreateSheet) {
-                AdminCreateMonthlyChallengeSheet(primary: primary) {
-                    showCreateSheet = false
-                }
-            }
-
-            .sheet(item: $editingChallenge) { ch in
-                AdminEditMonthlyChallengeSheet(primary: primary, challenge: ch) {
-                    editingChallenge = nil
-                    // إعادة الاستماع للتحديثات
-                    listener?.remove()
-                    startListening()
-                }
             }
         
         }
@@ -3730,15 +3718,23 @@ private struct AdminChallengeHeroCard: View {
 private struct AdminChallengeDetailsView: View {
     let challenge: AdminChallengeItem
     let primary: Color
-    let onEdit: () -> Void
     let onDelete: () -> Void
     
     @Environment(\.dismiss) private var dismiss
+    
+    @State private var currentChallenge: AdminChallengeItem
+    
+    init(challenge: AdminChallengeItem, primary: Color, onDelete: @escaping () -> Void) {
+        self.challenge = challenge
+        self.primary = primary
+        self.onDelete = onDelete
+        _currentChallenge = State(initialValue: challenge)
+    }
 
     // ✨ NEW: 3 states
     private var challengeStatus: String {
         let now = Date()
-        guard let start = challenge.startAt, let end = challenge.endAt else {
+        guard let start = currentChallenge.startAt, let end = currentChallenge.endAt else {
             return "Unknown"
         }
         
@@ -3759,7 +3755,7 @@ private struct AdminChallengeDetailsView: View {
     // ✨ NEW: Can only edit Upcoming
     private var canEdit: Bool {
         let now = Date()
-        guard let start = challenge.startAt else { return false }
+        guard let start = currentChallenge.startAt else { return false }
         return now < start
     }
 
@@ -3770,7 +3766,7 @@ private struct AdminChallengeDetailsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Text(challenge.title.isEmpty ? "Challenge" : challenge.title)
+                        Text(currentChallenge.title.isEmpty ? "Challenge" : currentChallenge.title)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundColor(primary)
 
@@ -3786,7 +3782,7 @@ private struct AdminChallengeDetailsView: View {
                             .clipShape(Capsule())
                     }
 
-                    if let url = URL(string: challenge.imageURL), !challenge.imageURL.isEmpty {
+                    if let url = URL(string: currentChallenge.imageURL), !currentChallenge.imageURL.isEmpty {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .empty:
@@ -3810,12 +3806,12 @@ private struct AdminChallengeDetailsView: View {
                     }
 
                     sectionTitle("Description")
-                    Text(challenge.description.isEmpty ? "-" : challenge.description)
+                    Text(currentChallenge.description.isEmpty ? "-" : currentChallenge.description)
                         .font(.system(size: 15, design: .rounded))
                         .foregroundColor(.secondary)
 
                     sectionTitle("Criteria")
-                    if challenge.criteria.isEmpty {
+                    if currentChallenge.criteria.isEmpty {
                         Text("-")
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.secondary)
@@ -3824,7 +3820,7 @@ private struct AdminChallengeDetailsView: View {
                             GridItem(.flexible()),
                             GridItem(.flexible())
                         ], spacing: 12) {
-                            ForEach(Array(challenge.criteria.enumerated()), id: \.offset) { index, c in
+                            ForEach(Array(currentChallenge.criteria.enumerated()), id: \.offset) { index, c in
                                 HStack(alignment: .top, spacing: 6) {
                                     Circle()
                                         .fill(primary.opacity(0.8))
@@ -3846,7 +3842,7 @@ private struct AdminChallengeDetailsView: View {
                         }
                     }
 
-                    if let start = challenge.startAt, let end = challenge.endAt {
+                    if let start = currentChallenge.startAt, let end = currentChallenge.endAt {
                         sectionTitle("Start / End")
                         Text("\(formattedDate(start))  →  \(formattedDate(end))")
                             .font(.system(size: 15, design: .rounded))
@@ -3875,9 +3871,7 @@ private struct AdminChallengeDetailsView: View {
                             }
                             .buttonStyle(.plain)
 
-                            Button {
-                                onEdit()
-                            } label: {
+                            NavigationLink(destination: AdminEditMonthlyChallengeSheet(primary: primary, challenge: currentChallenge, onDone: {})) {
                                 Text("Edit")
                                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                                     .foregroundColor(.white)
@@ -3920,7 +3914,45 @@ private struct AdminChallengeDetailsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            Task {
+                await reloadChallenge()
+            }
+        }
 
+    }
+    
+    private func reloadChallenge() async {
+        do {
+            let doc = try await Firestore.firestore()
+                .collection("challenges")
+                .document(challenge.id)
+                .getDocument()
+            
+            guard let data = doc.data() else { return }
+            
+            let startAt = (data["startAt"] as? Timestamp)?.dateValue()
+            let endAt = (data["endAt"] as? Timestamp)?.dateValue()
+            let criteriaArr = data["criteria"] as? [String] ?? []
+            let ym = data["yearMonth"] as? String ?? ""
+            
+            let updated = AdminChallengeItem(
+                id: doc.documentID,
+                title: data["title"] as? String ?? "",
+                description: data["description"] as? String ?? "",
+                criteria: criteriaArr,
+                startAt: startAt,
+                endAt: endAt,
+                imageURL: data["imageURL"] as? String ?? "",
+                yearMonth: ym
+            )
+            
+            await MainActor.run {
+                currentChallenge = updated
+            }
+        } catch {
+            print("Error reloading challenge: \(error)")
+        }
     }
 
     private func sectionTitle(_ s: String) -> some View {
@@ -4065,7 +4097,7 @@ private struct AdminChallengeFiltersSheet: View {
 
 private struct AdminCreateMonthlyChallengeSheet: View {
     let primary: Color
-    var onDone: () -> Void
+    var onDismiss: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -4097,16 +4129,12 @@ private struct AdminCreateMonthlyChallengeSheet: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        Text("Add Monthly Challenge")
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundColor(primary)
-                            .padding(.top, 8)
-
                         Text("This is a monthly challenge. You can't add two challenges in the same month.")
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 18)
+                            .padding(.top, 8)
 
                         // ✅ Image REQUIRED (with asterisk)
                         VStack(alignment: .leading, spacing: 8) {
@@ -4245,13 +4273,18 @@ private struct AdminCreateMonthlyChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
 
-                        Spacer(minLength: 18)
+                        Spacer(minLength: 120)
                     }
+                    .padding(.bottom, 40)
                 }
             }
+            .navigationTitle("Add Monthly Challenge")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close") { dismiss() }
+                ToolbarItem(placement: .principal) {
+                    Text("Add Monthly Challenge")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(primary)
                 }
             }
             .sheet(isPresented: $showMonthYearPicker) {
@@ -4387,7 +4420,6 @@ private struct AdminCreateMonthlyChallengeSheet: View {
 
             await MainActor.run {
                 uploading = false
-                onDone()
                 dismiss()
             }
 
@@ -4531,7 +4563,7 @@ private struct AdminCreateMonthlyChallengeSheet: View {
 private struct AdminEditMonthlyChallengeSheet: View {
     let primary: Color
     let challenge: AdminChallengeItem
-    var onDone: () -> Void
+    var onDone: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -4562,16 +4594,12 @@ private struct AdminEditMonthlyChallengeSheet: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        Text("Edit Monthly Challenge")
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundColor(primary)
-                            .padding(.top, 8)
-
                         Text("This is a monthly challenge. You can't add two challenges in the same month.")
                             .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 18)
+                            .padding(.top, 8)
 
                         // ✅ Image REQUIRED (with asterisk)
                         VStack(alignment: .leading, spacing: 8) {
@@ -4726,13 +4754,18 @@ private struct AdminEditMonthlyChallengeSheet: View {
                                 .padding(.horizontal, 22)
                         }
 
-                        Spacer(minLength: 18)
+                        Spacer(minLength: 120)
                     }
+                    .padding(.bottom, 40)
                 }
             }
+            .navigationTitle("Edit Monthly Challenge")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close") { dismiss() }
+                ToolbarItem(placement: .principal) {
+                    Text("Edit Monthly Challenge")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(primary)
                 }
             }
             .sheet(isPresented: $showMonthYearPicker) {
@@ -4839,7 +4872,6 @@ private struct AdminEditMonthlyChallengeSheet: View {
 
             await MainActor.run {
                 saving = false
-                onDone()
                 dismiss()
             }
 
