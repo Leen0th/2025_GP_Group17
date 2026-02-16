@@ -624,18 +624,24 @@ private func loadPending() async {
                 .getDocuments()
 
             // Process pending requests
-            var pendingItems: [CoachRequestItem] = []
-            for d in pendingSnap.documents {
-                let item = try await buildCoachRequestItem(from: d)
-                pendingItems.append(item)
-            }
+                        var pendingItems: [CoachRequestItem] = []
+                        for d in pendingSnap.documents {
+                            if let item = try? await buildCoachRequestItem(from: d) {  // Use try? to ignore throws if any, and if let to skip nil
+                                pendingItems.append(item)
+                            } else {
+                                print("Skipped or failed to build item for document \(d.documentID)")
+                            }
+                        }
             
             // Process reviewed requests
-            var reviewedItems: [CoachRequestItem] = []
-            for d in reviewedSnap.documents {
-                let item = try await buildCoachRequestItem(from: d)
-                reviewedItems.append(item)
-            }
+                        var reviewedItems: [CoachRequestItem] = []
+                        for d in reviewedSnap.documents {
+                            if let item = try? await buildCoachRequestItem(from: d) {
+                                reviewedItems.append(item)
+                            } else {
+                                print("Skipped or failed to build item for document \(d.documentID)")
+                            }
+                        }
             
             await MainActor.run {
                 pending = pendingItems
@@ -650,9 +656,26 @@ private func loadPending() async {
         }
     }
     
-    private func buildCoachRequestItem(from d: QueryDocumentSnapshot) async throws -> CoachRequestItem {
+    private func buildCoachRequestItem(from d: QueryDocumentSnapshot) async throws -> CoachRequestItem? {
         let data = d.data()
-        let uid = data["uid"] as? String ?? ""
+        // ADD THESE LOGS
+            print("=== Processing coachRequest document ID: \(d.documentID) ===")
+            if let rawUid = data["uid"] {
+                print("Raw uid value: '\(rawUid)' (type: \(type(of: rawUid)))")
+            } else {
+                print("uid field is MISSING or nil in this document!")
+            }
+            
+            let uid = data["uid"] as? String ?? ""
+            print("Processed uid string: '\(uid)' (length: \(uid.count), trimmed length: \(uid.trimmingCharacters(in: .whitespacesAndNewlines).count))")
+            
+        // Safety skip for empty/invalid uid (prevents crash)
+            let trimmedUid = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedUid.isEmpty else {
+                //print("SKIPPING invalid document \(d.documentID) due to empty/missing uid")
+                return nil  // Now allowed because return type is optional
+            }
+        //let uid = data["uid"] as? String ?? ""
         let ts = data["submittedAt"] as? Timestamp
         
         // Fetch previous requests for this coach
@@ -711,6 +734,8 @@ private func loadPending() async {
         // Sort timeline chronologically
         timelineEntries.sort { $0.timestamp < $1.timestamp }
         
+                    print("Fetching user data for uid: '\(trimmedUid)'")
+        
         // Fetch actual user name from users collection
         var actualFullName = ""
         do {
@@ -726,7 +751,7 @@ private func loadPending() async {
                 }
             }
         } catch {
-            print("Error fetching user name: \(error)")
+                    print("Error fetching user for uid '\(trimmedUid)': \(error.localizedDescription)")
             actualFullName = data["email"] as? String ?? "Coach"
         }
         

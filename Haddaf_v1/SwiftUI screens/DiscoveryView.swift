@@ -26,6 +26,8 @@ struct DiscoveryView: View {
 
     // --- for auth prompt ---
     @State private var showAuthSheet = false
+    @State private var showDeactivatedSheet = false
+    @State private var showUnverifiedCoachSheet = false
     @State private var showDeactivationDetails = false
     // --- for re-application ---
     @State private var showReapplySheet = false
@@ -127,6 +129,16 @@ struct DiscoveryView: View {
                 // --- Show auth prompt as a popup overlay ---
                 if showAuthSheet {
                     AuthPromptSheet(isPresented: $showAuthSheet)
+                }
+                
+                if showDeactivatedSheet {
+                    DeactivatedAccountGateView(isPresented: $showDeactivatedSheet)
+                        .animation(.easeInOut, value: showDeactivatedSheet)
+                }
+                
+                if showUnverifiedCoachSheet {
+                    UnverifiedCoachGateView(isPresented: $showUnverifiedCoachSheet)
+                        .animation(.easeInOut, value: showUnverifiedCoachSheet)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -404,11 +416,9 @@ struct DiscoveryView: View {
                                         post: post,
                                         authorProfile: authorProfile,
                                         onCommentTapped: {
-                                            // Set the post to trigger the comment sheet
                                             self.postForComments = post
                                         },
                                         onReport: {
-                                            // Set the item to trigger the report sheet
                                             itemToReport = ReportableItem(
                                                 id: post.id ?? "",
                                                 parentId: nil,
@@ -417,7 +427,9 @@ struct DiscoveryView: View {
                                             )
                                         },
                                         reportService: reportService,
-                                        showAuthSheet: $showAuthSheet
+                                        showAuthSheet: $showAuthSheet,
+                                        showDeactivatedSheet: $showDeactivatedSheet,
+                                        showUnverifiedCoachSheet: $showUnverifiedCoachSheet
                                     )
                                     .environmentObject(session)
                                 }
@@ -463,10 +475,10 @@ struct DiscoveryPostCardView: View {
     let onReport: () -> Void
     
     @ObservedObject var reportService: ReportStateService
-    // to check for guest
     @EnvironmentObject var session: AppSession
-    // --- for auth prompt ---
     @Binding var showAuthSheet: Bool
+    @Binding var showDeactivatedSheet: Bool
+    @Binding var showUnverifiedCoachSheet: Bool
     
     // Check if the current user is the owner of the post
     private var currentUserID: String? { Auth.auth().currentUser?.uid }
@@ -501,12 +513,12 @@ struct DiscoveryPostCardView: View {
                     
                     // --- Report Button Action ---
                     Button {
-                        guard session.isActive else {
-                            // Show alert that account is deactivated
-                            return
-                        }
                         if session.isGuest {
                             showAuthSheet = true
+                        } else if !session.isActive {
+                            showDeactivatedSheet = true
+                        } else if session.role == "coach" && !session.isVerifiedCoach {
+                            showUnverifiedCoachSheet = true
                         } else {
                             onReport()
                         }
@@ -518,8 +530,8 @@ struct DiscoveryPostCardView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(isReported || (session.role == "coach" && !session.isVerifiedCoach))
-                    .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+                    //.disabled(isReported || (session.role == "coach" && !session.isVerifiedCoach))
+                    //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
                     // --- Disable only if already reported ---
                     .disabled(isReported)
                 }
@@ -549,12 +561,12 @@ struct DiscoveryPostCardView: View {
             HStack(spacing: 16) {
                 // --- LIKE BUTTON Action ---
                 Button {
-                    guard session.isActive else {
-                        // Show alert that account is deactivated
-                        return
-                    }
                     if session.isGuest {
                         showAuthSheet = true
+                    } else if !session.isActive {
+                        showDeactivatedSheet = true
+                    } else if session.role == "coach" && !session.isVerifiedCoach {
+                        showUnverifiedCoachSheet = true
                     } else {
                         Task { await viewModel.toggleLike(post: post) }
                     }
@@ -566,21 +578,21 @@ struct DiscoveryPostCardView: View {
                     .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
                 }
                 .buttonStyle(.plain)
-                .disabled(session.role == "coach" && !session.isVerifiedCoach)
-                .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+                //.disabled(session.role == "coach" && !session.isVerifiedCoach)
+                //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
 
                 // --- COMMENT BUTTON Action ---
                 Button {
-                    guard session.isActive else {
-                        // Show alert that account is deactivated
-                        return
-                    }
                     if session.isGuest {
                         showAuthSheet = true
+                    } else if !session.isActive {
+                        showDeactivatedSheet = true
+                    } else if session.role == "coach" && !session.isVerifiedCoach {
+                        showUnverifiedCoachSheet = true
                     } else {
                         onCommentTapped()
                     }
-                } label: {
+                }label: {
                     HStack(spacing: 4) {
                         Image(systemName: "message")
                         Text("\(post.commentCount)")
@@ -588,8 +600,8 @@ struct DiscoveryPostCardView: View {
                     .foregroundColor(BrandColors.darkGray)
                 }
                 .buttonStyle(.plain)
-                .disabled(session.role == "coach" && !session.isVerifiedCoach)
-                .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+                //.disabled(session.role == "coach" && !session.isVerifiedCoach)
+                //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
             }
             .font(.system(size: 14, design: .rounded))
         }

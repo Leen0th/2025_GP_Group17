@@ -15,7 +15,8 @@ struct PostDetailView: View {
     @State var post: Post
     // --- for auth prompt ---
     @Binding var showAuthSheet: Bool
-    
+    @State private var showDeactivatedSheet = false
+    @State private var showUnverifiedCoachSheet = false
     var isAdminViewing: Bool = false
     
     @State private var showDeleteConfirmation = false
@@ -129,6 +130,16 @@ struct PostDetailView: View {
             if showAuthSheet {
                 AuthPromptSheet(isPresented: $showAuthSheet)
             }
+            
+            if showDeactivatedSheet {
+                DeactivatedAccountGateView(isPresented: $showDeactivatedSheet)
+                    .animation(.easeInOut, value: showDeactivatedSheet)
+            }
+            
+            if showUnverifiedCoachSheet {
+                UnverifiedCoachGateView(isPresented: $showUnverifiedCoachSheet)
+                    .animation(.easeInOut, value: showUnverifiedCoachSheet)
+            }
         }
         .navigationBarBackButtonHidden(true)
         // --- Sheet for reporting ---
@@ -217,12 +228,12 @@ struct PostDetailView: View {
                         
                         // --- Report Button Action ---
                         Button {
-                            guard session.isActive else {
-                                // Show alert that account is deactivated
-                                return
-                            }
                             if session.isGuest {
                                 showAuthSheet = true
+                            } else if !session.isActive {
+                                showDeactivatedSheet = true
+                            } else if session.role == "coach" && !session.isVerifiedCoach {
+                                showUnverifiedCoachSheet = true
                             } else {
                                 itemToReport = ReportableItem(
                                     id: post.id ?? "",
@@ -470,16 +481,16 @@ struct PostDetailView: View {
             if !isAdminViewing {
                 // --- Like Button Action ---
                 Button {
-                guard session.isActive else {
-                    // Show alert that account is deactivated
-                    return
-                }
-                if session.isGuest {
-                    showAuthSheet = true
-                } else {
-                    Task { await toggleLike() }
-                }
-            } label: {
+                    if session.isGuest {
+                        showAuthSheet = true
+                    } else if !session.isActive {
+                        showDeactivatedSheet = true
+                    } else if session.role == "coach" && !session.isVerifiedCoach {
+                        showUnverifiedCoachSheet = true
+                    } else {
+                        Task { await toggleLike() }
+                    }
+                } label: {
                 HStack(spacing: 4) {
                     Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
                     Text(formatNumber(post.likeCount))
@@ -487,21 +498,21 @@ struct PostDetailView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
             }
-            .disabled(session.role == "coach" && !session.isVerifiedCoach)
-            .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+            //.disabled(session.role == "coach" && !session.isVerifiedCoach)
+            //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
             
             // --- Comment Button Action ---
-            Button {
-                guard session.isActive else {
-                    // Show alert that account is deactivated
-                    return
-                }
-                if session.isGuest {
-                    showAuthSheet = true
-                } else {
-                    showCommentsSheet = true
-                }
-            } label: {
+                Button {
+                    if session.isGuest {
+                        showAuthSheet = true
+                    } else if !session.isActive {
+                        showDeactivatedSheet = true
+                    } else if session.role == "coach" && !session.isVerifiedCoach {
+                        showUnverifiedCoachSheet = true
+                    } else {
+                        showCommentsSheet = true
+                    }
+                } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "message")
                     Text("\(post.commentCount)")
@@ -509,8 +520,8 @@ struct PostDetailView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(BrandColors.darkGray)
             }
-            .disabled(session.role == "coach" && !session.isVerifiedCoach)
-                        .opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
+            //.disabled(session.role == "coach" && !session.isVerifiedCoach)
+            //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
                     } // End of if !isAdminViewing
                 }
                 .foregroundColor(.primary)

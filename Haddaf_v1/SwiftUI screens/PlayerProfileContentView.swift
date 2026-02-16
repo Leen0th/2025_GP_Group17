@@ -52,7 +52,8 @@ struct PlayerProfileContentView: View {
     
     // --- State to manage the auth prompt sheet ---
     @State private var showAuthSheet = false
-    
+    @State private var showDeactivatedSheet = false
+    @State private var showUnverifiedCoachSheet = false
     // A boolean indicating if this profile belongs to the currently logged-in user
     private var isCurrentUser: Bool
     
@@ -185,13 +186,12 @@ struct PlayerProfileContentView: View {
                             isCurrentUser: isCurrentUser,
                             isRootProfileView: isRootProfileView,
                             onReport: {
-                                // --- Check for guest ---
-                                guard session.isActive else {
-                                    // Show alert that account is deactivated
-                                    return
-                                }
                                 if session.isGuest {
                                     showAuthSheet = true
+                                } else if !session.isActive {
+                                    showDeactivatedSheet = true
+                                } else if session.role == "coach" && !session.isVerifiedCoach {
+                                    showUnverifiedCoachSheet = true
                                 } else {
                                     // Set the item to report (this profile)
                                     itemToReport = ReportableItem(
@@ -433,10 +433,21 @@ struct PlayerProfileContentView: View {
                 ScoreInfoPopupView(isPresented: $showScoreInfoAlert)
             }
             
-            // --- Show auth prompt as a popup overlay ---
             if showAuthSheet {
                 AuthPromptSheet(isPresented: $showAuthSheet)
             }
+
+            if showDeactivatedSheet {
+                DeactivatedAccountGateView(isPresented: $showDeactivatedSheet)
+                    .animation(.easeInOut, value: showDeactivatedSheet)
+            }
+
+            if showUnverifiedCoachSheet {
+                UnverifiedCoachGateView(isPresented: $showUnverifiedCoachSheet)
+                    .animation(.easeInOut, value: showUnverifiedCoachSheet)
+            }
+            
+            
             
         }
         .animation(.easeInOut, value: showScoreInfoAlert)
