@@ -87,7 +87,7 @@ struct DeactivatedAccountGateView: View {
                                     Image(systemName: "quote.opening")
                                         .font(.system(size: 11))
                                         .foregroundColor(.secondary)
-                                    Text("Admin's Reason:")
+                                    Text("Reason:")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                                         .foregroundColor(.secondary)
                                 }
@@ -103,7 +103,7 @@ struct DeactivatedAccountGateView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "envelope.fill")
                                         .font(.system(size: 11))
-                                    Text("Think this is a mistake?")
+                                    Text("For more details, contact us:")
                                         .font(.system(size: 12, weight: .medium, design: .rounded))
                                 }
                                 .foregroundColor(.secondary)
@@ -113,7 +113,7 @@ struct DeactivatedAccountGateView: View {
                                         UIApplication.shared.open(url)
                                     }
                                 } label: {
-                                    Text("Contact support@haddaf.com")
+                                    Text("support@haddaf.com")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                                         .foregroundColor(primary)
                                         .underline()

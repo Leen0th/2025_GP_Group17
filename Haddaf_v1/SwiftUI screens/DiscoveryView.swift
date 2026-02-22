@@ -244,7 +244,7 @@ struct DiscoveryView: View {
                                 .font(.system(size: 18))
                                 .foregroundColor(.white)
                             
-                            Text(showDeactivationDetails ? "Account Deactivated - Tap to minimize" : "Account Deactivated - Tap to view details")
+                            Text(showDeactivationDetails ? "Account Deactivated - Tap to hide details" : "Account Deactivated - Tap for more details")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -261,32 +261,60 @@ struct DiscoveryView: View {
                     .background(Color.red.opacity(0.9))
                     
                     // Expanded Details
-                    if showDeactivationDetails, let reason = session.deactivationReason {
+                    if showDeactivationDetails {
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(Color.red)
-                                Text("Reason:")
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.secondary)
+                            if let reason = session.deactivationReason {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "quote.opening")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                    Text("Reason:")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Text(reason)
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                
+                                Divider()
+                                    .padding(.vertical, 4)
                             }
                             
-                            Text(reason)
-                                .font(.system(size: 14, design: .rounded))
-                                .foregroundColor(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 6) {
+                                Image(systemName: "envelope.fill")
+                                    .font(.system(size: 11))
+                                Text("For more details, contact us:")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                            }
+                            .foregroundColor(.secondary)
                             
-                            Text("If you think this is a mistake, contact support@haddaf.com")
-                                .font(.system(size: 12, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .padding(.top, 4)
+                            Button {
+                                if let url = URL(string: "mailto:support@haddaf.com") {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: {
+                                Text("support@haddaf.com")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundColor(BrandColors.darkTeal)
+                                    .underline()
+                            }
                         }
                         .padding(16)
-                        .background(Color.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            Color.red.opacity(0.05)
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Color.red.opacity(0.15), lineWidth: 1)
+                                )
+                        )
+                        .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .padding(.bottom, 8)
             }
             
             // Coach banners - only show if account is active
@@ -301,7 +329,7 @@ struct DiscoveryView: View {
                                 .font(.system(size: 18))
                                 .foregroundColor(.white)
                             
-                            Text("Application Rejected - Tap to view")
+                            Text("Application Rejected - Tap for more details")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.white)
                             
@@ -328,15 +356,9 @@ struct DiscoveryView: View {
                                     .font(.system(size: 18))
                                     .foregroundColor(.white)
                                 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Action Required")
-                                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                                        .foregroundColor(.white)
-                                    
-                                    Text("Admin has requested additional information")
-                                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundColor(.white.opacity(0.9))
-                                }
+                                Text("Action Required - Tap for more details")
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(.white)
                                 
                                 Spacer()
                                 
@@ -371,7 +393,13 @@ struct DiscoveryView: View {
                         .tint(BrandColors.darkTeal)
                 }
                 .padding(.vertical, 12)
-                .padding(.horizontal, 16)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+                .padding(.top,
+                    (!session.isActive ||
+                     (session.role == "coach" && session.isActive))
+                    ? 12 : 0
+                )
                 .background(BrandColors.background)
                 .clipShape(Capsule())
                 .shadow(color: .black.opacity(0.08), radius: 5, y: 2)

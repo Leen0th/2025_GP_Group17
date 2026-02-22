@@ -202,7 +202,7 @@ enum TimelineEntryType: String {
     case documentReuploaded = "Document Reuploaded"
     case rejected = "Rejected"
     case approved = "Approved"
-    case underReview = "Under Review"
+    case underReview = "Returned"
     case documentReuploadRequest = "Document Reupload Request"
 }
 
@@ -225,7 +225,7 @@ struct AdminCoachesApprovalView: View {
     @State private var reviewed: [CoachRequestItem] = [] // For approved/rejected requests
 
     enum RequestTab: String, CaseIterable {
-        case pending = "Pending"
+        case pending = "Under Review"
         case reviewed = "Reviewed"
     }
     
@@ -279,7 +279,7 @@ struct AdminCoachesApprovalView: View {
                                     Button {
                                         statusFilter = "under_review"
                                     } label: {
-                                        Label("Under Review", systemImage: statusFilter == "under_review" ? "checkmark" : "")
+                                        Label("Returned Only", systemImage: statusFilter == "under_review" ? "checkmark" : "")
                                     }
                                 } label: {
                                     Image(systemName: statusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -465,16 +465,16 @@ struct AdminCoachesApprovalView: View {
         
         switch selectedTab {
         case .pending:
-            return "No pending coach requests."
+            return "There are no coach requests yet."
         case .reviewed:
             if statusFilter == "approved" {
-                return "No approved requests."
+                return "There are no approved requests yet."
             } else if statusFilter == "rejected" {
-                return "No rejected requests."
+                return "There are no rejected requests yet."
             } else if statusFilter == "under_review" {
-                return "No requests under review."
+                return "There are no returned requests yet."
             } else {
-                return "No reviewed requests."
+                return "There are no reviewed requests yet."
             }
         }
     }
@@ -508,6 +508,24 @@ struct AdminCoachesApprovalView: View {
             }
         }
         
+        private func statusLabel(for status: String) -> String {
+            switch status {
+            case "approved": return "Approved"
+            case "rejected": return "Rejected"
+            case "under_review": return "Returned"
+            default: return status.capitalized
+            }
+        }
+
+        private func statusColor(for status: String) -> Color {
+            switch status {
+            case "approved": return BrandColors.actionGreen
+            case "rejected": return Color.red
+            case "under_review": return BrandColors.gold
+            default: return BrandColors.darkGray
+            }
+        }
+        
         var body: some View {
             NavigationLink {
                 CoachRequestDetailView(
@@ -520,10 +538,12 @@ struct AdminCoachesApprovalView: View {
                 )
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    // Card content
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(item.fullName.isEmpty ? "Coach" : item.fullName)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                             .foregroundColor(primary)
+                            .padding(.trailing, item.status != "pending" ? 90 : 36)
                         
                         Text(item.email)
                             .font(.system(size: 14, design: .rounded))
@@ -537,17 +557,41 @@ struct AdminCoachesApprovalView: View {
                             .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
                     )
                     
-                    // Badge for resubmissions
-                    if isResubmission {
-                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(BrandColors.gold)
-                            .background(
+                    // PENDING: show dot (new) or resubmission icon
+                    if item.status == "pending" {
+                        if isResubmission {
+                            ZStack {
                                 Circle()
                                     .fill(Color.white)
-                                    .frame(width: 28, height: 28)
-                            )
+                                    .frame(width: 26, height: 26)
+                                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(BrandColors.gold)
+                            }
                             .offset(x: -8, y: 8)
+                        } else {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 26, height: 26)
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 16, height: 16)
+                            }
+                            .offset(x: -8, y: 8)
+                        }
+                    }
+                    
+                    // REVIEWED: show status pill
+                    if item.status != "pending" {
+                        Text(statusLabel(for: item.status))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(statusColor(for: item.status))
+                            .clipShape(Capsule())
+                            .padding([.top, .trailing], 12)
                     }
                 }
             }
@@ -972,7 +1016,7 @@ struct CoachRequestDetailView: View {
                             Button {
                                 showActionSheet = true
                             } label: {
-                                Text("Under Review")
+                                Text("Return")
                                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
@@ -1448,19 +1492,23 @@ struct AdminActionSheet: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                     
+                    // Label
+                    HStack(spacing: 4) {
+                        Text("Admin Comment")
+                            .font(.system(size: 16, weight: .semibold))
+                        
+                        Text("*")
+                            .foregroundColor(.red)
+                            .font(.system(size: 16, weight: .semibold))
+                        
+                        Spacer()
+                    }
+
                     // Text Editor
-                    ZStack(alignment: .topLeading) {
+                    ZStack {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(BrandColors.background)
                             .shadow(color: .black.opacity(0.05), radius: 4)
-                        
-                        if adminComment.isEmpty {
-                            Text("Type your message here...")
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .font(.system(size: 16, design: .rounded))
-                                .padding(.horizontal, 16)
-                                .padding(.top, 20)
-                        }
                         
                         TextEditor(text: $adminComment)
                             .font(.system(size: 16, design: .rounded))
@@ -1916,7 +1964,11 @@ struct CoachTimelineEntryView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.red)
                         
-                        Text("Reason")
+                        HStack(spacing: 4) {
+                            Text("Reason")
+                            Text("*")
+                                .foregroundColor(.red)
+                        }
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.secondary)
                     }
@@ -2175,7 +2227,7 @@ struct CoachTimelineEntryView: View {
         case .documentReuploadRequest: return "Reupload Request"
         case .rejected: return "Rejected"
         case .approved: return "Approved"
-        case .underReview: return "Under Review"
+        case .underReview: return "Returned"
         }
     }
     
@@ -2223,8 +2275,8 @@ struct StatusBadge: View {
         switch status {
         case "approved": return "Approved"
         case "rejected": return "Rejected"
-        case "under_review": return "Under Review"
-        default: return "Pending"
+        case "under_review": return "Returned"
+        default: return "Under Review"
         }
     }
     
@@ -2260,24 +2312,28 @@ struct StatusBadge: View {
                                     .foregroundColor(primary)
                                     .padding(.top)
                                 
-                                Text("Provide the clarification requested by the admin")
-                                    .font(.system(size: 14, design: .rounded))
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
+                                //Text("Provide the clarification requested by the admin")
+                                    //.font(.system(size: 14, design: .rounded))
+                                    //.foregroundColor(.secondary)
+                                    //.multilineTextAlignment(.center)
                                 
-                                // Text Editor with placeholder
-                                ZStack(alignment: .topLeading) {
+                                // Label
+                                HStack(spacing: 4) {
+                                    Text("Provide the clarification requested by the admin")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    
+                                    Text("*")
+                                        .foregroundColor(.red)
+                                        .font(.system(size: 16, weight: .semibold))
+                                    
+                                    Spacer()
+                                }
+
+                                // Text Editor
+                                ZStack {
                                     RoundedRectangle(cornerRadius: 12)
                                         .fill(Color.white)
                                         .shadow(color: .black.opacity(0.05), radius: 4)
-                                    
-                                    if responseText.isEmpty {
-                                        Text("Type your response here...")
-                                            .foregroundColor(.secondary.opacity(0.5))
-                                            .font(.system(size: 16, design: .rounded))
-                                            .padding(.horizontal, 16)
-                                            .padding(.top, 20)
-                                    }
                                     
                                     TextEditor(text: $responseText)
                                         .font(.system(size: 16, design: .rounded))
@@ -2410,19 +2466,24 @@ struct SimpleRejectionSheet: View {
             }
             .padding(.top, 20)
             
+            // Label
+            HStack(spacing: 4) {
+                Text("Rejection Reason")
+                    .font(.system(size: 16, weight: .semibold))
+                
+                Text("*")
+                    .foregroundColor(.red)
+                    .font(.system(size: 16, weight: .semibold))
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+            
             // Text Editor
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.white)
                     .shadow(color: .black.opacity(0.05), radius: 4)
-                
-                if rejectionReason.isEmpty {
-                    Text("Explain why this application is being rejected...")
-                        .foregroundColor(.secondary.opacity(0.5))
-                        .font(.system(size: 16, design: .rounded))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 20)
-                }
                 
                 TextEditor(text: $rejectionReason)
                     .font(.system(size: 16, design: .rounded))
@@ -2529,30 +2590,35 @@ struct DeactivationReasonSheet: View {
             }
             .padding(.top, 20)
             
-            // Text Editor
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
-                    .shadow(color: .black.opacity(0.05), radius: 4)
+            VStack(alignment: .leading, spacing: 8) {
                 
-                if deactivationReason.isEmpty {
-                    Text("Explain why this account is being deactivated...")
-                        .foregroundColor(.secondary.opacity(0.5))
-                        .font(.system(size: 16, design: .rounded))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 20)
+                // Label with red *
+                HStack(spacing: 4) {
+                    Text("Deactivation Reason")
+                        .font(.system(size: 16, weight: .semibold))
+                    
+                    Text("*")
+                        .foregroundColor(.red)
+                        .font(.system(size: 16, weight: .semibold))
                 }
                 
-                TextEditor(text: $deactivationReason)
-                    .font(.system(size: 16, design: .rounded))
-                    .padding(12)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .onChange(of: deactivationReason) { _, newValue in
-                        if newValue.count > charLimit {
-                            deactivationReason = String(newValue.prefix(charLimit))
+                // Text Editor
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.05), radius: 4)
+                    
+                    TextEditor(text: $deactivationReason)
+                        .font(.system(size: 16, design: .rounded))
+                        .padding(12)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .onChange(of: deactivationReason) { _, newValue in
+                            if newValue.count > charLimit {
+                                deactivationReason = String(newValue.prefix(charLimit))
+                            }
                         }
-                    }
+                }
             }
             .frame(height: 150)
             .padding(.horizontal)
@@ -2640,7 +2706,7 @@ struct UnderReviewActionSheet: View {
         VStack(spacing: 20) {
             // Header
             VStack(spacing: 8) {
-                Text("Under Review")
+                Text("Return")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(primary)
                 
@@ -2713,23 +2779,25 @@ struct UnderReviewActionSheet: View {
             
             // Comment Field
             VStack(alignment: .leading, spacing: 8) {
-                Text(selectedAction == .askClarification ? "Your Question" : "What's wrong with the document?")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal)
+                
+                // Label with red *
+                HStack(spacing: 4) {
+                    Text(selectedAction == .askClarification ? "Your Question" : "What's wrong with the document?")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
+                    
+                    Text("*")
+                        .foregroundColor(.red)
+                        .font(.system(size: 14, weight: .medium))
+                    
+                    Spacer()
+                }
+                .padding(.horizontal)
                 
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.white)
                         .shadow(color: .black.opacity(0.05), radius: 4)
-                    
-                    if adminComment.isEmpty {
-                        Text("Type your message here...")
-                            .foregroundColor(.secondary.opacity(0.5))
-                            .font(.system(size: 16, design: .rounded))
-                            .padding(.horizontal, 16)
-                            .padding(.top, 20)
-                    }
                     
                     TextEditor(text: $adminComment)
                         .font(.system(size: 16, design: .rounded))
@@ -2818,7 +2886,7 @@ struct AdminManageAccountsView: View {
     @State private var search = ""
     @State private var selectedRole: String = "coach" // "coach" or "player"
     @State private var sortByNew = true // true = newest first, false = oldest first
-    @State private var filterStatus: String = "all" // "all", "active", "inactive"
+    @State private var filterStatus: String = "all" // "all", "active", "nonactive"
     
     @State private var showConfirmDialog = false
     @State private var pendingAction: (() -> Void)?
@@ -3037,7 +3105,7 @@ struct AdminManageAccountsView: View {
                 Button {
                     filterStatus = "inactive"
                 } label: {
-                    Label("Inactive Only", systemImage: filterStatus == "inactive" ? "checkmark" : "")
+                    Label("Not active Only", systemImage: filterStatus == "inactive" ? "checkmark" : "")
                 }
             } label: {
                 Image(systemName: filterStatus == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -3175,7 +3243,7 @@ struct AdminManageAccountsView: View {
             .padding(16)
             
             // Status Badge - Top Right
-            Text(u.isActive ? "Active" : "Inactive")
+            Text(u.isActive ? "Active" : "Not active")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(.white)
                 .padding(.horizontal, 10)
