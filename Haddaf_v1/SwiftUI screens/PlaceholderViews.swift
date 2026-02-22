@@ -3,7 +3,7 @@ import PhotosUI
 import AVKit
 
 // MARK: - Placeholder Tab Screens
-struct TeamsView: View {
+/*struct TeamsView: View {
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
@@ -18,7 +18,7 @@ struct TeamsView: View {
             }
         }
     }
-}
+}*/
 
 /*struct ChallengeView: View {
     var body: some View {

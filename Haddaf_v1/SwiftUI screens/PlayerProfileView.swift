@@ -53,7 +53,9 @@ struct PlayerProfileView: View {
                         CoachProfileContentView()
                     } else {
                         // Otherwise, show the Player Profile
-                        PlayerProfileContentView()
+                        NavigationStack {
+                            PlayerProfileContentView()
+                        }
                     }
                 default:
                     DiscoveryView()
@@ -196,7 +198,6 @@ struct CustomTabBar: View {
                         .frame(width: 72, height: 72)
                         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 
-                    // Show sportscourt ONLY if verified coach.
                     // Guests and Players see video.badge.plus
                     Image(systemName: session.role == "coach" ? "sportscourt" : "video.badge.plus")
                         .font(.system(size: 32, weight: .bold))

@@ -364,12 +364,9 @@ struct PlayerProfileContentView: View {
             .fullScreenCover(isPresented: $goToSettings) {
                 NavigationStack { SettingsView(userProfile: viewModel.userProfile) }
             }
-            .fullScreenCover(isPresented: $showNotificationsList) {
+            .navigationDestination(isPresented: $showNotificationsList) {
                 NotificationsView()
                     .environmentObject(session)
-            }
-            .fullScreenCover(isPresented: $showNotificationsList) {
-                ProfileNotificationsListView()
             }
             // Search Date Picker Sheet
             .sheet(isPresented: $showSearchDatePicker) {
@@ -453,6 +450,7 @@ struct PlayerProfileContentView: View {
         .animation(.easeInOut, value: showScoreInfoAlert)
         .animation(.easeInOut, value: showAuthSheet)
         .navigationBarBackButtonHidden(true)
+        .navigationBarHidden(true)
     }
     
     // A view builder for the post filter and sort menus

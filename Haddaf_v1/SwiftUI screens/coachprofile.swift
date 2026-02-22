@@ -86,10 +86,11 @@ class CoachProfileViewModel: ObservableObject {
 
 // MARK: - Coach Profile Content View
 struct CoachProfileContentView: View {
+    @EnvironmentObject var session: AppSession
     @StateObject private var viewModel: CoachProfileViewModel
     @State private var selectedContent: ContentType = .currentTeam
     @State private var goToSettings = false
-    @State private var showNotificationsList = false // If needed, else remove
+    @State private var showNotificationsList = false
 
     private var isCurrentUser: Bool
     private var isRootProfileView: Bool = true // Adjust if needed
@@ -121,6 +122,7 @@ struct CoachProfileContentView: View {
     }
 
     var body: some View {
+        NavigationStack {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             ScrollView {
@@ -148,11 +150,8 @@ struct CoachProfileContentView: View {
                         ContentTabViewCoach(selectedContent: $selectedContent)
                         switch selectedContent {
                         case .currentTeam:
-                            EmptyStateView(
-                                imageName: "person.3",
-                                message: "To be developed in the next sprint"
-                            )
-                            .padding(.top, 40)
+                            CurrentTeamView()
+                                .padding(.top, 10)
                         case .matchSchedule:
                             EmptyStateView(
                                 imageName: "calendar",
@@ -167,6 +166,10 @@ struct CoachProfileContentView: View {
             .fullScreenCover(isPresented: $goToSettings) {
                 NavigationStack { SettingsViewCoach(coachProfile: viewModel.coachProfile) }
             }
+            .navigationDestination(isPresented: $showNotificationsList) {
+                NotificationsView()
+                    .environmentObject(session)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
             Task {
@@ -174,6 +177,7 @@ struct CoachProfileContentView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        } // end NavigationStack
     }
 }
 
@@ -1313,6 +1317,78 @@ struct SettingsViewCoach: View {
                     .fill(dividerColor)
                     .frame(height: 1)
                     .padding(.leading, 60)
+            }
+        }
+    }
+}
+
+// MARK: - CurrentTeamView for Coach Profile
+struct CurrentTeamView: View {
+    @EnvironmentObject var session: AppSession
+    @State private var team: SaudiTeam? = nil
+    @State private var isLoading = true
+    @State private var navigateToTeamDetail = false
+    private let accentColor = BrandColors.darkTeal
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if isLoading {
+                ProgressView().tint(accentColor).padding()
+            } else if let team = team {
+                VStack(alignment: .leading, spacing: 10) {
+                    TeamCard(team: team, isHighlighted: true)
+                        .padding(.horizontal, 20)
+                        .onTapGesture { navigateToTeamDetail = true }
+                }
+                .navigationDestination(isPresented: $navigateToTeamDetail) {
+                    TeamDetailView(team: team)
+                }
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "shield.slash")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text("No Team Yet")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text("Go to the Teams tab to create your team.")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30)
+                }
+                .padding(.vertical, 30)
+            }
+        }
+        .onAppear { loadTeam() }
+    }
+
+    private func loadTeam() {
+        guard let uid = Auth.auth().currentUser?.uid else { isLoading = false; return }
+        Task {
+            let db = Firestore.firestore()
+            let doc = try? await db.collection("teams").document(uid).getDocument()
+            guard let data = doc?.data() else {
+                await MainActor.run { isLoading = false }
+                return
+            }
+            let teamName = data["teamName"] as? String ?? ""
+            let logoURL = data["logoURL"] as? String
+            var coachName: String? = nil
+            if let cd = try? await db.collection("users").document(uid).getDocument(),
+               let cdata = cd.data() {
+                let fn = cdata["firstName"] as? String ?? ""
+                let ln = cdata["lastName"] as? String ?? ""
+                coachName = "\(fn) \(ln)".trimmingCharacters(in: .whitespaces)
+            }
+            let playersSnap = try? await db.collection("teams").document(uid).collection("players").getDocuments()
+            let count = playersSnap?.documents.count ?? 0
+            await MainActor.run {
+                self.team = SaudiTeam(
+                    id: uid, teamName: teamName, logoURL: logoURL,
+                    coachUID: uid, coachName: coachName, playerCount: count
+                )
+                self.isLoading = false
             }
         }
     }
