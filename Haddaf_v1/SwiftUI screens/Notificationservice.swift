@@ -157,6 +157,17 @@ class NotificationService: ObservableObject {
         try? await Firestore.firestore().collection("notifications").document(notification.id).setData(notification.asDictionary)
     }
 
+    // MARK: - Send Goal Achieved Notification
+    static func sendGoalAchievedNotification(userId: String, metric: String, target: Int) async {
+        let notification = HaddafNotification(
+            userId: userId,
+            type: .goalAchieved,
+            title: "🎯 Goal Achieved!",
+            message: "You reached your \(metric) goal of \(target). Set a new goal to keep improving!"
+        )
+        try? await Firestore.firestore().collection("notifications").document(notification.id).setData(notification.asDictionary)
+    }
+
     // MARK: - Send Removed From Team Notification (to player)
     static func sendRemovedFromTeamNotification(playerUID: String, teamName: String) async {
         let notification = HaddafNotification(

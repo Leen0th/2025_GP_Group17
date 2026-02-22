@@ -11,6 +11,7 @@ enum NotificationType: String, Codable {
     case invitationAccepted = "invitation_accepted"
     case invitationDeclined = "invitation_declined"
     case removedFromTeam = "removed_from_team"
+    case goalAchieved = "goal_achieved"
 }
 
 // MARK: - Notification Model

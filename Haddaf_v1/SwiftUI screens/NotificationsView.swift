@@ -168,6 +168,7 @@ struct NotificationCard: View {
         case .invitationAccepted: return "person.badge.checkmark.fill"
         case .invitationDeclined: return "person.badge.minus"
         case .removedFromTeam: return "xmark.circle.fill"
+        case .goalAchieved: return "target"
         }
     }
 

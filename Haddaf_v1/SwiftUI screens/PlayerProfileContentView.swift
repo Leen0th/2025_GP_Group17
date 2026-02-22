@@ -54,6 +54,7 @@ struct PlayerProfileContentView: View {
     @State private var showAuthSheet = false
     @State private var showDeactivatedSheet = false
     @State private var showUnverifiedCoachSheet = false
+    @State private var pendingGoalDelete: PendingGoalDelete? = nil
     // A boolean indicating if this profile belongs to the currently logged-in user
     private var isCurrentUser: Bool
     
@@ -288,12 +289,17 @@ struct PlayerProfileContentView: View {
                                     .padding(.horizontal)
                        
                         case .progress:
+                            if let uid = Auth.auth().currentUser?.uid {
+                                GoalTrackingSection(userId: uid, pendingDelete: $pendingGoalDelete)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 8)
+                            }
                             // ProgressTabView() // <-- Placeholder commented out
-                            EmptyStateView(
-                                imageName: "chart.bar.xaxis",
-                                message: "To be developed in upcoming sprints"
-                            )
-                            .padding(.top, 40)
+                            //EmptyStateView(
+                            //    imageName: "chart.bar.xaxis",
+                            //    message: "To be developed in upcoming sprints"
+                            //)
+                            //.padding(.top, 40)
 
                         case .endorsements:
                             EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
@@ -444,8 +450,24 @@ struct PlayerProfileContentView: View {
                     .animation(.easeInOut, value: showUnverifiedCoachSheet)
             }
             
-            
-            
+            if let pending = pendingGoalDelete {
+                StyledConfirmationOverlay(
+                    isPresented: Binding(
+                        get: { pendingGoalDelete != nil },
+                        set: { if !$0 { pendingGoalDelete = nil } }
+                    ),
+                    title: pending.isDismiss
+                        ? "Remove \(pending.metricName) Goal?"
+                        : "Delete \(pending.metricName) Goal?",
+                    message: pending.isDismiss
+                        ? "This will remove your \(pending.metricName) goal. You can set a new one anytime."
+                        : "Your \(pending.metricName) goal will be permanently deleted. You can set a new one anytime.",
+                    confirmButtonTitle: pending.isDismiss ? "Remove" : "Delete",
+                    onConfirm: {
+                        Task { await GoalService.shared.deleteGoal(goalId: pending.goalId) }
+                    }
+                )
+            }
         }
         .animation(.easeInOut, value: showScoreInfoAlert)
         .animation(.easeInOut, value: showAuthSheet)
