@@ -222,10 +222,11 @@ struct AdminCoachesApprovalView: View {
     @State private var expandedCommentIDs: Set<String> = [] // Track which history items have expanded comments
     @State private var selectedTab: RequestTab = .pending // Tab selection
     @State private var statusFilter: String = "all" // "all", "approved", "rejected"
+    @State private var pendingStatusFilter: String = "all" // "all", "new", "returned"
     @State private var reviewed: [CoachRequestItem] = [] // For approved/rejected requests
 
     enum RequestTab: String, CaseIterable {
-        case pending = "Under Review"
+        case pending = "Needs Review"
         case reviewed = "Reviewed"
     }
     
@@ -256,35 +257,51 @@ struct AdminCoachesApprovalView: View {
                                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
                             )
                             
-                            // Filter icon (only for reviewed tab)
+                            // Filter icon
                             if selectedTab == .reviewed {
                                 Menu {
                                     Button {
                                         statusFilter = "all"
                                     } label: {
-                                        Label("All Requests", systemImage: statusFilter == "all" ? "checkmark" : "")
+                                        Label("All", systemImage: statusFilter == "all" ? "checkmark" : "")
                                     }
-                                    
                                     Button {
                                         statusFilter = "approved"
                                     } label: {
                                         Label("Approved Only", systemImage: statusFilter == "approved" ? "checkmark" : "")
                                     }
-                                    
                                     Button {
                                         statusFilter = "rejected"
                                     } label: {
                                         Label("Rejected Only", systemImage: statusFilter == "rejected" ? "checkmark" : "")
                                     }
-                                    Button {
-                                        statusFilter = "under_review"
-                                    } label: {
-                                        Label("Returned Only", systemImage: statusFilter == "under_review" ? "checkmark" : "")
-                                    }
                                 } label: {
                                     Image(systemName: statusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                                         .font(.system(size: 22))
                                         .foregroundColor(statusFilter != "all" ? BrandColors.darkTeal : .secondary)
+                                        .padding(8)
+                                }
+                            } else if selectedTab == .pending {
+                                Menu {
+                                    Button {
+                                        pendingStatusFilter = "all"
+                                    } label: {
+                                        Label("All", systemImage: pendingStatusFilter == "all" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingStatusFilter = "new"
+                                    } label: {
+                                        Label("New Only", systemImage: pendingStatusFilter == "new" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingStatusFilter = "returned"
+                                    } label: {
+                                        Label("Returned Only", systemImage: pendingStatusFilter == "returned" ? "checkmark" : "")
+                                    }
+                                } label: {
+                                    Image(systemName: pendingStatusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(pendingStatusFilter != "all" ? BrandColors.darkTeal : .secondary)
                                         .padding(8)
                                 }
                             }
@@ -400,12 +417,26 @@ struct AdminCoachesApprovalView: View {
     private var filteredAndSortedPending: [CoachRequestItem] {
         let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
-        // Filter
+        // Filter by new/returned
+        let statusFiltered: [CoachRequestItem]
+        if pendingStatusFilter == "new" {
+            statusFiltered = pending.filter { item in
+                !item.timeline.contains { $0.type == .coachResponse || $0.type == .documentReuploaded }
+            }
+        } else if pendingStatusFilter == "returned" {
+            statusFiltered = pending.filter { item in
+                item.timeline.contains { $0.type == .coachResponse || $0.type == .documentReuploaded }
+            }
+        } else {
+            statusFiltered = pending
+        }
+        
+        // Filter by search
         let filtered: [CoachRequestItem]
         if s.isEmpty {
-            filtered = pending
+            filtered = statusFiltered
         } else {
-            filtered = pending.filter {
+            filtered = statusFiltered.filter {
                 $0.fullName.lowercased().contains(s) || $0.email.lowercased().contains(s)
             }
         }
@@ -425,7 +456,7 @@ struct AdminCoachesApprovalView: View {
         // Filter by status first
         let statusFiltered: [CoachRequestItem]
         if statusFilter == "all" {
-            statusFiltered = reviewed
+            statusFiltered = reviewed.filter { $0.status != "under_review" }
         } else {
             statusFiltered = reviewed.filter { $0.status == statusFilter }
         }
@@ -465,6 +496,11 @@ struct AdminCoachesApprovalView: View {
         
         switch selectedTab {
         case .pending:
+            if pendingStatusFilter == "new" {
+                return "There are no new requests."
+            } else if pendingStatusFilter == "returned" {
+                return "There are no returned requests."
+            }
             return "There are no coach requests yet."
         case .reviewed:
             if statusFilter == "approved" {
@@ -543,7 +579,7 @@ struct AdminCoachesApprovalView: View {
                         Text(item.fullName.isEmpty ? "Coach" : item.fullName)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                             .foregroundColor(primary)
-                            .padding(.trailing, item.status != "pending" ? 90 : 36)
+                            .padding(.trailing, (item.status == "approved" || item.status == "rejected") ? 90 : 36)
                         
                         Text(item.email)
                             .font(.system(size: 14, design: .rounded))
@@ -557,33 +593,34 @@ struct AdminCoachesApprovalView: View {
                             .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
                     )
                     
-                    // PENDING: show dot (new) or resubmission icon
-                    if item.status == "pending" {
-                        if isResubmission {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 26, height: 26)
-                                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(BrandColors.gold)
-                            }
-                            .offset(x: -8, y: 8)
-                        } else {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 26, height: 26)
-                                Circle()
-                                    .fill(Color.orange)
-                                    .frame(width: 16, height: 16)
-                            }
-                            .offset(x: -8, y: 8)
+                    // NEW: red dot indicator
+                    if item.status == "pending" && !isResubmission {
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 26, height: 26)
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundColor(Color.red)
                         }
+                        .offset(x: -8, y: 8)
                     }
-                    
-                    // REVIEWED: show status pill
-                    if item.status != "pending" {
+
+                    // yellow icon — shown for both resubmitted (pending) and awaiting-coach-response (under_review)
+                    if (item.status == "pending" && isResubmission) || item.status == "under_review" {
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 26, height: 26)
+                            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(BrandColors.gold)
+                        }
+                        .offset(x: -8, y: 8)
+                    }
+
+                    // Show status pill only for approved/rejected
+                    if item.status == "approved" || item.status == "rejected" {
                         Text(statusLabel(for: item.status))
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
@@ -660,33 +697,48 @@ private func loadPending() async {
                 .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
-            // Fetch reviewed requests (approved, rejected, and under_review)
+            // Fetch reviewed requests (approved and rejected only)
             let reviewedSnap = try await Firestore.firestore().collection("coachRequests")
-                .whereField("status", in: ["approved", "rejected", "under_review"])
+                .whereField("status", in: ["approved", "rejected"])
+                .order(by: "reviewedAt", descending: true)
+                .limit(to: 100)
+                .getDocuments()
+
+            // Fetch returned (under_review) requests separately — they live in "Needs Review"
+            let returnedSnap = try await Firestore.firestore().collection("coachRequests")
+                .whereField("status", isEqualTo: "under_review")
                 .order(by: "reviewedAt", descending: true)
                 .limit(to: 100)
                 .getDocuments()
 
             // Process pending requests
-                        var pendingItems: [CoachRequestItem] = []
-                        for d in pendingSnap.documents {
-                            if let item = try? await buildCoachRequestItem(from: d) {  // Use try? to ignore throws if any, and if let to skip nil
-                                pendingItems.append(item)
-                            } else {
-                                print("Skipped or failed to build item for document \(d.documentID)")
-                            }
-                        }
-            
+            var pendingItems: [CoachRequestItem] = []
+            for d in pendingSnap.documents {
+                if let item = try? await buildCoachRequestItem(from: d) {
+                    pendingItems.append(item)
+                } else {
+                    print("Skipped or failed to build item for document \(d.documentID)")
+                }
+            }
+            // Add returned requests into the pending (Needs Review) tab
+            for d in returnedSnap.documents {
+                if let item = try? await buildCoachRequestItem(from: d) {
+                    pendingItems.append(item)
+                } else {
+                    print("Skipped or failed to build item for document \(d.documentID)")
+                }
+            }
+
             // Process reviewed requests
-                        var reviewedItems: [CoachRequestItem] = []
-                        for d in reviewedSnap.documents {
-                            if let item = try? await buildCoachRequestItem(from: d) {
-                                reviewedItems.append(item)
-                            } else {
-                                print("Skipped or failed to build item for document \(d.documentID)")
-                            }
-                        }
-            
+            var reviewedItems: [CoachRequestItem] = []
+            for d in reviewedSnap.documents {
+                if let item = try? await buildCoachRequestItem(from: d) {
+                    reviewedItems.append(item)
+                } else {
+                    print("Skipped or failed to build item for document \(d.documentID)")
+                }
+            }
+
             await MainActor.run {
                 pending = pendingItems
                 reviewed = reviewedItems
@@ -966,15 +1018,6 @@ struct CoachRequestDetailView: View {
                         )
                     }
                     .padding(.horizontal)
-                    
-                    // Status Badge
-                    HStack {
-                        Spacer()
-                        StatusBadge(status: request.status)
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
                     
                     // Request Timeline
                     VStack(alignment: .leading, spacing: 8) {

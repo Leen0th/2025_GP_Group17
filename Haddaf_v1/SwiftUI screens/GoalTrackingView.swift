@@ -17,11 +17,7 @@ struct GoalTrackingSection: View {
 
     private let primary = BrandColors.darkTeal
 
-    private var unsetMetrics: [MetricType] {
-        MetricType.allCases.filter { metric in
-            !service.goals.contains(where: { $0.metric == metric })
-        }
-    }
+    @State private var goalFilter: String = "all" // "all", "achieved", "active"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -31,6 +27,42 @@ struct GoalTrackingSection: View {
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
                 Spacer()
+                if !service.goals.isEmpty {
+                    Menu {
+                        Button {
+                            goalFilter = "all"
+                        } label: {
+                            Label("All", systemImage: goalFilter == "all" ? "checkmark" : "")
+                        }
+                        Button {
+                            goalFilter = "achieved"
+                        } label: {
+                            Label("Achieved", systemImage: goalFilter == "achieved" ? "checkmark" : "")
+                        }
+                        Button {
+                            goalFilter = "active"
+                        } label: {
+                            Label("In Progress", systemImage: goalFilter == "active" ? "checkmark" : "")
+                        }
+                    } label: {
+                        Image(systemName: goalFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(goalFilter != "all" ? primary : .secondary)
+                            .padding(8)
+                    }
+
+                    Button {
+                        showSetGoalSheet = true
+                    } label: {
+                        Label("Set Goal", systemImage: "plus.circle.fill")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(primary.opacity(0.08))
+                            .clipShape(Capsule())
+                    }
+                }
             }
 
             if service.isLoading {
@@ -42,39 +74,48 @@ struct GoalTrackingSection: View {
                 }
 
             } else {
-                VStack(spacing: 12) {
-                    ForEach(service.goals) { goal in
-                        GoalCard(
-                            goal: goal,
-                            userId: userId,
-                            onRequestDelete: { isDismiss in
-                                pendingDelete = PendingGoalDelete(
-                                    goalId: goal.id,
-                                    metricName: goal.metric.rawValue,
-                                    isDismiss: isDismiss
-                                )
-                            }
-                        )
-                    }
+                let displayedGoals: [PlayerGoal] = {
+                let filtered: [PlayerGoal]
+                switch goalFilter {
+                case "achieved": filtered = service.goals.filter { $0.status == .achieved }
+                case "active":   filtered = service.goals.filter { $0.status == .active }
+                default:         filtered = service.goals
                 }
-                if !unsetMetrics.isEmpty {
-                    Button {
-                        showSetGoalSheet = true
-                    } label: {
-                        Label("Set a Goal", systemImage: "plus.circle.fill")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundColor(primary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(primary.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // Achieved goals always sink to the bottom
+                return filtered.sorted { a, b in
+                    if a.status == b.status { return false }
+                    return a.status == .active
+                }
+            }()
+
+            if displayedGoals.isEmpty {
+                Text(goalFilter == "achieved" ? "No achieved goals yet. Keep going!" : "No goals in progress.")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(displayedGoals) { goal in
+                            GoalCard(
+                                goal: goal,
+                                userId: userId,
+                                onRequestDelete: { isDismiss in
+                                    pendingDelete = PendingGoalDelete(
+                                        goalId: goal.id,
+                                        metricName: goal.metric.rawValue,
+                                        isDismiss: isDismiss
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
         .onAppear { service.startListening(for: userId) }
         .sheet(isPresented: $showSetGoalSheet) {
-            SetGoalSheet(userId: userId, availableMetrics: unsetMetrics)
+            SetGoalSheet(userId: userId, availableMetrics: MetricType.allCases)
         }
     }
 }
@@ -224,44 +265,6 @@ private struct GoalCard: View {
                     .font(.system(size: 11, design: .rounded))
                     .foregroundColor(.secondary)
             }
-
-            // ── "Set a new goal?" prompt shown only when achieved ──
-            if isAchieved {
-                Divider()
-
-                HStack(spacing: 0) {
-                    Text("Set a new \(goal.metric.rawValue) goal?")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(BrandColors.darkGray)
-                    Spacer()
-                    // NO — dismiss this goal card entirely
-                    Button {
-                        onRequestDelete(true)
-                    } label: {
-                        Text("No")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(BrandColors.lightGray)
-                            .clipShape(Capsule())
-                    }
-                    .padding(.trailing, 8)
-
-                    // YES — open edit sheet
-                    Button {
-                        showUpdateSheet = true
-                    } label: {
-                        Text("Yes")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(primary)
-                            .clipShape(Capsule())
-                    }
-                }
-            }
         }
         .padding(16)
         .background(Color.white)
@@ -318,7 +321,7 @@ struct SetGoalSheet: View {
                             )
                         } else {
                             // ── Setting goals for multiple metrics at once ──
-                            Text("Select the metrics you want to set goals for")
+                            Text("Choose the skills you want to set goals for")
                                 .font(.system(size: 14, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)

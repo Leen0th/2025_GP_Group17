@@ -38,25 +38,16 @@ class GoalService: ObservableObject {
 
     // MARK: - Save / update a goal
     func saveGoal(userId: String, metric: MetricType, target: Int) async {
-        // Check if a goal for this metric already exists
-        if let existing = goals.first(where: { $0.metric == metric }) {
-            // Update it
-            try? await db.collection("playerGoals").document(existing.id).updateData([
-                "targetCount": target,
-                "status": GoalStatus.active.rawValue,
-                "achievedAt": FieldValue.delete()
-            ])
-        } else {
-            let goal = PlayerGoal(
-                userId: userId,
-                metric: metric,
-                targetCount: target,
-                status: .active,
-                achievedAt: nil,
-                createdAt: Date()
-            )
-            try? await db.collection("playerGoals").document(goal.id).setData(goal.asDictionary)
-        }
+        // Always create a new goal — multiple goals per metric are allowed
+        let goal = PlayerGoal(
+            userId: userId,
+            metric: metric,
+            targetCount: target,
+            status: .active,
+            achievedAt: nil,
+            createdAt: Date()
+        )
+        try? await db.collection("playerGoals").document(goal.id).setData(goal.asDictionary)
     }
 
     // MARK: - Check goals after a new post
