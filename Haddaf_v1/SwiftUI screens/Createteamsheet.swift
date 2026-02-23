@@ -4,7 +4,7 @@ import FirebaseAuth
 import FirebaseStorage
 import FirebaseFirestore
 
-// MARK: - Create Team Sheet
+// MARK: - Create Team Page (Full Page - not sheet)
 struct CreateTeamSheet: View {
     let onCreated: () -> Void
 
@@ -37,92 +37,113 @@ struct CreateTeamSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                BrandColors.backgroundGradientEnd.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Logo Picker
-                        PhotosPicker(selection: $selectedItem, matching: .images) {
-                            VStack(spacing: 8) {
-                                ZStack(alignment: .bottomTrailing) {
-                                    if let image = teamLogoImage {
-                                        image.resizable().scaledToFill()
-                                            .frame(width: 110, height: 110).clipShape(Circle())
-                                    } else {
-                                        Image(systemName: "shield.lefthalf.filled")
-                                            .resizable().scaledToFit()
-                                            .frame(width: 60, height: 60)
-                                            .foregroundColor(primary.opacity(0.7))
-                                            .frame(width: 110, height: 110)
-                                            .background(Color.gray.opacity(0.1))
-                                            .clipShape(Circle())
-                                    }
-                                    Circle().fill(primary).frame(width: 32, height: 32)
-                                        .overlay(Image(systemName: "plus").font(.system(size: 14, weight: .bold)).foregroundColor(.white))
-                                        .shadow(color: primary.opacity(0.3), radius: 8, y: 4)
-                                }
-                                Text("Team Logo (Optional)")
-                                    .font(.system(size: 14, design: .rounded)).foregroundColor(primary.opacity(0.75))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 6)
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
 
-                        // Team Name
-                        Text("Team Name *")
-                            .font(.system(size: 14, design: .rounded)).foregroundColor(.gray)
-                        VStack(alignment: .leading, spacing: 6) {
-                            TextField("Enter team name", text: $teamName)
-                                .font(.system(size: 16, design: .rounded)).foregroundColor(primary)
-                                .textInputAutocapitalization(.words)
-                                .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
-                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1)))
-                                .onChange(of: teamName) { _, val in
-                                    var f = val.filter { $0.isLetter || $0 == " " }
-                                    if f.count > maxTeamNameLength { f = String(f.prefix(maxTeamNameLength)) }
-                                    if f != teamName { teamName = f }
+                    // Logo Picker
+                    PhotosPicker(selection: $selectedItem, matching: .images) {
+                        VStack(spacing: 8) {
+                            ZStack(alignment: .bottomTrailing) {
+                                if let image = teamLogoImage {
+                                    image.resizable().scaledToFill()
+                                        .frame(width: 110, height: 110).clipShape(Circle())
+                                } else {
+                                    Image(systemName: "shield.lefthalf.filled")
+                                        .resizable().scaledToFit()
+                                        .frame(width: 60, height: 60)
+                                        .foregroundColor(primary.opacity(0.7))
+                                        .frame(width: 110, height: 110)
+                                        .background(Color.gray.opacity(0.1))
+                                        .clipShape(Circle())
                                 }
-                            HStack {
-                                Spacer()
-                                Text("\(teamName.count)/\(maxTeamNameLength)")
-                                    .font(.system(size: 12, design: .rounded))
-                                    .foregroundColor(teamName.count == maxTeamNameLength ? .red : .gray)
+                                Circle().fill(primary).frame(width: 32, height: 32)
+                                    .overlay(Image(systemName: "plus")
+                                        .font(.system(size: 14, weight: .bold)).foregroundColor(.white))
+                                    .shadow(color: primary.opacity(0.3), radius: 8, y: 4)
                             }
+                            Text("Team Logo (Optional)")
+                                .font(.system(size: 14, design: .rounded)).foregroundColor(primary.opacity(0.75))
                         }
-
-                        // Create Button
-                        Button {
-                            Task { await saveTeam() }
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("Create Team")
-                                    .font(.system(size: 18, weight: .medium, design: .rounded)).foregroundColor(.white)
-                                if isUploading || isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
-                            }
-                            .frame(maxWidth: .infinity).padding(.vertical, 16)
-                        }
-                        .background(canSubmit ? primary : primary.opacity(0.5))
-                        .clipShape(Capsule())
-                        .disabled(!canSubmit)
-                        .opacity(canSubmit ? 1 : 0.5)
-                        .padding(.top)
                     }
-                    .padding(.horizontal, 20).padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 6)
+
+                    HStack(spacing: 2) {
+                        Text("Team Name")
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(primary)
+                        Text("*")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.red)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Enter team name", text: $teamName)
+                            .font(.system(size: 16, design: .rounded)).foregroundColor(primary)
+                            .textInputAutocapitalization(.words)
+                            .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
+                            .onChange(of: teamName) { _, val in
+                                var f = val.filter { $0.isLetter || $0 == " " }
+                                if f.count > maxTeamNameLength { f = String(f.prefix(maxTeamNameLength)) }
+                                if f != teamName { teamName = f }
+                            }
+                        HStack {
+                            Spacer()
+                            Text("\(teamName.count)/\(maxTeamNameLength)")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(teamName.count == maxTeamNameLength ? .red : .gray)
+                        }
+                    }
+
+                    // Create Button
+                    Button {
+                        Task { await saveTeam() }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("Create Team")
+                                .font(.system(size: 18, weight: .medium, design: .rounded)).foregroundColor(.white)
+                            if isUploading || isSaving { ProgressView().colorInvert().scaleEffect(0.9) }
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    }
+                    .background(canSubmit ? primary : primary.opacity(0.4))
+                    .clipShape(Capsule())
+                    .shadow(color: canSubmit ? primary.opacity(0.3) : .clear, radius: 10, y: 5)
+                    .disabled(!canSubmit)
+                    .opacity(canSubmit ? 1 : 0.6)
+                    .padding(.top)
                 }
+                .padding(.horizontal, 20).padding(.bottom, 24)
             }
-            .navigationTitle("Create Team")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }.foregroundColor(primary)
-                }
-            }
-            .alert("Notice", isPresented: $showAlert) {
-                Button("OK", role: .cancel) {}
-            } message: { Text(alertMsg) }
         }
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(primary)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(Color(.systemGray6)))
+                }
+            }
+            ToolbarItem(placement: .principal) {
+                Text("Create Team")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(primary)
+            }
+        }
+        .alert("Notice", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(alertMsg) }
         .onChange(of: selectedItem) { _, newItem in
             selectedImageData = nil; teamLogoImage = nil; downloadURL = nil; isUploading = false
             Task {

@@ -200,7 +200,9 @@ final class DiscoveryViewModel: ObservableObject {
                 profile.profileImage = UIImage(systemName: "person.circle.fill")
             }
 
-            profile.team = "Unassigned" // Default value
+            profile.team = (data["teamName"] as? String)?.isEmpty == false
+                ? (data["teamName"] as! String)
+                : "Unassigned" // ✅ reads real teamName from Firestore
             profile.rank = "0" // Default value
             profile.score = (p["cumulativeScore"] as? String) ?? "0"
 

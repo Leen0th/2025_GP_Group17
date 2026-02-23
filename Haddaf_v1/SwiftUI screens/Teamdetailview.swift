@@ -1,6 +1,8 @@
 import SwiftUI
+import PhotosUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 
 // MARK: - Player in Team Model
 struct TeamPlayer: Identifiable {
@@ -126,6 +128,18 @@ struct TeamDetailView: View {
     @State private var alertMessage = ""
     @State private var showAlert = false
     @State private var navigateToPlayerUID: String? = nil
+    @State private var showDeleteTeamConfirm = false
+    @State private var isDeletingTeam = false
+
+    // ✅ Edit Team
+    @State private var showEditNameSheet = false
+    @State private var editedTeamName = ""
+    @State private var isSavingName = false
+    @State private var showLogoPickerSheet = false
+    @State private var selectedLogoItem: PhotosPickerItem?
+    @State private var currentLogoURL: String?
+    @State private var localLogoImage: UIImage? = nil
+    @State private var isUploadingLogo = false
 
     private let accentColor = BrandColors.darkTeal
     private var isCoachOfThisTeam: Bool {
@@ -257,8 +271,67 @@ struct TeamDetailView: View {
                 .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
                 .transition(.scale.combined(with: .opacity))
             }
+
+            // ✅ Delete Team popup
+            if showDeleteTeamConfirm {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                    .onTapGesture { withAnimation { showDeleteTeamConfirm = false } }
+                VStack(spacing: 0) {
+                    VStack(spacing: 10) {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.red)
+                        Text("Delete Team?")
+                            .font(.system(size: 18, weight: .bold))
+                        Text("Are you sure you want to delete \"\(editedTeamName.isEmpty ? team.teamName : editedTeamName)\"? All players will be unassigned and this action cannot be undone.")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 24).padding(.horizontal, 20).padding(.bottom, 20)
+
+                    Divider()
+
+                    HStack(spacing: 12) {
+                        Button {
+                            withAnimation { showDeleteTeamConfirm = false }
+                        } label: {
+                            Text("No")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Color(.systemGray6))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        Button {
+                            withAnimation { showDeleteTeamConfirm = false }
+                            isDeletingTeam = true
+                            Task {
+                                await deleteTeam()
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isDeletingTeam { ProgressView().tint(.white).scaleEffect(0.8) }
+                                Text("Yes")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Color.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(isDeletingTeam)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 16)
+                }
+                .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
+                .padding(.horizontal, 30)
+                .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
+                .transition(.scale.combined(with: .opacity))
+            }
         }
         .animation(.spring(response: 0.3), value: showRemoveConfirm)
+        .animation(.spring(response: 0.3), value: showDeleteTeamConfirm)
         .animation(.spring(response: 0.3), value: pendingUIDToRemove)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
@@ -266,6 +339,20 @@ struct TeamDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 backButton
+            }
+            // ✅ Delete team button - coach only
+            if isCoachOfThisTeam {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        withAnimation { showDeleteTeamConfirm = true }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.red.opacity(0.8))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color(.systemGray6)))
+                    }
+                }
             }
         }
         .navigationDestination(isPresented: $showInviteSearch) {
@@ -308,15 +395,176 @@ struct TeamDetailView: View {
 
     private var teamHeaderSection: some View {
         VStack(spacing: 12) {
-            TeamLogoCircle(logoURL: team.logoURL, size: 110)
-            Text(team.teamName)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundColor(accentColor)
+            // ✅ Logo with edit pencil (coach only)
+            ZStack(alignment: .bottomTrailing) {
+                if let localImg = localLogoImage {
+                    Image(uiImage: localImg)
+                        .resizable().scaledToFill()
+                        .frame(width: 110, height: 110).clipShape(Circle())
+                } else {
+                    TeamLogoCircle(logoURL: currentLogoURL ?? team.logoURL, size: 110)
+                }
+
+                if isCoachOfThisTeam {
+                    PhotosPicker(selection: $selectedLogoItem, matching: .images) {
+                        ZStack {
+                            Circle().fill(accentColor).frame(width: 32, height: 32)
+                            if isUploadingLogo {
+                                ProgressView().tint(.white).scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .shadow(color: accentColor.opacity(0.4), radius: 6, y: 2)
+                    }
+                    .disabled(isUploadingLogo)
+                }
+            }
+
+            // ✅ Team name with edit pencil (coach only)
+            HStack(spacing: 6) {
+                Text(editedTeamName.isEmpty ? team.teamName : editedTeamName)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundColor(accentColor)
+
+                if isCoachOfThisTeam {
+                    Button { showEditNameSheet = true } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(accentColor.opacity(0.7))
+                            .padding(6)
+                            .background(Circle().fill(Color(.systemGray6)))
+                    }
+                }
+            }
+
             Label("\(viewModel.players.count) Players", systemImage: "person.3.fill")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary)
         }
         .padding(.top, 8)
+        .onChange(of: selectedLogoItem) { _, newItem in
+            guard let item = newItem else { return }
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let uiImg = UIImage(data: data) else { return }
+                await MainActor.run { localLogoImage = uiImg; isUploadingLogo = true }
+                do {
+                    guard let uid = Auth.auth().currentUser?.uid else { return }
+                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    let ref = Storage.storage().reference()
+                        .child("teams").child(uid).child("logo")
+                        .child("\(UUID().uuidString).\(ext)")
+                    let meta = StorageMetadata()
+                    meta.contentType = "image/\(ext == "jpg" ? "jpeg" : ext)"
+                    _ = try await ref.putDataAsync(data, metadata: meta)
+                    let url = try await ref.downloadURL()
+                    try await Firestore.firestore().collection("teams").document(uid)
+                        .updateData(["logoURL": url.absoluteString])
+                    await MainActor.run { currentLogoURL = url.absoluteString; isUploadingLogo = false }
+                } catch {
+                    await MainActor.run { localLogoImage = nil; isUploadingLogo = false
+                        alertMessage = error.localizedDescription; showAlert = true }
+                }
+            }
+        }
+        // ✅ Edit Name - full page navigation
+        .navigationDestination(isPresented: $showEditNameSheet) {
+            editNamePage
+        }
+    }
+
+    // ✅ Edit name full page
+    private var editNamePage: some View {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 2) {
+                        Text("Team Name")
+                            .font(.system(size: 14, design: .rounded))
+                            .foregroundColor(accentColor)
+                        Text("*")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.red)
+                    }
+                    TextField("Enter team name", text: $editedTeamName)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(accentColor)
+                        .textInputAutocapitalization(.words)
+                        .padding(.horizontal, 16).padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
+                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                        )
+                        .onChange(of: editedTeamName) { _, val in
+                            var f = val.filter { $0.isLetter || $0 == " " }
+                            if f.count > 30 { f = String(f.prefix(30)) }
+                            if f != editedTeamName { editedTeamName = f }
+                        }
+                    HStack {
+                        Spacer()
+                        Text("\(editedTeamName.count)/30")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(editedTeamName.count == 30 ? .red : .gray)
+                    }
+
+                    Button {
+                        Task {
+                            guard let uid = Auth.auth().currentUser?.uid,
+                                  !editedTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            isSavingName = true
+                            let trimmed = editedTeamName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            do {
+                                let db = Firestore.firestore()
+                                try await db.collection("teams").document(uid).updateData(["teamName": trimmed])
+                                try await db.collection("users").document(uid).updateData(["teamName": trimmed])
+                                await MainActor.run { isSavingName = false; showEditNameSheet = false }
+                            } catch {
+                                await MainActor.run { isSavingName = false
+                                    alertMessage = error.localizedDescription; showAlert = true }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("Save")
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                            if isSavingName { ProgressView().tint(.white).scaleEffect(0.85) }
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 15)
+                        .background(!editedTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? accentColor : accentColor.opacity(0.4))
+                        .clipShape(Capsule())
+                    }
+                    .disabled(editedTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSavingName)
+                    .padding(.top, 4)
+
+                    Spacer()
+                }
+                .padding(20)
+            }
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button { showEditNameSheet = false } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(accentColor)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(Color(.systemGray6)))
+                }
+            }
+            ToolbarItem(placement: .principal) {
+                Text("Edit Team Name")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(accentColor)
+            }
+        }
+        .onAppear { editedTeamName = team.teamName }
     }
 
     private var coachCard: some View {
@@ -433,6 +681,60 @@ struct TeamDetailView: View {
     enum PlayerRowData {
         case accepted(TeamPlayer)
         case pending(String)
+    }
+
+    // ✅ Delete entire team + unassign all players
+    private func deleteTeam() async {
+        guard let uid = Auth.auth().currentUser?.uid else { isDeletingTeam = false; return }
+        let db = Firestore.firestore()
+
+        do {
+            // 1. Get all players in the team
+            let playersSnap = try await db.collection("teams").document(uid)
+                .collection("players").getDocuments()
+            let playerUIDs = playersSnap.documents.map { $0.documentID }
+
+            // 2. Unassign each player (remove teamId + teamName from their user doc)
+            for playerUID in playerUIDs {
+                try? await db.collection("users").document(playerUID).updateData([
+                    "teamId": FieldValue.delete(),
+                    "teamName": FieldValue.delete()
+                ])
+            }
+
+            // 3. Delete all pending invitations for this team
+            let invSnap = try? await db.collection("invitations")
+                .whereField("teamID", isEqualTo: uid)
+                .getDocuments()
+            for doc in invSnap?.documents ?? [] {
+                try? await doc.reference.delete()
+            }
+
+            // 4. Delete all player subcollection docs
+            for doc in playersSnap.documents {
+                try? await doc.reference.delete()
+            }
+
+            // 5. Delete the team document itself
+            try await db.collection("teams").document(uid).delete()
+
+            // 6. Remove teamId + teamName from coach's own user doc
+            try? await db.collection("users").document(uid).updateData([
+                "teamId": FieldValue.delete(),
+                "teamName": FieldValue.delete()
+            ])
+
+            await MainActor.run {
+                isDeletingTeam = false
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isDeletingTeam = false
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
+        }
     }
 
     private func buildPlayerRows() -> [PlayerRowData] {

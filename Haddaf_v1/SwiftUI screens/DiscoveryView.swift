@@ -671,8 +671,10 @@ struct FiltersSheetView: View {
 
     // Local Data
     let positions = ["Attacker", "Midfielder", "Defender"]
-    let teams = ["Unassigned"]
     let locations = SAUDI_CITIES
+
+    // ✅ Dynamic team names fetched from Firestore
+    @State private var teamNames: [String] = ["Unassigned"]
 
     // The environment object for dismissing the sheet
     @Environment(\.dismiss) private var dismiss
@@ -931,7 +933,7 @@ struct FiltersSheetView: View {
                 Section("Current Team") {
                     Picker("Team", selection: $team) {
                         Text("Any").tag(String?.none)
-                        ForEach(teams, id: \.self) { t in Text(t).tag(String?.some(t)) }
+                        ForEach(teamNames, id: \.self) { t in Text(t).tag(String?.some(t)) }
                     }
                 }
                 // MARK: - Location Filter
@@ -1010,6 +1012,22 @@ struct FiltersSheetView: View {
                 ageMaxString = ageMax.map { String($0) } ?? ""
                 scoreMinString = scoreMin.map { String($0) } ?? ""
                 scoreMaxString = scoreMax.map { String($0) } ?? ""
+
+                // ✅ Fetch team names from Firestore dynamically
+                Task {
+                    do {
+                        let db = Firestore.firestore()
+                        let snap = try await db.collection("teams").getDocuments()
+                        let names: [String] = snap.documents.compactMap {
+                            $0.data()["teamName"] as? String
+                        }.sorted()
+                        await MainActor.run {
+                            teamNames = ["Unassigned"] + names
+                        }
+                    } catch {
+                        print("Failed to fetch teams: \(error)")
+                    }
+                }
             }
         }
     }

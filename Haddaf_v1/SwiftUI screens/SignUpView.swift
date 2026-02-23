@@ -20,7 +20,6 @@ struct SignUpView: View {
     
     // Coach Fields
     @State private var coachLocation = ""
-    @State private var hasTeam = true
     @State private var verificationFile: URL? = nil
     @State private var verificationFileName = ""
     @State private var showVerificationInfo = false
@@ -43,7 +42,6 @@ struct SignUpView: View {
     @State private var isUploadingProfilePic = false
     
     // Navigation for Coach
-    @State private var goToCoachTeamSetup = false
     @State private var goToDiscovery = false
     
     // Fields
@@ -499,7 +497,6 @@ struct SignUpView: View {
                     coachLocation = ""
                     coachPhoneLocal = ""
                     coachPhoneNonDigitError = false
-                    hasTeam = true
                     verificationFile = nil
                     verificationFileName = ""
                     showVerificationInfo = false
@@ -542,7 +539,6 @@ struct SignUpView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $goToPlayerSetup) { PlayerSetupView() }
-        .navigationDestination(isPresented: $goToCoachTeamSetup) { CoachTeamSetupView(hasTeam: hasTeam) }
         .navigationDestination(isPresented: $goToDiscovery) { PlayerProfileView() }
         .onDisappear {
             verifyTask?.cancel()
@@ -736,7 +732,6 @@ struct SignUpView: View {
                 let coachFullPhone = selectedDialCode + coachPhoneLocal
                 draftData["phone"] = coachFullPhone
                 draftData["location"] = coachLocation
-                draftData["hasTeam"] = hasTeam
                 draftData["verificationFile"] = finalVerificationURL
                 draftData["profilePic"] = profilePicURL
             }
@@ -830,10 +825,9 @@ struct SignUpView: View {
                     data["requiresParentConsent"] = true
                 }
             } else { // Coach
-                data["phone"] = draft["phone"] as? String ?? "" 
+                data["phone"] = draft["phone"] as? String ?? ""
                 data["location"] = draft["location"] as? String ?? ""
                 data["verificationFile"] = draft["verificationFile"] as? String ?? ""
-                data["hasTeam"] = draft["hasTeam"] as? Bool ?? false
                 data["profilePic"] = draft["profilePic"] as? String ?? ""
             }
             
@@ -852,7 +846,7 @@ struct SignUpView: View {
                 "timeline": [
                     [
                         "id": UUID().uuidString,
-                        "timestamp": Timestamp(date: Date()), 
+                        "timestamp": Timestamp(date: Date()),
                         "type": "Submitted",
                         "documentURL": initialDocURL,
                         "status": "pending"
@@ -879,21 +873,14 @@ struct SignUpView: View {
                 name: .userSignedIn,
                 object: nil,
                 userInfo: [
-                    "role": roleString,
-                    "hasTeam": draft["hasTeam"] as? Bool ?? false
+                    "role": roleString
                 ]
             )
             
             // MARK: - Navigation Logic
             if roleString == "coach" {
-                let coachHasTeam = draft["hasTeam"] as? Bool ?? false
-                if coachHasTeam {
-                    // Redirect to Team Setup
-                    goToCoachTeamSetup = true
-                } else {
-                    // No team, go directly to Discovery
-                    goToDiscovery = true
-                }
+                // Coach goes directly to app - team setup is done from Teams tab after approval
+                goToDiscovery = true
             } else {
                 // For players, proceed to Player Setup
                 goToPlayerSetup = true
@@ -1391,14 +1378,6 @@ struct SignUpView: View {
                         .padding(.top, 4)
                 }
             }
-            
-            // Has Team Toggle
-            Toggle(isOn: $hasTeam) {
-                Text("I have a team I am coaching")
-                    .font(.system(size: 16, design: .rounded))
-                    .foregroundColor(primary)
-            }
-            .tint(primary)
             
             // Show missing fields warning if user tried to submit
             if attemptedSubmit && !missingFields.isEmpty {

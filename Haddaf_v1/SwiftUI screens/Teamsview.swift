@@ -90,6 +90,7 @@ struct TeamsView: View {
     @StateObject private var viewModel = TeamsViewModel()
     @State private var selectedTeam: SaudiTeam? = nil
     @State private var showCreateTeam = false
+    @State private var showNotApprovedAlert = false
     @State private var userTeamId: String? = nil
     @State private var coachStatusApproved = false
 
@@ -143,34 +144,50 @@ struct TeamsView: View {
                                             .padding(.horizontal, 20)
                                             .onTapGesture { selectedTeam = myTeam }
                                     }
-                                } else if session.role == "coach" && coachStatusApproved {
-                                    // ✅ كوتش بدون فريق - زر Create Team في وسط الصفحة فقط
-                                    VStack(spacing: 16) {
-                                        Image(systemName: "shield.slash")
-                                            .font(.system(size: 50))
-                                            .foregroundColor(.secondary.opacity(0.4))
-                                        Text("No Team Yet")
-                                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                            .foregroundColor(.secondary)
-                                        Text("Create your team to start inviting players.")
-                                            .font(.system(size: 14, design: .rounded))
-                                            .foregroundColor(.secondary.opacity(0.7))
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal, 40)
-                                        Button { showCreateTeam = true } label: {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "plus.circle.fill")
-                                                Text("Create Team")
-                                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                } else if session.role == "coach" {
+                                    // ✅ كوتش بدون فريق - Create Team card بنفس ستايل TeamCard
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("My Team")
+                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                            .foregroundColor(accentColor.opacity(0.8))
+                                            .padding(.horizontal, 20)
+                                        Button {
+                                            if coachStatusApproved {
+                                                showCreateTeam = true
+                                            } else {
+                                                showNotApprovedAlert = true
                                             }
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 30).padding(.vertical, 14)
-                                            .background(accentColor)
-                                            .clipShape(Capsule())
-                                            .shadow(color: accentColor.opacity(0.3), radius: 10, y: 4)
+                                        } label: {
+                                            HStack(spacing: 16) {
+                                                ZStack {
+                                                    Circle().fill(accentColor.opacity(0.1)).frame(width: 70, height: 70)
+                                                    Image(systemName: "plus")
+                                                        .font(.system(size: 28, weight: .semibold))
+                                                        .foregroundColor(accentColor.opacity(0.6))
+                                                }
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("Create Team")
+                                                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                                                        .foregroundColor(accentColor)
+                                                    Text("Tap to set up your team")
+                                                        .font(.system(size: 13, design: .rounded))
+                                                        .foregroundColor(.secondary)
+                                                }
+                                                Spacer()
+                                                Image(systemName: "chevron.right").foregroundColor(accentColor.opacity(0.5))
+                                            }
+                                            .padding(16)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                                    .fill(BrandColors.background)
+                                                    .shadow(color: accentColor.opacity(0.15), radius: 12, y: 4)
+                                                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                                        .stroke(accentColor.opacity(0.3), lineWidth: 1.5))
+                                            )
                                         }
+                                        .buttonStyle(.plain)
+                                        .padding(.horizontal, 20)
                                     }
-                                    .padding(.top, 60)
                                 }
 
                                 // All Teams Grid
@@ -188,7 +205,7 @@ struct TeamsView: View {
                                         }
                                         .padding(.horizontal, 20)
                                     }
-                                } else if !viewModel.isLoading && viewModel.myTeam == nil && !(session.role == "coach" && coachStatusApproved) {
+                                } else if !viewModel.isLoading && viewModel.myTeam == nil && session.role != "coach" {
                                     emptyTeamsView
                                 }
                             }
@@ -201,10 +218,49 @@ struct TeamsView: View {
             .navigationDestination(item: $selectedTeam) { team in
                 TeamDetailView(team: team)
             }
-            .sheet(isPresented: $showCreateTeam) {
+            .navigationDestination(isPresented: $showCreateTeam) {
                 CreateTeamSheet(onCreated: { showCreateTeam = false; loadUserData() })
             }
             .onAppear { loadUserData() }
+            .overlay {
+                if showNotApprovedAlert {
+                    ZStack {
+                        Color.black.opacity(0.35).ignoresSafeArea()
+                            .onTapGesture { withAnimation { showNotApprovedAlert = false } }
+                        VStack(spacing: 0) {
+                            VStack(spacing: 12) {
+                                Image(systemName: "clock.badge.exclamationmark")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(accentColor)
+                                Text("Pending Approval")
+                                    .font(.system(size: 18, weight: .bold))
+                                Text("You can't create a team until your coach request has been approved. Please wait for the admin to review your application.")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(.top, 24).padding(.horizontal, 20).padding(.bottom, 20)
+                            Divider()
+                            Button {
+                                withAnimation { showNotApprovedAlert = false }
+                            } label: {
+                                Text("OK")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                    .background(accentColor)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 16)
+                        }
+                        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
+                        .padding(.horizontal, 30)
+                        .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                    .animation(.spring(response: 0.3), value: showNotApprovedAlert)
+                }
+            }
         }
     }
 
@@ -236,6 +292,7 @@ struct TeamsView: View {
     }
 }
 
+// MARK: - Team Card
 struct TeamCard: View {
     let team: SaudiTeam
     let isHighlighted: Bool
