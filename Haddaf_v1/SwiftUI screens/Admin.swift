@@ -2448,43 +2448,48 @@ struct SimpleRejectionSheet: View {
     @Binding var isRejecting: Bool
     let onCancel: () -> Void
     let onConfirm: (String) -> Void
-    
+
+    @Environment(\.dismiss) private var dismiss
     private let primary = BrandColors.darkTeal
     private let charLimit = 300
-    
+
     var body: some View {
         VStack(spacing: 20) {
+            // Drag handle
+            Capsule()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+
             // Header
             VStack(spacing: 8) {
                 Text("Reject Coach Application")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(primary)
-                
+
                 Text("Coach: \(coachName)")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
             }
-            .padding(.top, 20)
-            
+
             // Label
             HStack(spacing: 4) {
                 Text("Rejection Reason")
-                    .font(.system(size: 16, weight: .semibold))
-                
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
                 Text("*")
                     .foregroundColor(.red)
-                    .font(.system(size: 16, weight: .semibold))
-                
+                    .font(.system(size: 14, weight: .medium))
                 Spacer()
             }
             .padding(.horizontal)
-            
+
             // Text Editor
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.white)
                     .shadow(color: .black.opacity(0.05), radius: 4)
-                
+
                 TextEditor(text: $rejectionReason)
                     .font(.system(size: 16, design: .rounded))
                     .padding(12)
@@ -2496,9 +2501,9 @@ struct SimpleRejectionSheet: View {
                         }
                     }
             }
-            .frame(height: 150)
+            .frame(height: 120)
             .padding(.horizontal)
-            
+
             // Character count
             HStack {
                 Spacer()
@@ -2507,7 +2512,7 @@ struct SimpleRejectionSheet: View {
                     .foregroundColor(rejectionReason.count >= charLimit ? .red : .secondary)
             }
             .padding(.horizontal)
-            
+
             // Required field
             HStack {
                 Image(systemName: "asterisk")
@@ -2519,47 +2524,29 @@ struct SimpleRejectionSheet: View {
                 Spacer()
             }
             .padding(.horizontal)
-            
-            // Buttons
-            HStack(spacing: 12) {
-                Button {
-                    onCancel()
-                } label: {
-                    Text("Cancel")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25)
-                                .stroke(primary, lineWidth: 2)
-                        )
-                        .clipShape(Capsule())
-                }
-                
-                Button {
-                    onConfirm(rejectionReason)
-                } label: {
-                    HStack {
-                        Text("Reject")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                        if isRejecting {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                        }
+
+            // Submit Button
+            Button {
+                onConfirm(rejectionReason)
+            } label: {
+                HStack {
+                    Text("Reject")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    if isRejecting {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(rejectionReason.isEmpty ? Color.gray : Color.red)
-                    .clipShape(Capsule())
                 }
-                .disabled(rejectionReason.isEmpty || isRejecting)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(rejectionReason.isEmpty ? Color.gray : Color.red)
+                .clipShape(Capsule())
             }
+            .disabled(rejectionReason.isEmpty || isRejecting)
             .padding(.horizontal)
-            
+
             Spacer()
         }
     }
@@ -2572,57 +2559,62 @@ struct DeactivationReasonSheet: View {
     @Binding var isProcessing: Bool
     let onCancel: () -> Void
     let onConfirm: (String) -> Void
-    
+
+    @Environment(\.dismiss) private var dismiss
     private let primary = BrandColors.darkTeal
     private let charLimit = 300
-    
+
     var body: some View {
         VStack(spacing: 20) {
+            // Drag handle
+            Capsule()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+
             // Header
             VStack(spacing: 8) {
                 Text("Deactivate Account")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(primary)
-                
+
                 Text("User: \(userName)")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
             }
-            .padding(.top, 20)
-            
-            VStack(alignment: .leading, spacing: 8) {
-                
-                // Label with red *
-                HStack(spacing: 4) {
-                    Text("Deactivation Reason")
-                        .font(.system(size: 16, weight: .semibold))
-                    
-                    Text("*")
-                        .foregroundColor(.red)
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                
-                // Text Editor
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.05), radius: 4)
-                    
-                    TextEditor(text: $deactivationReason)
-                        .font(.system(size: 16, design: .rounded))
-                        .padding(12)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .onChange(of: deactivationReason) { _, newValue in
-                            if newValue.count > charLimit {
-                                deactivationReason = String(newValue.prefix(charLimit))
-                            }
-                        }
-                }
+
+            // Label
+            HStack(spacing: 4) {
+                Text("Deactivation Reason")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                Text("*")
+                    .foregroundColor(.red)
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
             }
-            .frame(height: 150)
             .padding(.horizontal)
-            
+
+            // Text Editor
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4)
+
+                TextEditor(text: $deactivationReason)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .onChange(of: deactivationReason) { _, newValue in
+                        if newValue.count > charLimit {
+                            deactivationReason = String(newValue.prefix(charLimit))
+                        }
+                    }
+            }
+            .frame(height: 120)
+            .padding(.horizontal)
+
             // Character count
             HStack {
                 Spacer()
@@ -2631,7 +2623,7 @@ struct DeactivationReasonSheet: View {
                     .foregroundColor(deactivationReason.count >= charLimit ? .red : .secondary)
             }
             .padding(.horizontal)
-            
+
             // Required field
             HStack {
                 Image(systemName: "asterisk")
@@ -2643,47 +2635,29 @@ struct DeactivationReasonSheet: View {
                 Spacer()
             }
             .padding(.horizontal)
-            
-            // Buttons
-            HStack(spacing: 12) {
-                Button {
-                    onCancel()
-                } label: {
-                    Text("Cancel")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25)
-                                .stroke(primary, lineWidth: 2)
-                        )
-                        .clipShape(Capsule())
-                }
-                
-                Button {
-                    onConfirm(deactivationReason)
-                } label: {
-                    HStack {
-                        Text("Deactivate")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                        if isProcessing {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                        }
+
+            // Submit Button
+            Button {
+                onConfirm(deactivationReason)
+            } label: {
+                HStack {
+                    Text("Deactivate")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    if isProcessing {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(deactivationReason.isEmpty ? Color.gray : Color.red)
-                    .clipShape(Capsule())
                 }
-                .disabled(deactivationReason.isEmpty || isProcessing)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(deactivationReason.isEmpty ? Color.gray : Color.red)
+                .clipShape(Capsule())
             }
+            .disabled(deactivationReason.isEmpty || isProcessing)
             .padding(.horizontal)
-            
+
             Spacer()
         }
     }
@@ -2704,6 +2678,11 @@ struct UnderReviewActionSheet: View {
     
     var body: some View {
         VStack(spacing: 20) {
+            Capsule()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+
             // Header
             VStack(spacing: 8) {
                 Text("Return")
@@ -2714,7 +2693,6 @@ struct UnderReviewActionSheet: View {
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
             }
-            .padding(.top, 20)
             
             // Action Selection (Category)
             VStack(alignment: .leading, spacing: 12) {
