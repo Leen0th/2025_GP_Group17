@@ -4,6 +4,7 @@ import FirebaseFirestore
 extension Notification.Name {
     static let userSignedIn = Notification.Name("userSignedIn")
     static let forceLogout = Notification.Name("forceLogout")
+    static let teamDeleted = Notification.Name("teamDeleted")
 }
 
 struct PlayerProfileView: View {
@@ -198,6 +199,7 @@ struct CustomTabBar: View {
                         .frame(width: 72, height: 72)
                         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 
+                    // Show sportscourt ONLY if verified coach.
                     // Guests and Players see video.badge.plus
                     Image(systemName: session.role == "coach" ? "sportscourt" : "video.badge.plus")
                         .font(.system(size: 32, weight: .bold))

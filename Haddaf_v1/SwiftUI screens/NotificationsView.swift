@@ -9,7 +9,8 @@ struct NotificationsView: View {
 
     @State private var showDeleteConfirm = false
     @State private var notificationToDelete: HaddafNotification?
-    @State private var navigateToInvitations = false
+    @State private var selectedInvitationID: String? = nil
+    @State private var showInvitationSheet = false
 
     private let accentColor = BrandColors.darkTeal
 
@@ -17,10 +18,59 @@ struct NotificationsView: View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
-            if notificationService.isLoading {
-                ProgressView().tint(accentColor)
+            VStack(spacing: 0) {
+                // ── Custom Header ─────────────────────────────────────
+                ZStack {
+                    Text("Notifications")
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
+                        .foregroundColor(accentColor)
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(accentColor)
+                                .padding(10)
+                                .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                // ── Mark All Read ──────────────────────────────────────
+                if !notificationService.notifications.isEmpty {
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task {
+                                guard let userId = session.user?.uid else { return }
+                                await notificationService.markAllAsRead(userId: userId)
+                            }
+                        } label: {
+                            Text("Clear All")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundColor(accentColor)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule().fill(accentColor.opacity(0.1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 16)
+                    }
+                    .padding(.top, 6)
+                }
+
+                if notificationService.isLoading {
+                    Spacer()
+                    ProgressView().tint(accentColor)
+                    Spacer()
                 } else if notificationService.notifications.isEmpty {
+                    Spacer()
                     emptyStateView
+                    Spacer()
                 } else {
                     ScrollView {
                         VStack(spacing: 12) {
@@ -30,7 +80,8 @@ struct NotificationsView: View {
                                     onTap: {
                                         Task { await notificationService.markAsRead(notificationId: notification.id) }
                                         if notification.type == .teamInvitation {
-                                            navigateToInvitations = true
+                                            selectedInvitationID = notification.invitationId
+                                            showInvitationSheet = true
                                         }
                                     },
                                     onDelete: {
@@ -44,42 +95,14 @@ struct NotificationsView: View {
                     }
                 }
             }
-            .navigationBarBackButtonHidden(true)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Notifications")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(accentColor)
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(accentColor)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(Color(.systemGray6)))
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !notificationService.notifications.isEmpty {
-                        Button {
-                            Task {
-                                guard let userId = session.user?.uid else { return }
-                                await notificationService.markAllAsRead(userId: userId)
-                            }
-                        } label: {
-                            Text("Mark All Read")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(accentColor)
-                        }
-                    }
-                }
+        }
+        .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showInvitationSheet) {
+            if let invID = selectedInvitationID {
+                SingleInvitationSheet(invitationID: invID)
+                    .environmentObject(session)
             }
-            .navigationDestination(isPresented: $navigateToInvitations) {
-                InvitationsView()
-            }
+        }
             .confirmationDialog("Delete this notification?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
                     if let n = notificationToDelete {

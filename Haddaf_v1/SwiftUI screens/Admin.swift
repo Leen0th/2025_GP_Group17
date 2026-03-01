@@ -5308,7 +5308,38 @@ struct AdminProfileView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    
+
+                    // ── Bell Button Row ───────────────────────────────
+                    HStack {
+                        Spacer()
+                        Button {
+                            showNotifications = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(primary)
+                                    .padding(10)
+                                    .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
+
+                                if NotificationService.shared.unreadCount > 0 {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 16, height: 16)
+                                        Text("\(min(NotificationService.shared.unreadCount, 9))")
+                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                            .foregroundColor(.white)
+                                    }
+                                    .offset(x: 6, y: -6)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+
                     // Profile Header
                     VStack(spacing: 12) {
                         if isLoadingProfile {
@@ -5463,34 +5494,7 @@ struct AdminProfileView: View {
                 }
             }
             .animation(.easeInOut, value: showLogoutPopup)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showNotifications = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundColor(primary)
-                            
-                            // Unread badge
-                            if NotificationService.shared.unreadCount > 0 {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 18, height: 18)
-                                    
-                                    Text("\(min(NotificationService.shared.unreadCount, 9))")
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                                        .foregroundColor(.white)
-                                }
-                                .offset(x: 8, y: -8)
-                            }
-                        }
-                    }
-                }
-            }
+
             .fullScreenCover(isPresented: $showNotifications) {
                 NotificationsView()
                     .environmentObject(session)

@@ -4,13 +4,28 @@ import FirebaseAuth
 import FirebaseStorage
 import FirebaseFirestore
 
-// MARK: - Create Team Page (Full Page - not sheet)
+// MARK: - Create Team Page (Full Page)
 struct CreateTeamSheet: View {
     let onCreated: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var teamName = ""
+    // Academy selection
+    @State private var academySearch = ""
+    @State private var selectedAcademy: String = ""
+    @State private var showAcademyPicker = false
+
+    // City selection (filtered by academy)
+    @State private var citySearch = ""
+    @State private var selectedCity: String = ""
+    @State private var showCityPicker = false
+
+    // Street selection (filtered by academy + city)
+    @State private var streetSearch = ""
+    @State private var selectedStreet: String = ""
+    @State private var showStreetPicker = false
+
+    // Logo
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var teamLogoImage: Image?
@@ -21,19 +36,48 @@ struct CreateTeamSheet: View {
     @State private var showAlert = false
     @State private var alertMsg = ""
 
-    private let maxTeamNameLength = 30
     private let primary = BrandColors.darkTeal
 
-    private var isTeamNameValid: Bool {
-        let trimmed = teamName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed.count <= maxTeamNameLength
-            && trimmed.allSatisfy { $0.isLetter || $0 == " " }
+    // Filtered lists
+    private var filteredAcademies: [String] {
+        let all = SAUDI_ACADEMY_NAMES
+        if academySearch.isEmpty { return all }
+        return all.filter { $0.localizedCaseInsensitiveContains(academySearch) }
     }
 
+    private var availableCities: [String] {
+        guard !selectedAcademy.isEmpty else { return SAUDI_ACADEMY_CITIES }
+        return citiesForAcademy(selectedAcademy)
+    }
+
+    private var filteredCities: [String] {
+        if citySearch.isEmpty { return availableCities }
+        return availableCities.filter { $0.localizedCaseInsensitiveContains(citySearch) }
+    }
+
+    private var availableStreets: [String] {
+        if selectedAcademy.isEmpty && selectedCity.isEmpty { return [] }
+        if !selectedAcademy.isEmpty && !selectedCity.isEmpty {
+            return Array(Set(SAUDI_ACADEMIES.filter {
+                $0.name == selectedAcademy && $0.city == selectedCity
+            }.map { $0.street })).sorted()
+        }
+        if !selectedAcademy.isEmpty {
+            return streetsForAcademy(selectedAcademy)
+        }
+        return streetsForCity(selectedCity)
+    }
+
+    private var filteredStreets: [String] {
+        if streetSearch.isEmpty { return availableStreets }
+        return availableStreets.filter { $0.localizedCaseInsensitiveContains(streetSearch) }
+    }
+
+    private var teamName: String { selectedAcademy }
+
     private var canSubmit: Bool {
-        guard isTeamNameValid else { return false }
-        if selectedImageData != nil { return !isUploading && !isSaving && downloadURL != nil }
-        return !isUploading && !isSaving
+        !selectedAcademy.isEmpty && !selectedCity.isEmpty && !selectedStreet.isEmpty
+            && !isUploading && !isSaving
     }
 
     var body: some View {
@@ -41,6 +85,24 @@ struct CreateTeamSheet: View {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+
+                    // ── Custom Header ────────────────────────────────────
+                    ZStack {
+                        Text("Create Team")
+                            .font(.system(size: 28, weight: .medium, design: .rounded))
+                            .foregroundColor(primary)
+                        HStack {
+                            Button { dismiss() } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(primary)
+                                    .padding(10)
+                                    .background(Circle().fill(BrandColors.lightGray.opacity(0.7)))
+                            }
+                            Spacer()
+                        }
+                    }
+                    .padding(.top, 8)
 
                     // Logo Picker
                     PhotosPicker(selection: $selectedItem, matching: .images) {
@@ -69,37 +131,33 @@ struct CreateTeamSheet: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 6)
 
-                    HStack(spacing: 2) {
-                        Text("Team Name")
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(primary)
-                        Text("*")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundColor(.red)
-                    }
+                    // ── Academy Picker ──────────────────────────────────
+                    fieldLabel("Academy Name", required: true)
+                    pickerButton(
+                        value: selectedAcademy,
+                        placeholder: "Select academy",
+                        action: { showAcademyPicker = true }
+                    )
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField("Enter team name", text: $teamName)
-                            .font(.system(size: 16, design: .rounded)).foregroundColor(primary)
-                            .textInputAutocapitalization(.words)
-                            .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
-                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
-                            )
-                            .onChange(of: teamName) { _, val in
-                                var f = val.filter { $0.isLetter || $0 == " " }
-                                if f.count > maxTeamNameLength { f = String(f.prefix(maxTeamNameLength)) }
-                                if f != teamName { teamName = f }
-                            }
-                        HStack {
-                            Spacer()
-                            Text("\(teamName.count)/\(maxTeamNameLength)")
-                                .font(.system(size: 12, design: .rounded))
-                                .foregroundColor(teamName.count == maxTeamNameLength ? .red : .gray)
-                        }
-                    }
+                    // ── City Picker ─────────────────────────────────────
+                    fieldLabel("City", required: true)
+                    pickerButton(
+                        value: selectedCity,
+                        placeholder: "Select city",
+                        action: { showCityPicker = true }
+                    )
+                    .disabled(selectedAcademy.isEmpty)
+                    .opacity(selectedAcademy.isEmpty ? 0.5 : 1)
+
+                    // ── Street Picker ───────────────────────────────────
+                    fieldLabel("Street", required: true)
+                    pickerButton(
+                        value: selectedStreet,
+                        placeholder: "Select street",
+                        action: { showStreetPicker = true }
+                    )
+                    .disabled(selectedCity.isEmpty)
+                    .opacity(selectedCity.isEmpty ? 0.5 : 1)
 
                     // Create Button
                     Button {
@@ -123,27 +181,48 @@ struct CreateTeamSheet: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(primary)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Color(.systemGray6)))
-                }
-            }
-            ToolbarItem(placement: .principal) {
-                Text("Create Team")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundColor(primary)
-            }
-        }
         .alert("Notice", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
         } message: { Text(alertMsg) }
+        // ── Academy Sheet ────────────────────────────────────────────────
+        .sheet(isPresented: $showAcademyPicker) {
+            SearchablePickerSheet(
+                title: "Select Academy",
+                items: filteredAcademies,
+                searchText: $academySearch,
+                onSelect: { name in
+                    selectedAcademy = name
+                    selectedCity = ""
+                    selectedStreet = ""
+                    showAcademyPicker = false
+                }
+            )
+        }
+        // ── City Sheet ───────────────────────────────────────────────────
+        .sheet(isPresented: $showCityPicker) {
+            SearchablePickerSheet(
+                title: "Select City",
+                items: filteredCities,
+                searchText: $citySearch,
+                onSelect: { city in
+                    selectedCity = city
+                    selectedStreet = ""
+                    showCityPicker = false
+                }
+            )
+        }
+        // ── Street Sheet ─────────────────────────────────────────────────
+        .sheet(isPresented: $showStreetPicker) {
+            SearchablePickerSheet(
+                title: "Select Street",
+                items: filteredStreets,
+                searchText: $streetSearch,
+                onSelect: { street in
+                    selectedStreet = street
+                    showStreetPicker = false
+                }
+            )
+        }
         .onChange(of: selectedItem) { _, newItem in
             selectedImageData = nil; teamLogoImage = nil; downloadURL = nil; isUploading = false
             Task {
@@ -161,9 +240,47 @@ struct CreateTeamSheet: View {
         }
     }
 
+    // ── Helper Views ─────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private func fieldLabel(_ text: String, required: Bool = false) -> some View {
+        HStack(spacing: 2) {
+            Text(text)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(primary)
+            if required {
+                Text("*")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.red)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pickerButton(value: String, placeholder: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(value.isEmpty ? placeholder : value)
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(value.isEmpty ? Color(.placeholderText) : primary)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.gray)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
+                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+            )
+        }
+    }
+
+    // ── Firebase ──────────────────────────────────────────────────────────
+
     private func uploadLogo() async throws {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        guard let data = selectedImageData else { return }
+        guard let uid = Auth.auth().currentUser?.uid, let data = selectedImageData else { return }
         isUploading = true
         let filename = "\(UUID().uuidString).\(fileExt)"
         let ref = Storage.storage().reference().child("teams").child(uid).child("logo").child(filename)
@@ -177,24 +294,89 @@ struct CreateTeamSheet: View {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         isSaving = true
         let db = Firestore.firestore()
+
         var payload: [String: Any] = [
             "coachUid": uid,
-            "teamName": teamName.trimmingCharacters(in: .whitespacesAndNewlines),
+            "teamName": selectedAcademy,
+            "city": selectedCity,
+            "street": selectedStreet,
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
         if let logo = downloadURL?.absoluteString { payload["logoURL"] = logo }
 
         do {
-            try await db.collection("teams").document(uid).setData(payload, merge: true)
+            let teamDocRef = db.collection("teams").document()  // ✅ unique ID per team
+            try await teamDocRef.setData(payload)
             try await db.collection("users").document(uid).setData([
-                "teamId": uid,
-                "teamName": teamName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "teamId": teamDocRef.documentID,
+                "teamName": selectedAcademy,
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
             await MainActor.run { isSaving = false; onCreated() }
         } catch {
             await MainActor.run { isSaving = false; alertMsg = error.localizedDescription; showAlert = true }
+        }
+    }
+}
+
+// MARK: - Searchable Picker Sheet
+struct SearchablePickerSheet: View {
+    let title: String
+    let items: [String]
+    @Binding var searchText: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    private let primary = BrandColors.darkTeal
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                VStack(spacing: 0) {
+                    // Search bar
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        TextField("Search...", text: $searchText)
+                            .font(.system(size: 16, design: .rounded))
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+
+                    if items.isEmpty {
+                        Spacer()
+                        Text("No results found")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 15, design: .rounded))
+                        Spacer()
+                    } else {
+                        List(items, id: \.self) { item in
+                            Button {
+                                onSelect(item)
+                            } label: {
+                                Text(item)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .listRowBackground(BrandColors.backgroundGradientEnd)
+                        }
+                        .listStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { searchText = ""; dismiss() }
+                        .foregroundColor(primary)
+                }
+            }
         }
     }
 }

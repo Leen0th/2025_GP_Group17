@@ -10,6 +10,8 @@ struct SaudiTeam: Identifiable, Hashable {
     let coachUID: String
     let coachName: String?
     var playerCount: Int
+    let city: String
+    let street: String
 }
 
 // MARK: - Teams ViewModel
@@ -17,15 +19,9 @@ class TeamsViewModel: ObservableObject {
     @Published var allTeams: [SaudiTeam] = []
     @Published var myTeam: SaudiTeam? = nil
     @Published var isLoading = true
-    @Published var searchText = ""
 
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
-
-    var filteredTeams: [SaudiTeam] {
-        if searchText.isEmpty { return allTeams }
-        return allTeams.filter { $0.teamName.localizedCaseInsensitiveContains(searchText) }
-    }
 
     func startListening(currentUID: String?, currentRole: String?, currentTeamId: String?) {
         listener?.remove()
@@ -33,22 +29,23 @@ class TeamsViewModel: ObservableObject {
 
         listener = db.collection("teams").addSnapshotListener { [weak self] snap, _ in
             guard let self = self, let docs = snap?.documents else {
-                self?.isLoading = false
-                return
+                self?.isLoading = false; return
             }
             Task {
                 var teams: [SaudiTeam] = []
                 for doc in docs {
                     let data = doc.data()
                     let teamName = data["teamName"] as? String ?? ""
-                    let logoURL = data["logoURL"] as? String
+                    let logoURL  = data["logoURL"]  as? String
                     let coachUID = data["coachUid"] as? String ?? doc.documentID
+                    let city     = data["city"]     as? String ?? ""
+                    let street   = data["street"]   as? String ?? ""
 
                     var coachName: String? = nil
-                    if let coachDoc = try? await self.db.collection("users").document(coachUID).getDocument(),
-                       let cData = coachDoc.data() {
+                    if let cd = try? await self.db.collection("users").document(coachUID).getDocument(),
+                       let cData = cd.data() {
                         let fn = cData["firstName"] as? String ?? ""
-                        let ln = cData["lastName"] as? String ?? ""
+                        let ln = cData["lastName"]  as? String ?? ""
                         coachName = "\(fn) \(ln)".trimmingCharacters(in: .whitespaces)
                     }
 
@@ -57,12 +54,9 @@ class TeamsViewModel: ObservableObject {
                     let playerCount = playersSnap?.documents.count ?? 0
 
                     teams.append(SaudiTeam(
-                        id: doc.documentID,
-                        teamName: teamName,
-                        logoURL: logoURL,
-                        coachUID: coachUID,
-                        coachName: coachName,
-                        playerCount: playerCount
+                        id: doc.documentID, teamName: teamName, logoURL: logoURL,
+                        coachUID: coachUID, coachName: coachName, playerCount: playerCount,
+                        city: city, street: street
                     ))
                 }
 
@@ -70,6 +64,7 @@ class TeamsViewModel: ObservableObject {
                     self.allTeams = teams
                     if let uid = currentUID {
                         if currentRole == "coach" {
+                            // كوتش يشوف كل التيمز اللي هو كوتشها (ممكن يكون عنده أكثر من تيم)
                             self.myTeam = teams.first { $0.coachUID == uid }
                         } else if let teamId = currentTeamId {
                             self.myTeam = teams.first { $0.id == teamId }
@@ -88,13 +83,56 @@ class TeamsViewModel: ObservableObject {
 struct TeamsView: View {
     @EnvironmentObject var session: AppSession
     @StateObject private var viewModel = TeamsViewModel()
+
+    // Navigation
     @State private var selectedTeam: SaudiTeam? = nil
-    @State private var showCreateTeam = false
-    @State private var showNotApprovedAlert = false
+
+    // User state
     @State private var userTeamId: String? = nil
-    @State private var coachStatusApproved = false
+
+    // Tabs
+    @State private var selectedTab: TeamsTab = .saudiTeams
+
+    // Filters
+    @State private var searchText = ""
+    @State private var filterCity: String? = nil
+    @State private var filterStreet: String? = nil
+    @State private var showFilters = false
 
     private let accentColor = BrandColors.darkTeal
+
+    enum TeamsTab: String, CaseIterable {
+        case saudiTeams    = "Saudi Teams"
+        case matchOpps     = "Match Opportunities"
+    }
+
+    // ── Filtered teams ──────────────────────────────────────────────────
+    private var filteredTeams: [SaudiTeam] {
+        viewModel.allTeams.filter { team in
+            let nameMatch = searchText.isEmpty
+                || team.teamName.localizedCaseInsensitiveContains(searchText)
+                || (team.coachName ?? "").localizedCaseInsensitiveContains(searchText)
+            let cityMatch   = filterCity   == nil || team.city   == filterCity
+            let streetMatch = filterStreet == nil || team.street == filterStreet
+            return nameMatch && cityMatch && streetMatch
+        }
+    }
+
+    // Available cities/streets for filter
+    // Cities from SAUDI_ACADEMIES static data
+    private var availableCities: [String] { SAUDI_ACADEMY_CITIES }
+
+    // Streets from SAUDI_ACADEMIES, filtered by city if selected
+    private var availableStreets: [String] {
+        guard let city = filterCity else {
+            return Array(Set(SAUDI_ACADEMIES.map { $0.street }.filter { !$0.isEmpty })).sorted()
+        }
+        return Array(Set(SAUDI_ACADEMIES.filter { $0.city == city }.map { $0.street })).sorted()
+    }
+
+    private var activeFiltersCount: Int {
+        (filterCity != nil ? 1 : 0) + (filterStreet != nil ? 1 : 0)
+    }
 
     var body: some View {
         NavigationStack {
@@ -102,114 +140,25 @@ struct TeamsView: View {
                 BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // ✅ Header - كلمة Teams في النص
-                    VStack(spacing: 16) {
-                        Text("Teams")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundColor(accentColor)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 16)
-
-                        // Search Bar
-                        HStack(spacing: 10) {
-                            Image(systemName: "magnifyingglass").foregroundColor(.gray)
-                            TextField("Search teams...", text: $viewModel.searchText)
-                                .font(.system(size: 15, design: .rounded))
+                    // ── Header ──────────────────────────────────────────
+                    VStack(spacing: 0) {
+                        // Tab Bar — exact Discovery style
+                        HStack(spacing: 0) {
+                            teamsTabButton(.saudiTeams)
+                            Divider().frame(height: 24).padding(.horizontal, 12)
+                            teamsTabButton(.matchOpps)
                         }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(BrandColors.background)
-                                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-                        )
-                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
                     }
+                    .padding(.bottom, 4)
 
-                    if viewModel.isLoading {
-                        Spacer()
-                        ProgressView().tint(accentColor)
-                        Spacer()
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 20) {
-
-                                // ✅ My Team section
-                                if let myTeam = viewModel.myTeam {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("My Team")
-                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                            .foregroundColor(accentColor.opacity(0.8))
-                                            .padding(.horizontal, 20)
-                                        TeamCard(team: myTeam, isHighlighted: true)
-                                            .padding(.horizontal, 20)
-                                            .onTapGesture { selectedTeam = myTeam }
-                                    }
-                                } else if session.role == "coach" {
-                                    // ✅ كوتش بدون فريق - Create Team card بنفس ستايل TeamCard
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("My Team")
-                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                            .foregroundColor(accentColor.opacity(0.8))
-                                            .padding(.horizontal, 20)
-                                        Button {
-                                            if coachStatusApproved {
-                                                showCreateTeam = true
-                                            } else {
-                                                showNotApprovedAlert = true
-                                            }
-                                        } label: {
-                                            HStack(spacing: 16) {
-                                                ZStack {
-                                                    Circle().fill(accentColor.opacity(0.1)).frame(width: 70, height: 70)
-                                                    Image(systemName: "plus")
-                                                        .font(.system(size: 28, weight: .semibold))
-                                                        .foregroundColor(accentColor.opacity(0.6))
-                                                }
-                                                VStack(alignment: .leading, spacing: 6) {
-                                                    Text("Create Team")
-                                                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                                                        .foregroundColor(accentColor)
-                                                    Text("Tap to set up your team")
-                                                        .font(.system(size: 13, design: .rounded))
-                                                        .foregroundColor(.secondary)
-                                                }
-                                                Spacer()
-                                                Image(systemName: "chevron.right").foregroundColor(accentColor.opacity(0.5))
-                                            }
-                                            .padding(16)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                                    .fill(BrandColors.background)
-                                                    .shadow(color: accentColor.opacity(0.15), radius: 12, y: 4)
-                                                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                                        .stroke(accentColor.opacity(0.3), lineWidth: 1.5))
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(.horizontal, 20)
-                                    }
-                                }
-
-                                // All Teams Grid
-                                if !viewModel.filteredTeams.isEmpty {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("All Teams")
-                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                            .foregroundColor(accentColor.opacity(0.8))
-                                            .padding(.horizontal, 20)
-                                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                            ForEach(viewModel.filteredTeams) { team in
-                                                TeamCard(team: team, isHighlighted: false)
-                                                    .onTapGesture { selectedTeam = team }
-                                            }
-                                        }
-                                        .padding(.horizontal, 20)
-                                    }
-                                } else if !viewModel.isLoading && viewModel.myTeam == nil && session.role != "coach" {
-                                    emptyTeamsView
-                                }
-                            }
-                            .padding(.top, 16).padding(.bottom, 100)
+                    // ── Tab Content — exact Discovery style (no lag) ─────
+                    Group {
+                        switch selectedTab {
+                        case .saudiTeams:
+                            saudiTeamsContent
+                        case .matchOpps:
+                            matchOppsContent
                         }
                     }
                 }
@@ -218,57 +167,235 @@ struct TeamsView: View {
             .navigationDestination(item: $selectedTeam) { team in
                 TeamDetailView(team: team)
             }
-            .navigationDestination(isPresented: $showCreateTeam) {
-                CreateTeamSheet(onCreated: { showCreateTeam = false; loadUserData() })
-            }
             .onAppear { loadUserData() }
-            .overlay {
-                if showNotApprovedAlert {
-                    ZStack {
-                        Color.black.opacity(0.35).ignoresSafeArea()
-                            .onTapGesture { withAnimation { showNotApprovedAlert = false } }
-                        VStack(spacing: 0) {
-                            VStack(spacing: 12) {
-                                Image(systemName: "clock.badge.exclamationmark")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(accentColor)
-                                Text("Pending Approval")
-                                    .font(.system(size: 18, weight: .bold))
-                                Text("You can't create a team until your coach request has been approved. Please wait for the admin to review your application.")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
+            .sheet(isPresented: $showFilters) { filtersSheet }
+        }
+    }
+
+    // ── Saudi Teams Content ──────────────────────────────────────────────
+    private var saudiTeamsContent: some View {
+        VStack(spacing: 0) {
+            // Search + Filter — exact same style as Discovery
+            // Search & Filters — exact Discovery style
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(accentColor)
+                    TextField("Search teams or coach...", text: $searchText)
+                        .font(.system(size: 16, design: .rounded))
+                        .tint(accentColor)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal)
+                .background(BrandColors.background)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
+
+                Button { showFilters = true } label: {
+                    Image(systemName: activeFiltersCount > 0
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(accentColor)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
+            if viewModel.isLoading {
+                Spacer()
+                ProgressView().tint(accentColor)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+
+                        // ── Player only: My Team on top ──────────────
+                        if session.role == "player", let myTeam = viewModel.myTeam {
+                            VStack(alignment: .leading, spacing: 10) {
+                                sectionHeader("My Team")
+                                TeamCard(team: myTeam, isHighlighted: true)
+                                    .padding(.horizontal, 20)
+                                    .onTapGesture { selectedTeam = myTeam }
                             }
-                            .padding(.top, 24).padding(.horizontal, 20).padding(.bottom, 20)
-                            Divider()
-                            Button {
-                                withAnimation { showNotApprovedAlert = false }
-                            } label: {
-                                Text("OK")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                    .background(accentColor)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 16)
                         }
-                        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
-                        .padding(.horizontal, 30)
-                        .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
-                        .transition(.scale.combined(with: .opacity))
+
+                        // ── All Teams (flat for everyone) ─────────────
+                        if !filteredTeams.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                sectionHeader("All Teams")
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                                    ForEach(filteredTeams) { team in
+                                        TeamCard(team: team, isHighlighted: false)
+                                            .onTapGesture { selectedTeam = team }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        } else if !viewModel.isLoading {
+                            emptyTeamsView
+                        }
                     }
-                    .animation(.spring(response: 0.3), value: showNotApprovedAlert)
+                    .padding(.top, 4).padding(.bottom, 100)
                 }
             }
         }
     }
 
+    // ── Match Opportunities ──────────────────────────────────────────────
+    private var matchOppsContent: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 16) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 52))
+                    .foregroundColor(accentColor.opacity(0.35))
+                Text("Coming Soon")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(accentColor)
+                Text("Match Opportunities will be available\nin the next sprint.")
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                Text("🚧 To be developed next sprint")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .padding(.top, 4)
+            }
+            Spacer()
+        }
+    }
+
+    // ── Filters Sheet — exact Challenge style ──────────────────────────
+    private var filtersSheet: some View {
+        NavigationStack {
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                VStack(spacing: 14) {
+                    Text("Filters")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .padding(.top, 8)
+
+                    // City
+                    filterRow(
+                        title: "City",
+                        rightLabel: filterCity ?? "All",
+                        menu: {
+                            Button("All") { filterCity = nil; filterStreet = nil }
+                            Divider()
+                            ForEach(SAUDI_ACADEMY_CITIES, id: \.self) { c in
+                                Button(c) { filterCity = c; filterStreet = nil }
+                            }
+                        }
+                    )
+
+                    // Street
+                    filterRow(
+                        title: "Street",
+                        rightLabel: filterStreet ?? "Any",
+                        menu: {
+                            Button("Any") { filterStreet = nil }
+                            Divider()
+                            ForEach(availableStreets, id: \.self) { s in
+                                Button(s) { filterStreet = s }
+                            }
+                        }
+                    )
+
+                    Button { showFilters = false } label: {
+                        Text("Apply Filters")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(accentColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(.white.opacity(0.95))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 10)
+
+                    Button {
+                        filterCity = nil; filterStreet = nil
+                    } label: {
+                        Text("Reset All")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showFilters = false }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func filterRow<M: View>(title: String, rightLabel: String, @ViewBuilder menu: @escaping () -> M) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+            Spacer()
+            Menu { menu() } label: {
+                HStack(spacing: 6) {
+                    Text(rightLabel)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(.white.opacity(0.95))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 5)
+    }
+
+        // ── Tab button — exact clone of Discovery's topTabButton ────────────
+    @ViewBuilder
+    private func teamsTabButton(_ tab: TeamsTab) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { selectedTab = tab }
+        } label: {
+            VStack(spacing: 6) {
+                Text(tab.rawValue)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(selectedTab == tab ? accentColor : accentColor.opacity(0.45))
+                RoundedRectangle(cornerRadius: 1)
+                    .frame(height: 2)
+                    .foregroundColor(selectedTab == tab ? accentColor : .clear)
+                    .frame(width: 120)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    @ViewBuilder
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundColor(accentColor)
+            .padding(.horizontal, 20)
+    }
+
     private var emptyTeamsView: some View {
         VStack(spacing: 16) {
             Image(systemName: "shield.slash").font(.system(size: 50)).foregroundColor(.secondary.opacity(0.4))
-            Text("No teams yet").font(.system(size: 18, weight: .semibold, design: .rounded)).foregroundColor(.secondary)
-            Text("Teams will appear here once coaches create them.")
+            Text("No teams found").font(.system(size: 18, weight: .semibold, design: .rounded)).foregroundColor(.secondary)
+            Text("Try adjusting your search or filters.")
                 .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
         }
@@ -282,11 +409,7 @@ struct TeamsView: View {
         Task {
             let doc = try? await Firestore.firestore().collection("users").document(uid).getDocument()
             let teamId = doc?.data()?["teamId"] as? String
-            let coachStatus = doc?.data()?["coachStatus"] as? String
-            await MainActor.run {
-                self.userTeamId = teamId
-                self.coachStatusApproved = (coachStatus == "approved")
-            }
+            await MainActor.run { self.userTeamId = teamId }
             viewModel.startListening(currentUID: uid, currentRole: session.role, currentTeamId: teamId)
         }
     }
@@ -313,27 +436,40 @@ struct TeamCard: View {
                     }
                     Label("\(team.playerCount) players", systemImage: "person.3.fill")
                         .font(.system(size: 13, design: .rounded)).foregroundColor(.secondary)
+                    if !team.city.isEmpty {
+                        Label([team.street, team.city].filter { !$0.isEmpty }.joined(separator: "، "),
+                              systemImage: "mappin.circle.fill")
+                            .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
+                    }
                 }
                 Spacer()
                 Image(systemName: "chevron.right").foregroundColor(accentColor.opacity(0.5))
             }
             .padding(16)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(BrandColors.background)
+                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(BrandColors.background)
                     .shadow(color: accentColor.opacity(0.15), radius: 12, y: 4)
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(accentColor.opacity(0.3), lineWidth: 1.5))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(accentColor.opacity(0.3), lineWidth: 1.5))
             )
         } else {
-            VStack(spacing: 12) {
-                teamLogoView(size: 80)
+            VStack(spacing: 8) {
+                teamLogoView(size: 64)
                 Text(team.teamName)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(accentColor).lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                if !team.city.isEmpty {
+                    // Street، City
+                    Text([team.street, team.city].filter { !$0.isEmpty }.joined(separator: "، "))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
             }
-            .padding(16).frame(maxWidth: .infinity)
+            .padding(14).frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(BrandColors.background).shadow(color: .black.opacity(0.07), radius: 8, y: 4)
             )
         }

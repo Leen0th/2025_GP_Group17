@@ -51,12 +51,38 @@ class NotificationService: ObservableObject {
 
     // MARK: - Mark as Read
     func markAsRead(notificationId: String) async {
+        // Update local state immediately
+        await MainActor.run {
+            if let idx = self.notifications.firstIndex(where: { $0.id == notificationId }) {
+                self.notifications[idx].isRead = true
+                self.unreadCount = self.notifications.filter { !$0.isRead }.count
+            }
+        }
         try? await db.collection("notifications").document(notificationId).updateData(["isRead": true])
     }
 
     func markAllAsRead(userId: String) async {
+        // Clear local state immediately for instant UI response
+        await MainActor.run {
+            self.notifications = []
+            self.unreadCount = 0
+        }
+        // Then delete all from Firestore using batch
+        let batch = db.batch()
         for notification in notifications {
-            await deleteNotification(notificationId: notification.id)
+            let ref = db.collection("notifications").document(notification.id)
+            batch.deleteDocument(ref)
+        }
+        try? await batch.commit()
+        // Also query directly in case local array was already cleared
+        if let snap = try? await db.collection("notifications")
+            .whereField("userId", isEqualTo: userId)
+            .getDocuments() {
+            let batch2 = db.batch()
+            for doc in snap.documents {
+                batch2.deleteDocument(doc.reference)
+            }
+            try? await batch2.commit()
         }
     }
 

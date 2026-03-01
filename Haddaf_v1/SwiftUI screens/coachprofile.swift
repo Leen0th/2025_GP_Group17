@@ -42,6 +42,19 @@ class CoachProfileViewModel: ObservableObject {
                 return
             }
             
+            // Fetch first team name BEFORE entering MainActor.run
+            let teamSnap = try? await self.db.collection("teams")
+                .whereField("coachUid", isEqualTo: userID)
+                .getDocuments()
+            // Sort client-side by createdAt (handles docs without the field)
+            let sortedDocs = (teamSnap?.documents ?? []).sorted {
+                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                return a < b
+            }
+            let hasTeam = !sortedDocs.isEmpty
+            let firstTeamName = hasTeam ? (sortedDocs.first!.data()["teamName"] as? String ?? "") : ""
+
             await MainActor.run {
                 // 1. Map basic info immediately
                 self.coachProfile.name = (data["firstName"] as? String ?? "") + " " + (data["lastName"] as? String ?? "")
@@ -50,7 +63,7 @@ class CoachProfileViewModel: ObservableObject {
                 self.coachProfile.phone = data["phone"] as? String ?? ""
                 self.coachProfile.isEmailVisible = data["isEmailVisible"] as? Bool ?? false
                 self.coachProfile.isPhoneNumberVisible = data["isPhoneNumberVisible"] as? Bool ?? false
-                self.coachProfile.team = data["teamName"] as? String ?? ""
+                self.coachProfile.team = firstTeamName
                 self.coachProfile.coachStatus = data["coachStatus"] as? String ?? ""
                 self.coachProfile.rejectionReason = data["rejectionReason"] as? String ?? ""
                 
@@ -100,7 +113,7 @@ struct CoachProfileContentView: View {
     var onAdminReject: (() -> Void)?
 
     enum ContentType: String, CaseIterable {
-        case currentTeam = "Current Team"
+        case currentTeam = "Current Teams"
         case matchSchedule = "Match Schedule"
     }
 
@@ -163,8 +176,8 @@ struct CoachProfileContentView: View {
                     .padding(.bottom, 100)
                 }
             }
-            .fullScreenCover(isPresented: $goToSettings) {
-                NavigationStack { SettingsViewCoach(coachProfile: viewModel.coachProfile) }
+            .navigationDestination(isPresented: $goToSettings) {
+                SettingsViewCoach(coachProfile: viewModel.coachProfile)
             }
             .navigationDestination(isPresented: $showNotificationsList) {
                 NotificationsView()
@@ -172,6 +185,12 @@ struct CoachProfileContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
+            Task {
+                await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
+            // Refresh coach header (TEAM field) immediately after deletion
             Task {
                 await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
             }
@@ -294,6 +313,73 @@ struct ProfileHeaderViewCoach: View {
 struct InfoGridViewCoach: View {
     @ObservedObject var coachProfile: CoachProfile
     let accentColor = BrandColors.darkTeal
+    @State private var allTeamNames: [String] = []
+    @State private var showAllTeamNames = false
+
+    // TEAMS stat — first team default, arrow shows remaining teams only
+    @ViewBuilder private func TeamsStatItem(coachProfile: CoachProfile) -> some View {
+        VStack(spacing: 6) {
+            Text("TEAMS")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundColor(accentColor.opacity(0.8))
+
+            if allTeamNames.isEmpty {
+                Text("-")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.black)
+            } else {
+                // Default: first team name (bold, black)
+                Text(allTeamNames.first ?? "-")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.black)
+                    .multilineTextAlignment(.center)
+
+                // Arrow — only show if there are more teams beyond first
+                if allTeamNames.count > 1 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showAllTeamNames.toggle() }
+                    } label: {
+                        Image(systemName: showAllTeamNames ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(accentColor)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Expanded: show ONLY the other teams (not the first one again)
+                    if showAllTeamNames {
+                        VStack(spacing: 4) {
+                            ForEach(allTeamNames.dropFirst(), id: \.self) { name in
+                                Text(name)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(.black.opacity(0.7))
+                            }
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+            }
+        }
+        .onAppear { loadAllTeamNames() }
+        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in loadAllTeamNames() }
+        .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in loadAllTeamNames() }
+    }
+
+    private func loadAllTeamNames() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        Task {
+            let snap = try? await Firestore.firestore().collection("teams")
+                .whereField("coachUid", isEqualTo: uid)
+                .getDocuments()
+            // Sort client-side by createdAt
+            let sorted = (snap?.documents ?? []).sorted {
+                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                return a < b
+            }
+            let names = sorted.compactMap { $0.data()["teamName"] as? String }
+            await MainActor.run { allTeamNames = names }
+        }
+    }
 
     @ViewBuilder private func UserStatItem(title: String, value: String) -> some View {
         VStack(spacing: 4) {
@@ -314,7 +400,7 @@ struct InfoGridViewCoach: View {
             // Row 1: Team & Location
             HStack {
                 Spacer()
-                UserStatItem(title: "TEAM", value: coachProfile.team)
+                TeamsStatItem(coachProfile: coachProfile)
                 Spacer()
                 UserStatItem(title: "LOCATION", value: coachProfile.location)
                 Spacer()
@@ -359,7 +445,7 @@ struct ContentTabViewCoach: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ContentTabButton(title: "Current Team", type: .currentTeam, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "Current Teams", type: .currentTeam, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
             ContentTabButton(title: "Match Schedule", type: .matchSchedule, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
         .font(.system(size: 16, weight: .medium, design: .rounded))
@@ -400,6 +486,10 @@ struct EditCoachProfileView: View {
     @State private var showLocationPicker = false
     @State private var locationSearch = ""
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showImageSourcePicker = false
+    @State private var showCameraOrLibrary = false
+    @State private var imagePickerSource: UIImagePickerController.SourceType = .photoLibrary
+    @State private var showUIImagePicker = false
 
     // Email Validation State
     @FocusState private var emailFocused: Bool
@@ -511,18 +601,19 @@ struct EditCoachProfileView: View {
                     togglesSection
                     updateButton
                         .padding(.top, 20)
-                        .padding(.bottom)
+                        .padding(.bottom, 100)
                 }
                 .padding(.horizontal)
             }
-            .opacity(showVerifyPrompt ? 0.2 : 1.0)
+            .opacity(showVerifyPrompt || showInfoOverlay ? 0.2 : 1.0)
 
             if showInfoOverlay {
                 InfoOverlay(primary: primary, title: overlayMessage, isError: overlayIsError, onOk: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showInfoOverlay = false }
                     if !overlayIsError { dismiss() }
                 })
-                .transition(.scale.combined(with: .opacity)).zIndex(2)
+                .transition(.scale.combined(with: .opacity))
+                .zIndex(2)
             }
             if showReauthPrompt {
                 Color.black.opacity(0.4).ignoresSafeArea()
@@ -569,13 +660,11 @@ struct EditCoachProfileView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .onChange(of: selectedPhotoItem) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let newImage = UIImage(data: data) {
-                    await MainActor.run { self.profileImage = newImage }
-                }
+        .sheet(isPresented: $showUIImagePicker) {
+            UIImagePickerWrapper(sourceType: imagePickerSource) { image in
+                self.profileImage = image
             }
+            .ignoresSafeArea()
         }
         .onDisappear {
             verifyTask?.cancel()
@@ -609,7 +698,10 @@ struct EditCoachProfileView: View {
                 .foregroundColor(.gray.opacity(0.5))
 
             HStack(spacing: 20) {
-                PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                Button {
+                    imagePickerSource = .photoLibrary
+                    showUIImagePicker = true
+                } label: {
                     Text("Change Picture")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(primary)
@@ -839,7 +931,9 @@ struct EditCoachProfileView: View {
 
     private func saveChanges() async {
         guard let user = Auth.auth().currentUser else {
-            overlayMessage = "User not authenticated"; overlayIsError = true; showInfoOverlay = true; return
+            overlayMessage = "User not authenticated"; overlayIsError = true
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showInfoOverlay = true }
+            return
         }
         isSaving = true
 
@@ -852,7 +946,10 @@ struct EditCoachProfileView: View {
             await updateAuthDisplayNameIfNeeded()
             await saveProfileToFirestore(updateEmailInDB: true)
             await MainActor.run {
-                overlayMessage = "Profile updated successfully"; overlayIsError = false; showInfoOverlay = true; isSaving = false
+                overlayMessage = "Profile updated successfully"
+                overlayIsError = false
+                isSaving = false
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showInfoOverlay = true }
             }
         }
     }
@@ -1100,6 +1197,7 @@ struct SettingsViewCoach: View {
     @State private var showLogoutPopup = false
     @State private var isSigningOut = false
     @State private var signOutError: String?
+    @State private var showEditProfile = false
 
     var body: some View {
         ZStack {
@@ -1129,8 +1227,8 @@ struct SettingsViewCoach: View {
 
                 // MARK: - Settings List
                 VStack(spacing: 0) {
-                    NavigationLink {
-                        EditCoachProfileView(coachProfile: coachProfile)  // Now passes the correct type
+                    Button {
+                        showEditProfile = true
                     } label: {
                         settingsRow(icon: "person", title: "Edit Profile",
                                     iconColor: primary, showChevron: true, showDivider: true)
@@ -1236,6 +1334,9 @@ struct SettingsViewCoach: View {
         }
         .animation(.easeInOut, value: showLogoutPopup)
         .navigationBarBackButtonHidden(true)
+        .navigationDestination(isPresented: $showEditProfile) {
+            EditCoachProfileView(coachProfile: coachProfile)
+        }
     }
 
     // MARK: - Logout Logic
@@ -1325,71 +1426,204 @@ struct SettingsViewCoach: View {
 // MARK: - CurrentTeamView for Coach Profile
 struct CurrentTeamView: View {
     @EnvironmentObject var session: AppSession
+    @State private var teams: [SaudiTeam] = []
     @State private var team: SaudiTeam? = nil
     @State private var isLoading = true
     @State private var navigateToTeamDetail = false
+    @State private var selectedTeamForDetail: SaudiTeam? = nil
+    @State private var showAllTeams = false
+    @State private var showCreateTeam = false
+    @State private var coachStatusApproved = false
+    @State private var showNotApprovedAlert = false
     private let accentColor = BrandColors.darkTeal
 
     var body: some View {
         VStack(spacing: 14) {
             if isLoading {
                 ProgressView().tint(accentColor).padding()
-            } else if let team = team {
-                VStack(alignment: .leading, spacing: 10) {
-                    TeamCard(team: team, isHighlighted: true)
-                        .padding(.horizontal, 20)
-                        .onTapGesture { navigateToTeamDetail = true }
-                }
-                .navigationDestination(isPresented: $navigateToTeamDetail) {
-                    TeamDetailView(team: team)
-                }
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "shield.slash")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary.opacity(0.4))
-                    Text("No Team Yet")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
-                    Text("Go to the Teams tab to create your team.")
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
+                // ── All teams stacked — all highlighted equally ──
+                ForEach(teams) { t in
+                    TeamCard(team: t, isHighlighted: true)
+                        .padding(.horizontal, 20)
+                        .onTapGesture { selectedTeamForDetail = t }
                 }
-                .padding(.vertical, 30)
+
+                // ── Create Team button — always visible ───────────────
+                Button {
+                    if coachStatusApproved { showCreateTeam = true }
+                    else { showNotApprovedAlert = true }
+                } label: {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Circle().fill(accentColor.opacity(0.1)).frame(width: 56, height: 56)
+                            Image(systemName: "plus")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundColor(accentColor.opacity(0.8))
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Create New Team")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(accentColor)
+                            Text("Set up another academy team")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(accentColor.opacity(0.5))
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(BrandColors.background)
+                            .shadow(color: accentColor.opacity(0.12), radius: 8, y: 3)
+                            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(accentColor.opacity(0.25), lineWidth: 1.2))
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
             }
         }
-        .onAppear { loadTeam() }
+        .navigationDestination(item: $selectedTeamForDetail) { t in
+            TeamDetailView(team: t)
+        }
+        .navigationDestination(isPresented: $showCreateTeam) {
+            CreateTeamSheet(onCreated: {
+                showCreateTeam = false
+                loadTeam()
+                // Refresh coach profile header (TEAM field) immediately
+                NotificationCenter.default.post(name: .profileUpdated, object: nil)
+            })
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
+            loadTeam()  // reload all teams after deletion
+        }
+        .overlay {
+            if showNotApprovedAlert {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                        .onTapGesture { withAnimation { showNotApprovedAlert = false } }
+                    VStack(spacing: 0) {
+                        VStack(spacing: 12) {
+                            Image(systemName: "clock.badge.exclamationmark")
+                                .font(.system(size: 40)).foregroundColor(accentColor)
+                            Text("Pending Approval")
+                                .font(.system(size: 18, weight: .bold))
+                            Text("Your account is pending admin approval. You'll be able to create a team once approved.")
+                                .font(.system(size: 14)).foregroundColor(.secondary).multilineTextAlignment(.center)
+                        }
+                        .padding(.top, 24).padding(.horizontal, 20).padding(.bottom, 20)
+                        Divider()
+                        Button { withAnimation { showNotApprovedAlert = false } } label: {
+                            Text("OK").font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(accentColor).clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 16)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
+                    .padding(.horizontal, 30)
+                    .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
+                    .transition(.scale.combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.3), value: showNotApprovedAlert)
+            }
+        }
+        .onAppear { loadTeam(); loadCoachStatus() }
+    }
+
+    private func loadCoachStatus() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        Task {
+            let doc = try? await Firestore.firestore().collection("users").document(uid).getDocument()
+            let status = doc?.data()?["coachStatus"] as? String
+            await MainActor.run { coachStatusApproved = (status == "approved") }
+        }
     }
 
     private func loadTeam() {
         guard let uid = Auth.auth().currentUser?.uid else { isLoading = false; return }
         Task {
             let db = Firestore.firestore()
-            let doc = try? await db.collection("teams").document(uid).getDocument()
-            guard let data = doc?.data() else {
-                await MainActor.run { isLoading = false }
+            let snap = try? await db.collection("teams")
+                .whereField("coachUid", isEqualTo: uid)
+                .getDocuments()
+            // Sort client-side by createdAt (oldest first = default shown)
+            let docs = (snap?.documents ?? []).sorted {
+                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
+                return a < b
+            }
+            guard !docs.isEmpty else {
+                await MainActor.run { self.teams = []; self.team = nil; self.isLoading = false }
                 return
             }
-            let teamName = data["teamName"] as? String ?? ""
-            let logoURL = data["logoURL"] as? String
             var coachName: String? = nil
             if let cd = try? await db.collection("users").document(uid).getDocument(),
                let cdata = cd.data() {
                 let fn = cdata["firstName"] as? String ?? ""
-                let ln = cdata["lastName"] as? String ?? ""
+                let ln = cdata["lastName"]  as? String ?? ""
                 coachName = "\(fn) \(ln)".trimmingCharacters(in: .whitespaces)
             }
-            let playersSnap = try? await db.collection("teams").document(uid).collection("players").getDocuments()
-            let count = playersSnap?.documents.count ?? 0
+            var loaded: [SaudiTeam] = []
+            for doc in docs {
+                let data = doc.data()
+                let playersSnap = try? await db.collection("teams").document(doc.documentID)
+                    .collection("players").getDocuments()
+                loaded.append(SaudiTeam(
+                    id: doc.documentID,
+                    teamName: data["teamName"] as? String ?? "",
+                    logoURL:  data["logoURL"]  as? String,
+                    coachUID: uid,
+                    coachName: coachName,
+                    playerCount: playersSnap?.documents.count ?? 0,
+                    city:   data["city"]   as? String ?? "",
+                    street: data["street"] as? String ?? ""
+                ))
+            }
             await MainActor.run {
-                self.team = SaudiTeam(
-                    id: uid, teamName: teamName, logoURL: logoURL,
-                    coachUID: uid, coachName: coachName, playerCount: count
-                )
+                self.teams = loaded
+                self.team  = loaded.first  // default = oldest (first created)
                 self.isLoading = false
             }
+        }
+    }
+}
+
+// MARK: - UIImagePickerWrapper (avoids NavigationLink dismiss bug with PhotosPicker)
+struct UIImagePickerWrapper: UIViewControllerRepresentable {
+    let sourceType: UIImagePickerController.SourceType
+    let onImagePicked: (UIImage) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onImagePicked: onImagePicked) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(sourceType) ? sourceType : .photoLibrary
+        picker.delegate = context.coordinator
+        picker.allowsEditing = true
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onImagePicked: (UIImage) -> Void
+        init(onImagePicked: @escaping (UIImage) -> Void) { self.onImagePicked = onImagePicked }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            let img = (info[.editedImage] ?? info[.originalImage]) as? UIImage
+            picker.dismiss(animated: true)
+            if let img { onImagePicked(img) }
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
         }
     }
 }
