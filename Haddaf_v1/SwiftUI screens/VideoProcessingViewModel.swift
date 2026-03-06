@@ -459,7 +459,7 @@ class VideoProcessingViewModel: ObservableObject {
         let dribbles = self.performanceStats.first(where: { $0.label.lowercased() == "dribble" })?.value ?? 0
         let passes   = self.performanceStats.first(where: { $0.label.lowercased() == "pass"    })?.value ?? 0
         let shoots   = self.performanceStats.first(where: { $0.label.lowercased() == "shoot"   })?.value ?? 0
-        await GoalService.checkGoalsAfterPost(userId: uid, dribble: dribbles, pass: passes, shoot: shoots)
+        await GoalService.checkGoalsAfterPost(userId: uid, postId: postID, dribble: dribbles, pass: passes, shoot: shoots)
         
         await MainActor.run {
             self.uploadProgress = 1.0

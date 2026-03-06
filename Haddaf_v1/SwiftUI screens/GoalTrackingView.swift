@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Pending deletion info
 struct PendingGoalDelete {
@@ -42,7 +43,7 @@ struct GoalTrackingSection: View {
                         Button {
                             goalFilter = "active"
                         } label: {
-                            Label("In Progress", systemImage: goalFilter == "active" ? "checkmark" : "")
+                            Label("Active", systemImage: goalFilter == "active" ? "checkmark" : "")
                         }
                     } label: {
                         Image(systemName: goalFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -89,7 +90,7 @@ struct GoalTrackingSection: View {
             }()
 
             if displayedGoals.isEmpty {
-                Text(goalFilter == "achieved" ? "No achieved goals yet. Keep going!" : "No goals in progress.")
+                Text(goalFilter == "achieved" ? "No achieved goals yet. Keep going!" : "No active goals.")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -166,6 +167,10 @@ private struct GoalCard: View {
     let onRequestDelete: (_ isDismiss: Bool) -> Void
 
     @State private var showUpdateSheet = false
+    @State private var achievedPost: Post? = nil
+    @State private var isFetchingPost = false
+    @State private var showAuthSheet = false
+    @State private var navigateToPost = false
 
     private let primary = BrandColors.darkTeal
 
@@ -183,23 +188,34 @@ private struct GoalCard: View {
     }
 
     var body: some View {
-            goalCardContent
+        goalCardContent
             .sheet(isPresented: $showUpdateSheet) {
                 SetGoalSheet(userId: userId, availableMetrics: [goal.metric], editingGoal: goal)
             }
-        }
+            .background(
+                NavigationLink(
+                    destination: Group {
+                        if let post = achievedPost {
+                            PostDetailView(post: post, showAuthSheet: $showAuthSheet)
+                        }
+                    },
+                    isActive: $navigateToPost
+                ) { EmptyView() }
+            )
+    }
 
-        private var goalCardContent: some View {
-            VStack(alignment: .leading, spacing: 14) {
-            // Row: icon + metric + badge + edit button
-            HStack {
+    private var goalCardContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+
+            // Row 1: icon + metric name + target
+            HStack(alignment: .top, spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(isAchieved ? Color.green.opacity(0.12) : primary.opacity(0.1))
+                        .fill(isAchieved ? Color.green.opacity(0.12) : Color.gray.opacity(0.1))
                         .frame(width: 40, height: 40)
                     Image(systemName: isAchieved ? "checkmark.seal.fill" : goal.metric.iconName)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(isAchieved ? .green : primary)
+                        .foregroundColor(isAchieved ? .green : .gray)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(goal.metric.rawValue)
@@ -210,60 +226,77 @@ private struct GoalCard: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                if isAchieved {
-                    Text("Achieved!")
+                // Status badge (same position for both states)
+                Text(isAchieved ? "Achieved!" : "Active")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.green)
+                        .background(isAchieved ? Color.green : Color.gray)
                         .clipShape(Capsule())
-                } else {
-                    HStack(spacing: 4) {
-                        Button {
-                            showUpdateSheet = true
-                        } label: {
-                            Image(systemName: "pencil.circle")
-                                .font(.system(size: 22))
-                                .foregroundColor(primary.opacity(0.7))
-                        }
-                        Button {
-                            onRequestDelete(false)
-                        } label: {
-                            Image(systemName: "trash.circle")
-                                .font(.system(size: 22))
-                                .foregroundColor(Color.red.opacity(0.7))
-                        }
-                    }
-                }
             }
 
-            // Progress bar
-            VStack(alignment: .leading, spacing: 4) {
-                Text(isAchieved
-                     ? "\(goal.metric.rawValue) goal reached in a video 🎉"
-                     : "Active — reach \(goal.targetCount) \(goal.metric.rawValue) in one video")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundColor(isAchieved ? .green : .secondary)
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(BrandColors.lightGray).frame(height: 8)
-                        Capsule()
-                            .fill(isAchieved
-                                  ? LinearGradient(colors: [.green.opacity(0.7), .green], startPoint: .leading, endPoint: .trailing)
-                                  : gradient)
-                            .frame(width: isAchieved ? geo.size.width : 0, height: 8)
-                            .animation(.spring(response: 0.6, dampingFraction: 0.8), value: isAchieved)
+            // Divider between top info and bottom actions
+            Divider()
+                .background(Color.gray.opacity(0.15))
+
+            HStack(alignment: .center, spacing: 0) {
+
+                // Left: status message + achieved details
+                VStack(alignment: .leading, spacing: 5) {
+                    if !isAchieved {
+                        Text("Not yet achieved")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(Color.gray.opacity(0.7))
+                    }
+
+                    if isAchieved, let date = goal.achievedAt {
+                        Text("Goal achieved on \(date.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if isAchieved, goal.achievedPostId != nil {
+                        Button {
+                            fetchAndShowPost()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isFetchingPost {
+                                    ProgressView().scaleEffect(0.7).tint(.green)
+                                } else {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 12))
+                                    Text("View post")
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                }
+                            }
+                            .foregroundColor(.green)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isFetchingPost)
+                        .padding(.top, 2)
                     }
                 }
-                .frame(height: 8)
-            }
 
-            // Achieved date
-            if isAchieved, let date = goal.achievedAt {
-                Text("Achieved on \(date.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundColor(.secondary)
+                Spacer()
+
+                // Right: edit + delete
+                HStack(spacing: 8) {
+                    Button {
+                        showUpdateSheet = true
+                    } label: {
+                        Image(systemName: "pencil.circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(primary.opacity(0.6))
+                    }
+                    Button {
+                        onRequestDelete(false)
+                    } label: {
+                        Image(systemName: "trash.circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(Color.red.opacity(0.6))
+                    }
+                }
             }
         }
         .padding(16)
@@ -274,6 +307,63 @@ private struct GoalCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(isAchieved ? Color.green.opacity(0.25) : Color.clear, lineWidth: 1.5)
         )
+    }
+
+    private func fetchAndShowPost() {
+        guard let postId = goal.achievedPostId else { return }
+        isFetchingPost = true
+        Task {
+            let db = Firestore.firestore()
+            guard let doc = try? await db.collection("videoPosts").document(postId).getDocument(),
+                  doc.exists else {
+                await MainActor.run { isFetchingPost = false }
+                return
+            }
+            let d = doc.data() ?? [:]
+            func toDouble(_ val: Any?) -> Double? {
+                return val as? Double ?? (val as? Int).map(Double.init)
+            }
+            var postStats: [PostStat] = []
+            if let feedbackMap = d["performanceFeedback"] as? [String: Any] {
+                postStats = feedbackMap.compactMap { key, anyValue in
+                    guard let value = toDouble(anyValue) else { return nil }
+                    return PostStat(label: key.uppercased(), value: value, maxValue: 10.0)
+                }.sorted { $0.label < $1.label }
+            } else if let feedbackArray = d["performanceFeedback"] as? [[String: Any]] {
+                postStats = feedbackArray.compactMap { dict in
+                    guard let label = dict["label"] as? String,
+                          let value = toDouble(dict["value"]) else { return nil }
+                    return PostStat(label: label, value: value, maxValue: toDouble(dict["maxValue"]) ?? 10.0)
+                }
+            }
+            let likedBy = (d["likedBy"] as? [String]) ?? []
+            let uid = Auth.auth().currentUser?.uid ?? ""
+            let authorUid = (d["authorId"] as? DocumentReference)?.documentID ?? ""
+            let df = DateFormatter()
+            df.dateFormat = "dd/MM/yyyy HH:mm"
+            let post = Post(
+                authorUid: authorUid,
+                id: doc.documentID,
+                imageName: (d["thumbnailURL"] as? String) ?? "",
+                videoURL: (d["url"] as? String) ?? "",
+                caption: (d["caption"] as? String) ?? "",
+                timestamp: df.string(from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()),
+                isPrivate: !((d["visibility"] as? Bool) ?? true),
+                authorName: (d["authorUsername"] as? String) ?? "",
+                authorImageName: (d["profilePic"] as? String) ?? "",
+                likeCount: (d["likeCount"] as? Int) ?? 0,
+                commentCount: (d["commentCount"] as? Int) ?? 0,
+                likedBy: likedBy,
+                isLikedByUser: likedBy.contains(uid),
+                stats: postStats,
+                matchDate: (d["matchDate"] as? Timestamp)?.dateValue()
+            )
+            await MainActor.run {
+                achievedPost = post
+                isFetchingPost = false
+                navigateToPost = true
+            }
+        }
     }
 }
 

@@ -755,15 +755,15 @@ private func loadPending() async {
     private func buildCoachRequestItem(from d: QueryDocumentSnapshot) async throws -> CoachRequestItem? {
         let data = d.data()
         // ADD THESE LOGS
-            print("=== Processing coachRequest document ID: \(d.documentID) ===")
+             /* print("=== Processing coachRequest document ID: \(d.documentID) ===")
             if let rawUid = data["uid"] {
                 print("Raw uid value: '\(rawUid)' (type: \(type(of: rawUid)))")
             } else {
                 print("uid field is MISSING or nil in this document!")
             }
-            
+            */
             let uid = data["uid"] as? String ?? ""
-            print("Processed uid string: '\(uid)' (length: \(uid.count), trimmed length: \(uid.trimmingCharacters(in: .whitespacesAndNewlines).count))")
+            //print("Processed uid string: '\(uid)' (length: \(uid.count), trimmed length: \(uid.trimmingCharacters(in: .whitespacesAndNewlines).count))")
             
         // Safety skip for empty/invalid uid (prevents crash)
             let trimmedUid = uid.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -830,7 +830,7 @@ private func loadPending() async {
         // Sort timeline chronologically
         timelineEntries.sort { $0.timestamp < $1.timestamp }
         
-                    print("Fetching user data for uid: '\(trimmedUid)'")
+                    //print("Fetching user data for uid: '\(trimmedUid)'")
         
         // Fetch actual user name from users collection
         var actualFullName = ""

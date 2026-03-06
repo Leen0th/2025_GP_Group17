@@ -33,6 +33,7 @@ struct PlayerGoal: Identifiable, Codable {
     var status: GoalStatus
     var achievedAt: Date?
     var createdAt: Date
+    var achievedPostId: String?
 
     var asDictionary: [String: Any] {
         var dict: [String: Any] = [
@@ -43,6 +44,7 @@ struct PlayerGoal: Identifiable, Codable {
             "createdAt": Timestamp(date: createdAt)
         ]
         if let a = achievedAt { dict["achievedAt"] = Timestamp(date: a) }
+        if let p = achievedPostId { dict["achievedPostId"] = p }
         return dict
     }
 
@@ -66,7 +68,8 @@ struct PlayerGoal: Identifiable, Codable {
             targetCount: target,
             status: status,
             achievedAt: achievedAt,
-            createdAt: createdTS.dateValue()
+            createdAt: createdTS.dateValue(),
+            achievedPostId: d["achievedPostId"] as? String
         )
     }
 }
