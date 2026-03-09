@@ -1076,7 +1076,9 @@ struct ContentTabView: View {
     var body: some View {
         HStack(spacing: 12) {
             ContentTabButton(title: isCurrentUser ? "My posts" : "Posts", type: .posts, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-            ContentTabButton(title: isCurrentUser ? "My progress" : "Progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            if isCurrentUser {
+                ContentTabButton(title: "My progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            }
             ContentTabButton(title: "Endorsements", type: .endorsements, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
         .font(.system(size: 16, weight: .medium, design: .rounded))

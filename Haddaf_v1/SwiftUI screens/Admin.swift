@@ -50,7 +50,7 @@ private struct AdminTopTitle: View {
 // =======================================================
 
 enum AdminTab: Int {
-    case coaches, accounts, challenges, profile
+    case coaches, accounts, challenges, reports, profile
 }
 
 struct AdminTabView: View {
@@ -58,6 +58,8 @@ struct AdminTabView: View {
     private let bg = BrandColors.backgroundGradientEnd
 
     @State private var selected: AdminTab = .coaches
+    
+    @EnvironmentObject var session: AppSession
 
     var body: some View {
         ZStack {
@@ -72,6 +74,8 @@ struct AdminTabView: View {
                     AdminManageAccountsView()
                 case .challenges:
                     AdminChallengesView()
+                case .reports:
+                    AdminReportedContentView().environmentObject(session)
                 case .profile:
                     AdminProfileView()
                 }
@@ -120,7 +124,11 @@ private struct AdminFooterBar: View {
             tabItem(tab: .challenges,
                     icon: "chart.bar",
                     title: "Add Challenge")
-            
+
+            tabItem(tab: .reports,
+                    icon: "flag",
+                    title: "Reports")
+
             tabItem(tab: .profile,
                     icon: "person.circle",
                     title: "Admin Profile")
