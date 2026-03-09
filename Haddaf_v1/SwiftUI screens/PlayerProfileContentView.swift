@@ -62,6 +62,7 @@ struct PlayerProfileContentView: View {
     private var isRootProfileView: Bool
     
     var isAdminViewing: Bool
+    private let profileUserID: String?
     
     // An enum defining the filter options for the post grid (only visible to the current user)
     enum PostFilter: String, CaseIterable {
@@ -104,6 +105,7 @@ struct PlayerProfileContentView: View {
         self.isCurrentUser = true
         self.isRootProfileView = true
         self.isAdminViewing = false
+        self.profileUserID = Auth.auth().currentUser?.uid
     }
 
     // Initializes the view for a specific user
@@ -113,6 +115,7 @@ struct PlayerProfileContentView: View {
         self.isCurrentUser = (userID == Auth.auth().currentUser?.uid)
         self.isRootProfileView = false
         self.isAdminViewing = isAdminViewing
+        self.profileUserID = userID
     }
 
     // Filters the posts by `searchText` and `postFilter` then sorts them based on `postSort` preferences
@@ -196,7 +199,7 @@ struct PlayerProfileContentView: View {
                                 } else {
                                     // Set the item to report (this profile)
                                     itemToReport = ReportableItem(
-                                        id: viewModel.userProfile.email,
+                                        id: profileUserID ?? viewModel.userProfile.email,
                                         parentId: nil,
                                         type: .profile,
                                         contentPreview: viewModel.userProfile.name
@@ -204,7 +207,7 @@ struct PlayerProfileContentView: View {
                                 }
                             },
                             reportService: reportService,
-                            reportedID: viewModel.userProfile.email,
+                            reportedID: profileUserID ?? viewModel.userProfile.email,
                             isAdminViewing: isAdminViewing
                         )
                         ProfileHeaderView(userProfile: viewModel.userProfile)

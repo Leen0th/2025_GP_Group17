@@ -17,6 +17,7 @@ struct ReportedItem: Identifiable {
     let timestamp: Date?
     let status: String
     let actionTaken: String?
+    let reportedUserRole: String
 }
 
 struct ContentReportGroup: Identifiable {
@@ -104,7 +105,8 @@ final class AdminReportedContentViewModel: ObservableObject {
                         reportedItemRef: d["reportedItem"] as? DocumentReference,
                         timestamp: (d["timestamp"] as? Timestamp)?.dateValue(),
                         status: d["status"] as? String ?? "pending",
-                        actionTaken: d["actionTaken"] as? String
+                        actionTaken: d["actionTaken"] as? String,
+                        reportedUserRole: d["reportedUserRole"] as? String ?? "player"
                     )
                 }
                 self.isLoading = false
@@ -285,6 +287,12 @@ struct AdminReportedContentView: View {
                     }
                 )
                 .environmentObject(session)
+            }
+            .onChange(of: navigateToUID) { _, uid in
+                if uid != nil { selectedGroup = nil }
+            }
+            .onChange(of: navigateToCoachUID) { _, uid in
+                if uid != nil { selectedGroup = nil }
             }
             .alert("Action Failed", isPresented: Binding(
                 get: { vm.actionError != nil }, set: { if !$0 { vm.actionError = nil } }
@@ -634,7 +642,6 @@ struct GroupDetailSheet: View {
             if (group.itemType == "Discovery Post" || group.itemType == "Challenge Post" || group.itemType == "Account"),
                let ref = group.reportedItemRef {
                 Button {
-                    dismiss()
                     if group.itemType == "Account" { onViewProfile(ref.documentID) }
                     else { onViewPost(ref) }
                 } label: {
