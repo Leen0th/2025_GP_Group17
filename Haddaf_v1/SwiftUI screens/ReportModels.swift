@@ -13,6 +13,7 @@ enum ReportableItemType: String {
 /// A struct to identify the item being reported, used to launch the sheet.
 struct ReportableItem: Identifiable {
     let id: String
+    let reportedId: String   // UID of the content author/owner
     let parentId: String?
     let type: ReportableItemType
     let contentPreview: String
@@ -132,6 +133,7 @@ final class ReportViewModel: ObservableObject {
             "reasonTitle": selectedOption.title,
             "reasonDescription": finalDescription,
             "reporterId": reporterRef,
+            "reportedUserId": item.reportedId,
             "timestamp": FieldValue.serverTimestamp(),
             "status": "pending"
         ]

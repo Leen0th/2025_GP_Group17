@@ -31,6 +31,10 @@ class NotificationService: ObservableObject {
     // MARK: - Start Listening
     func startListening(for userId: String) {
         stopListening()
+        
+        // Don't listen for anonymous users — they can't access notifications
+        guard let user = Auth.auth().currentUser, !user.isAnonymous else { return }
+        
         isLoading = true
         listener = db.collection("notifications")
             .whereField("userId", isEqualTo: userId)

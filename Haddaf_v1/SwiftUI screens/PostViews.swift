@@ -237,6 +237,7 @@ struct PostDetailView: View {
                             } else {
                                 itemToReport = ReportableItem(
                                     id: post.id ?? "",
+                                    reportedId: post.authorUid ?? "",
                                     parentId: nil,
                                     type: .post,
                                     contentPreview: post.caption
@@ -844,6 +845,7 @@ struct CommentsView: View {
                                         // Create a report item so we can open the report sheet.
                                         itemToReport = ReportableItem(
                                             id: comment.id ?? "",
+                                            reportedId: comment.userId,
                                             parentId: postId,
                                             type: .comment,
                                             contentPreview: comment.text

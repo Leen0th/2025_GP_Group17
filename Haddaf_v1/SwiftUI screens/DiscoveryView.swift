@@ -449,6 +449,7 @@ struct DiscoveryView: View {
                                         onReport: {
                                             itemToReport = ReportableItem(
                                                 id: post.id ?? "",
+                                                reportedId: post.authorUid ?? "",
                                                 parentId: nil,
                                                 type: .post,
                                                 contentPreview: post.caption

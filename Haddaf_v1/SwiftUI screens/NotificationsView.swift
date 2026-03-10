@@ -112,6 +112,8 @@ struct NotificationsView: View {
                 Button("Cancel", role: .cancel) {}
             }
             .onAppear {
+                // Don't listen for anonymous users — they can't access notifications
+                guard let user = Auth.auth().currentUser, !user.isAnonymous else { return }
                 if let userId = session.user?.uid { notificationService.startListening(for: userId) }
             }
         }
@@ -192,6 +194,8 @@ struct NotificationCard: View {
         case .invitationDeclined: return "person.badge.minus"
         case .removedFromTeam: return "xmark.circle.fill"
         case .goalAchieved: return "target"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .contentDeleted: return "trash.fill"
         }
     }
 
@@ -199,6 +203,8 @@ struct NotificationCard: View {
         switch notification.type {
         case .invitationAccepted: return .green
         case .invitationDeclined, .removedFromTeam: return .red
+        case .warning: return .orange
+        case .contentDeleted: return .red
         default: return BrandColors.darkTeal
         }
     }

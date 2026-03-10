@@ -1801,6 +1801,7 @@ private struct SubmissionCard: View {
             ReportView(
                 item: ReportableItem(
                     id: submission.id,
+                    reportedId: submission.uid,
                     parentId: challengeId,
                     type: .challengePost,
                     contentPreview: user?.fullName ?? "Challenge submission"

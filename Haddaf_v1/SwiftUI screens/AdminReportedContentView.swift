@@ -18,9 +18,15 @@ struct ReportedItem: Identifiable {
     let status: String
     let actionTaken: String?
     let reportedUserRole: String
+    let reportedUserId: String         // author/owner UID stored at report creation
+    // Snapshot saved at deletion time so resolved view can still show the content
+    let snapshotThumbnail: String?
+    let snapshotVideoURL: String?
+    let snapshotCaption: String?
+    let snapshotAuthorName: String?
 }
 
-struct ContentReportGroup: Identifiable {
+struct ContentReportGroup: Identifiable, Hashable {
     let id: String
     let itemType: String
     let contentPreview: String
@@ -42,9 +48,28 @@ struct ContentReportGroup: Identifiable {
         reports.allSatisfy { $0.status != "pending" }
     }
 
+    var snapshotThumbnail: String? { reports.compactMap(\.snapshotThumbnail).first(where: { !$0.isEmpty }) }
+    var snapshotVideoURL: String?  { reports.compactMap(\.snapshotVideoURL).first(where: { !$0.isEmpty }) }
+    var snapshotCaption: String?   { reports.compactMap(\.snapshotCaption).first(where: { !$0.isEmpty }) }
+    var snapshotAuthorName: String? { reports.compactMap(\.snapshotAuthorName).first(where: { !$0.isEmpty }) }
+    var wasDeleted: Bool { groupActionTaken == "deleted" }
+
+    static func == (lhs: ContentReportGroup, rhs: ContentReportGroup) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
     var groupActionTaken: String? {
         reports.compactMap(\.actionTaken).filter { $0 != "dismissed" }.first
             ?? reports.compactMap(\.actionTaken).first
+    }
+
+    /// All unique reason titles in this group
+    var uniqueReasons: [String] {
+        Array(Set(reports.map(\.reasonTitle))).sorted()
     }
 }
 
@@ -88,7 +113,6 @@ final class AdminReportedContentViewModel: ObservableObject {
                 self.allReports = docs.compactMap { doc in
                     let d = doc.data()
                     let rawType = d["itemType"] as? String ?? "Unknown"
-                    // Normalise legacy values
                     let itemType: String
                     switch rawType {
                     case "Post":    itemType = "Discovery Post"
@@ -106,7 +130,14 @@ final class AdminReportedContentViewModel: ObservableObject {
                         timestamp: (d["timestamp"] as? Timestamp)?.dateValue(),
                         status: d["status"] as? String ?? "pending",
                         actionTaken: d["actionTaken"] as? String,
-                        reportedUserRole: d["reportedUserRole"] as? String ?? "player"
+                        reportedUserRole: d["reportedUserRole"] as? String ?? "player",
+                        reportedUserId: (d["reportedUserId"] as? String)
+                            ?? (d["reportedItem"] as? DocumentReference)?.documentID
+                            ?? "",
+                        snapshotThumbnail: d["snapshotThumbnail"] as? String,
+                        snapshotVideoURL: d["snapshotVideoURL"] as? String,
+                        snapshotCaption: d["snapshotCaption"] as? String,
+                        snapshotAuthorName: d["snapshotAuthorName"] as? String
                     )
                 }
                 self.isLoading = false
@@ -156,16 +187,90 @@ final class AdminReportedContentViewModel: ObservableObject {
         }
     }
 
-    func deleteContent(group: ContentReportGroup) async {
+    func deleteContent(group: ContentReportGroup, reason: String) async {
         isActioning = true
         defer { isActioning = false }
         guard let ref = group.reportedItemRef else { actionError = "Could not locate content reference."; return }
         do {
+            // Snapshot content data before deletion so resolved view can still show it
+            var snapshotData: [String: Any] = [:]
+            if group.itemType == "Discovery Post" || group.itemType == "Challenge Post" {
+                let doc = try? await ref.getDocument()
+                if let d = doc?.data() {
+                    snapshotData["snapshotThumbnail"]  = d["thumbnailURL"] as? String ?? ""
+                    snapshotData["snapshotVideoURL"]   = d["url"] as? String ?? ""
+                    snapshotData["snapshotCaption"]    = d["caption"] as? String ?? ""
+                    snapshotData["snapshotAuthorName"] = d["authorUsername"] as? String ?? ""
+                }
+            } else if group.itemType == "Comment" {
+                // For comments: decrement parent post's commentCount before deleting
+                let postRef = ref.parent.parent
+                if let postRef = postRef {
+                    try await postRef.updateData(["commentCount": FieldValue.increment(Int64(-1))])
+                }
+            }
             try await ref.delete()
+            // Send notification to the content author
+            await sendDeletionNotification(group: group, reason: reason)
             for report in group.reports {
-                await updateReportStatus(reportId: report.id, status: "resolved", actionTaken: "deleted")
+                await updateReportStatusWithSnapshot(reportId: report.id, status: "resolved", actionTaken: "deleted", snapshot: snapshotData)
             }
         } catch { actionError = "Failed to delete content: \(error.localizedDescription)" }
+    }
+
+    private func updateReportStatusWithSnapshot(reportId: String, status: String, actionTaken: String, snapshot: [String: Any]) async {
+        do {
+            var data: [String: Any] = [
+                "status": status, "actionTaken": actionTaken,
+                "resolvedAt": FieldValue.serverTimestamp(),
+                "resolvedBy": Auth.auth().currentUser?.uid ?? "admin"
+            ]
+            for (k, v) in snapshot { data[k] = v }
+            try await db.collection("reports").document(reportId).updateData(data)
+        } catch { print("updateReportStatusWithSnapshot error: \(error)") }
+    }
+
+    private func sendDeletionNotification(group: ContentReportGroup, reason: String) async {
+        do {
+            // Try resolving from document first, fall back to stored UID on reports
+            let uid: String
+            do {
+                uid = try await resolveAuthorUID(group: group)
+            } catch {
+                let fallback = group.reports.first?.reportedUserId ?? ""
+                guard !fallback.isEmpty else {
+                    print("Failed to send deletion notification: could not resolve author UID")
+                    return
+                }
+                uid = fallback
+            }
+
+            let preview = group.contentPreview.isEmpty ? "your content" : "\"\(group.contentPreview)\""
+            let (title, message): (String, String)
+            switch group.itemType {
+            case "Comment":
+                title = "🗑️ Your Comment Was Removed"
+                message = "Your comment \(preview) was removed by an admin.\nReason: \(reason)"
+            case "Discovery Post", "Challenge Post":
+                title = "🗑️ Your Post Was Removed"
+                message = "Your post \(preview) was removed by an admin.\nReason: \(reason)"
+            default:
+                title = "🗑️ Content Removed"
+                message = "Your \(group.itemType.lowercased()) was removed by an admin.\nReason: \(reason)"
+            }
+
+            let docRef = db.collection("notifications").document()
+            try await docRef.setData([
+                "userId": uid,
+                "type": "content_deleted",
+                "title": title,
+                "message": message,
+                "createdAt": FieldValue.serverTimestamp(),
+                "isRead": false
+            ])
+        } catch {
+            print("Failed to send deletion notification: \(error)")
+        }
     }
 
     func deactivateAccount(group: ContentReportGroup, reason: String) async {
@@ -187,10 +292,29 @@ final class AdminReportedContentViewModel: ObservableObject {
         defer { isActioning = false }
         do {
             let uid = try await resolveAuthorUID(group: group)
-            try await db.collection("users").document(uid).collection("notifications").addDocument(data: [
-                "type": "warning", "message": message,
+            
+            // ✅ Context-aware title based on content type
+            let title: String
+            switch group.itemType {
+            case "Comment":
+                title = "⚠️ Warning About Your Comment"
+            case "Discovery Post":
+                title = "⚠️ Warning About Your Post"
+            case "Challenge Post":
+                title = "⚠️ Warning About Your Challenge Post"
+            default:
+                title = "⚠️ Warning About Your Account"
+            }
+            
+            let docRef = db.collection("notifications").document()
+            try await docRef.setData([
+                "userId": uid,
+                "type": "warning",
+                "title": title,
+                "message": message,
                 "relatedReportId": group.reports[0].id,
-                "timestamp": FieldValue.serverTimestamp(), "isRead": false
+                "createdAt": FieldValue.serverTimestamp(),
+                "isRead": false
             ])
             for report in group.reports {
                 await updateReportStatus(reportId: report.id, status: "resolved", actionTaken: "warned")
@@ -204,8 +328,15 @@ final class AdminReportedContentViewModel: ObservableObject {
             throw NSError(domain: "AdminReport", code: 0, userInfo: [NSLocalizedDescriptionKey: "No item reference."])
         }
         let doc = try await ref.getDocument()
-        if let uid = doc.data()?["authorUid"] as? String { return uid }
-        if let uid = doc.data()?["userId"] as? String { return uid }
+        let data = doc.data()
+        // String UID fields
+        if let uid = data?["authorUid"] as? String, !uid.isEmpty { return uid }
+        if let uid = data?["userId"] as? String, !uid.isEmpty { return uid }
+        // DocumentReference fields (e.g. videoPosts stores authorId as a reference)
+        if let ref = data?["authorId"] as? DocumentReference { return ref.documentID }
+        if let ref = data?["authorRef"] as? DocumentReference { return ref.documentID }
+        // For comments, try userId on parent post via parentId
+        if let uid = data?["uid"] as? String, !uid.isEmpty { return uid }
         throw NSError(domain: "AdminReport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not find author UID."])
     }
 
@@ -236,10 +367,10 @@ struct AdminReportedContentView: View {
 
     @State private var selectedTab: ReportTab = .pending
     @State private var searchText = ""
-    @State private var selectedGroup: ContentReportGroup? = nil
     @State private var navigateToPost: DocumentReference? = nil
     @State private var navigateToUID: String? = nil
     @State private var navigateToCoachUID: String? = nil
+    @State private var selectedGroup: ContentReportGroup? = nil
 
     var body: some View {
         NavigationStack {
@@ -253,6 +384,26 @@ struct AdminReportedContentView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            // Navigate to report detail page (replaces sheet)
+            .navigationDestination(item: $selectedGroup) { group in
+                GroupDetailPage(
+                    group: group, vm: vm,
+                    onViewPost: { ref in navigateToPost = ref },
+                    onViewProfile: { uid in
+                        Task {
+                            let doc = try? await Firestore.firestore()
+                                .collection("users").document(uid).getDocument()
+                            let data = doc?.data()
+                            // Check both "role" and "userType" in case your schema uses either
+                            let role = (data?["role"] as? String)
+                                    ?? (data?["userType"] as? String)
+                                    ?? "player"
+                            if role == "coach" { navigateToCoachUID = uid } else { navigateToUID = uid }
+                        }
+                    }
+                )
+                .environmentObject(session)
+            }
             .navigationDestination(isPresented: Binding(
                 get: { navigateToPost != nil }, set: { if !$0 { navigateToPost = nil } }
             )) {
@@ -274,26 +425,6 @@ struct AdminReportedContentView: View {
                     CoachProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
                 }
             }
-            .sheet(item: $selectedGroup) { group in
-                GroupDetailSheet(
-                    group: group, vm: vm,
-                    onViewPost: { ref in navigateToPost = ref },
-                    onViewProfile: { uid in
-                        Task {
-                            let doc = try? await Firestore.firestore().collection("users").document(uid).getDocument()
-                            let role = doc?.data()?["role"] as? String ?? "player"
-                            if role == "coach" { navigateToCoachUID = uid } else { navigateToUID = uid }
-                        }
-                    }
-                )
-                .environmentObject(session)
-            }
-            .onChange(of: navigateToUID) { _, uid in
-                if uid != nil { selectedGroup = nil }
-            }
-            .onChange(of: navigateToCoachUID) { _, uid in
-                if uid != nil { selectedGroup = nil }
-            }
             .alert("Action Failed", isPresented: Binding(
                 get: { vm.actionError != nil }, set: { if !$0 { vm.actionError = nil } }
             )) {
@@ -306,10 +437,8 @@ struct AdminReportedContentView: View {
     private var toolBar: some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
-                // Search field
                 HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
                     TextField("Search reports...", text: $searchText)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -321,7 +450,6 @@ struct AdminReportedContentView: View {
                         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
                 )
 
-                // Type filter icon
                 Menu {
                     Button { vm.typeFilter = "all" } label: {
                         Label("All Types", systemImage: vm.typeFilter == "all" ? "checkmark" : "")
@@ -347,7 +475,6 @@ struct AdminReportedContentView: View {
                         .padding(8)
                 }
 
-                // Sort capsule
                 Menu {
                     Picker("Sort", selection: $vm.sortOrder) {
                         Text("Newest first").tag(AdminReportedContentViewModel.SortOrder.newest)
@@ -356,16 +483,13 @@ struct AdminReportedContentView: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "arrow.up.arrow.down").font(.system(size: 13, weight: .medium))
                         Text(vm.sortOrder == .newest ? "Newest" : vm.sortOrder == .oldest ? "Oldest" : "Most Reported")
                             .font(.system(size: 13, weight: .medium, design: .rounded))
                     }
                     .foregroundColor(primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(BrandColors.background)
-                    .clipShape(Capsule())
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(BrandColors.background).clipShape(Capsule())
                     .shadow(color: .black.opacity(0.07), radius: 4, y: 2)
                 }
             }
@@ -385,9 +509,7 @@ struct AdminReportedContentView: View {
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(selectedTab == tab ? primary : .secondary)
                         if selectedTab == tab {
-                            Rectangle()
-                                .frame(height: 2)
-                                .foregroundColor(primary)
+                            Rectangle().frame(height: 2).foregroundColor(primary)
                         } else {
                             Color.clear.frame(height: 2)
                         }
@@ -396,8 +518,7 @@ struct AdminReportedContentView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 18).padding(.bottom, 4)
     }
 
     // MARK: Content Area
@@ -429,7 +550,8 @@ struct AdminReportedContentView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(displayed) { group in
-                            ContentGroupCard(group: group).onTapGesture { selectedGroup = group }
+                            ContentGroupCard(group: group)
+                                .onTapGesture { selectedGroup = group }
                         }
                     }
                     .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 110)
@@ -454,34 +576,22 @@ struct ContentGroupCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-
-            // ── Left: title (top) + timestamp (bottom) ──
             VStack(alignment: .leading, spacing: 6) {
                 Text(group.contentPreview.isEmpty ? "(No preview available)" : group.contentPreview)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(primary)
-                    .lineLimit(2)
-
+                    .foregroundColor(primary).lineLimit(2)
                 Spacer(minLength: 0)
-
                 if let ts = group.latestTimestamp {
                     Text(ts.relativeString)
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
                 }
             }
-
             Spacer(minLength: 8)
-
-            // ── Right: type pill (top) + count (bottom) ──
             VStack(alignment: .trailing, spacing: 6) {
                 typePill(group.itemType)
-
                 Spacer(minLength: 0)
-
                 HStack(spacing: 4) {
-                    Image(systemName: "flag.fill")
-                        .font(.system(size: 10, weight: .bold))
+                    Image(systemName: "flag.fill").font(.system(size: 10, weight: .bold))
                         .foregroundColor(group.reportCount >= 3 ? .red : .orange)
                     Text(group.reportCount == 1 ? "1 report" : "\(group.reportCount) reports")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -500,10 +610,10 @@ struct ContentGroupCard: View {
 }
 
 // =======================================================
-// MARK: - Group Detail Sheet
+// MARK: - Group Detail Page (replaces sheet)
 // =======================================================
 
-struct GroupDetailSheet: View {
+struct GroupDetailPage: View {
     let group: ContentReportGroup
     @ObservedObject var vm: AdminReportedContentViewModel
     @Environment(\.dismiss) private var dismiss
@@ -512,10 +622,14 @@ struct GroupDetailSheet: View {
     var onViewPost: (DocumentReference) -> Void
     var onViewProfile: (String) -> Void
 
+    // Report filter
+    @State private var selectedReasonFilter: String = "all"
+
     @State private var expandedReportID: String? = nil
-    @State private var showDeactivateSheet = false
-    @State private var showDeleteConfirm = false
+    @State private var showDeleteReason = false
     @State private var showWarnCompose = false
+    @State private var warnSent = false
+    @State private var showDeactivateSheet = false
     @State private var deactivateReason = ""
     @State private var isDeactivating = false
     @State private var warnMessage = ""
@@ -524,105 +638,113 @@ struct GroupDetailSheet: View {
 
     private let primary = BrandColors.darkTeal
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                BrandColors.backgroundGradientEnd.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        contentInfoCard
-                        reportsSection
-                        if !group.isFullyResolved { actionButtons } else { resolvedBanner }
-                        Spacer(minLength: 40)
-                    }
-                    .padding(.horizontal, 20).padding(.top, 16)
-                }
-            }
-            .navigationTitle(sheetTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { dismiss() }.foregroundColor(primary)
-                }
-            }
-            .alert("Delete Content", isPresented: $showDeleteConfirm) {
-                Button("Delete", role: .destructive) {
-                    Task { await vm.deleteContent(group: group); dismiss() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will permanently delete the reported \(group.itemType.lowercased()). This cannot be undone.")
-            }
-            .sheet(isPresented: $showWarnCompose) { warnComposeSheet }
-            .sheet(isPresented: $showDeactivateSheet) {
-                DeactivationReasonSheet(
-                    userName: commenterName.isEmpty ? "User" : commenterName,
-                    deactivationReason: $deactivateReason,
-                    isProcessing: $isDeactivating,
-                    onCancel: {
-                        showDeactivateSheet = false
-                        deactivateReason = ""
-                    },
-                    onConfirm: { reason in
-                        isDeactivating = true
-                        Task {
-                            await vm.deactivateAccount(group: group, reason: reason)
-                            isDeactivating = false
-                            showDeactivateSheet = false
-                            deactivateReason = ""
-                            dismiss()
-                        }
-                    }
-                )
-            }
-            .overlay {
-                if vm.isActioning {
-                    Color.black.opacity(0.3).ignoresSafeArea()
-                    ProgressView("Processing...").padding(24).background(BrandColors.background).cornerRadius(16)
-                }
-            }
-        }
-        .tint(primary)
-        .task {
-            // Load commenter name (used for Comment type + deactivation sheet username)
-            let refToLoad: DocumentReference?
-            if group.itemType == "Comment" {
-                refToLoad = group.reportedItemRef
-            } else if group.itemType == "Account" {
-                refToLoad = nil
-                // For account type, load directly from reportedItemRef documentID
-                if let uid = group.reportedItemRef?.documentID {
-                    do {
-                        let userDoc = try await Firestore.firestore().collection("users").document(uid).getDocument()
-                        let first = userDoc.data()?["firstName"] as? String ?? ""
-                        let last  = userDoc.data()?["lastName"]  as? String ?? ""
-                        let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
-                        commenterUID = uid
-                        commenterName = full.isEmpty ? "User" : full
-                    } catch {}
-                }
-                return
-            } else {
-                refToLoad = nil
-            }
-
-            guard let ref = refToLoad else { return }
-            do {
-                let doc = try await ref.getDocument()
-                let uid = doc.data()?["userId"] as? String ?? ""
-                commenterUID = uid.isEmpty ? nil : uid
-                if !uid.isEmpty {
-                    let userDoc = try await Firestore.firestore().collection("users").document(uid).getDocument()
-                    let first = userDoc.data()?["firstName"] as? String ?? ""
-                    let last  = userDoc.data()?["lastName"]  as? String ?? ""
-                    let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
-                    commenterName = full.isEmpty ? "Unknown User" : full
-                }
-            } catch { print("Failed to load user info: \(error)") }
-        }
+    // Reports filtered by selected reason
+    private var filteredReports: [ReportedItem] {
+        let sorted = group.reports.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        if selectedReasonFilter == "all" { return sorted }
+        return sorted.filter { $0.reasonTitle == selectedReasonFilter }
     }
 
-    // MARK: Content Info Card
+    var body: some View {
+        ZStack {
+            BrandColors.backgroundGradientEnd.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    contentInfoCard
+                    reportsSection
+                    if !group.isFullyResolved { actionButtons } else { resolvedBanner }
+                    Spacer(minLength: 40)
+                }
+                .padding(.horizontal, 20).padding(.top, 16)
+            }
+        }
+        .navigationTitle(pageTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showDeleteReason) {
+            DeleteReasonSheet(
+                itemType: group.itemType,
+                contentPreview: group.contentPreview,
+                onCancel: { showDeleteReason = false },
+                onConfirm: { reason in
+                    showDeleteReason = false
+                    Task { await vm.deleteContent(group: group, reason: reason); dismiss() }
+                }
+            )
+        }
+        .sheet(isPresented: $showWarnCompose, onDismiss: {
+            if warnSent { dismiss() }
+        }) { warnComposeSheet }
+        .sheet(isPresented: $showDeactivateSheet) {
+            DeactivationReasonSheet(
+                userName: commenterName.isEmpty ? "User" : commenterName,
+                deactivationReason: $deactivateReason,
+                isProcessing: $isDeactivating,
+                onCancel: {
+                    showDeactivateSheet = false
+                    deactivateReason = ""
+                },
+                onConfirm: { reason in
+                    isDeactivating = true
+                    Task {
+                        await vm.deactivateAccount(group: group, reason: reason)
+                        isDeactivating = false
+                        showDeactivateSheet = false
+                        deactivateReason = ""
+                        dismiss()
+                    }
+                }
+            )
+        }
+        .overlay {
+            if vm.isActioning {
+                Color.black.opacity(0.3).ignoresSafeArea()
+                ProgressView("Processing...").padding(24).background(BrandColors.background).cornerRadius(16)
+            }
+        }
+        .task { await loadUserInfo() }
+    }
+
+    // MARK: - Load User Info
+    private func loadUserInfo() async {
+        if group.itemType == "Account" {
+            guard let uid = group.reportedItemRef?.documentID else { return }
+            do {
+                let userDoc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+                let first = userDoc.data()?["firstName"] as? String ?? ""
+                let last  = userDoc.data()?["lastName"]  as? String ?? ""
+                let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                commenterUID = uid
+                commenterName = full.isEmpty ? "User" : full
+            } catch {}
+            return
+        }
+        guard group.itemType == "Comment" else { return }
+        var uid = ""
+        if let ref = group.reportedItemRef,
+           let doc = try? await ref.getDocument(),
+           let data = doc.data() {
+            // Try all possible field names for the author UID in comment documents
+            uid = (data["userId"] as? String)
+               ?? (data["uid"] as? String)
+               ?? (data["authorUid"] as? String)
+               ?? ""
+        }
+        // Fall back to the UID stored on the report itself
+        if uid.isEmpty {
+            uid = group.reports.first?.reportedUserId ?? ""
+        }
+        guard !uid.isEmpty else { return }
+        commenterUID = uid
+        do {
+            let userDoc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+            let first = userDoc.data()?["firstName"] as? String ?? ""
+            let last  = userDoc.data()?["lastName"]  as? String ?? ""
+            let full  = [first, last].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            commenterName = full.isEmpty ? "Unknown User" : full
+        } catch { print("Failed to load commenter user info: \(error)") }
+    }
+
+    // MARK: - Content Info Card
     private var contentInfoCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -638,17 +760,50 @@ struct GroupDetailSheet: View {
 
             Divider()
 
-            // View post / view account button
-            if (group.itemType == "Discovery Post" || group.itemType == "Challenge Post" || group.itemType == "Account"),
-               let ref = group.reportedItemRef {
-                Button {
-                    if group.itemType == "Account" { onViewProfile(ref.documentID) }
-                    else { onViewPost(ref) }
-                } label: {
+            if group.itemType == "Discovery Post" || group.itemType == "Challenge Post" {
+                if group.wasDeleted, let videoURL = group.snapshotVideoURL, !videoURL.isEmpty {
+                    // Post is deleted — navigate to snapshot view
+                    NavigationLink {
+                        DeletedPostView(
+                            videoURL: videoURL,
+                            thumbnailURL: group.snapshotThumbnail ?? "",
+                            caption: group.snapshotCaption ?? group.contentPreview,
+                            authorName: group.snapshotAuthorName ?? ""
+                        ).environmentObject(session)
+                    } label: {
+                        HStack {
+                            Image(systemName: "play.rectangle.fill")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("View Deleted Post")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                Text("Snapshot preserved")
+                                    .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.secondary)
+                        }
+                        .foregroundColor(.red).padding(14)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.red.opacity(0.07)))
+                    }
+                    .buttonStyle(.plain)
+                } else if let ref = group.reportedItemRef, !group.wasDeleted {
+                    Button { onViewPost(ref) } label: {
+                        HStack {
+                            Image(systemName: "play.rectangle.fill")
+                            Text("View Post").font(.system(size: 15, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.secondary)
+                        }
+                        .foregroundColor(primary).padding(14)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(primary.opacity(0.07)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if group.itemType == "Account", let ref = group.reportedItemRef {
+                Button { onViewProfile(ref.documentID) } label: {
                     HStack {
-                        Image(systemName: group.itemType == "Account" ? "person.fill" : "play.rectangle.fill")
-                        Text(group.itemType == "Account" ? "View Account" : "View Post")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        Image(systemName: "person.fill")
+                        Text("View Account").font(.system(size: 15, weight: .semibold, design: .rounded))
                         Spacer()
                         Image(systemName: "chevron.right").foregroundColor(.secondary)
                     }
@@ -658,11 +813,10 @@ struct GroupDetailSheet: View {
                 .buttonStyle(.plain)
             }
 
-            // Comment author + text
             if group.itemType == "Comment" {
                 if let uid = commenterUID, !commenterName.isEmpty {
                     Button {
-                        dismiss(); onViewProfile(uid)
+                        onViewProfile(uid)
                     } label: {
                         HStack {
                             Image(systemName: "person.fill")
@@ -693,23 +847,73 @@ struct GroupDetailSheet: View {
             .shadow(color: .black.opacity(0.07), radius: 8, x: 0, y: 3))
     }
 
-    // MARK: Reports Section
+    // MARK: - Reports Section with Filter
     private var reportsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if group.reportCount > 1 {
-                sectionLabel("All Reports (\(group.reportCount))")
-            } else {
-                sectionLabel("Report")
+            // Header row: label + filter chips (only if multiple reasons exist)
+            HStack(alignment: .center) {
+                sectionLabel(group.reportCount > 1 ? "All Reports (\(group.reportCount))" : "Report")
+                Spacer()
             }
 
-            VStack(spacing: 8) {
-                ForEach(group.reports.sorted {
-                    ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
-                }) { report in
-                    reportRow(report)
+            // Reason filter chips — always shown
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    reasonFilterChip(title: "All", count: group.reportCount, isSelected: selectedReasonFilter == "all") {
+                        selectedReasonFilter = "all"
+                    }
+                    ForEach(group.reasonSummary, id: \.title) { item in
+                        reasonFilterChip(title: item.title, count: item.count, isSelected: selectedReasonFilter == item.title) {
+                            selectedReasonFilter = selectedReasonFilter == item.title ? "all" : item.title
+                        }
+                    }
+                }
+                .padding(.horizontal, 2).padding(.vertical, 4)
+            }
+
+            // Report rows or empty state
+            if filteredReports.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 28)).foregroundColor(.secondary.opacity(0.4))
+                    Text("No reports with this reason")
+                        .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                .background(RoundedRectangle(cornerRadius: 12).fill(BrandColors.background))
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(filteredReports) { report in
+                        reportRow(report)
+                    }
                 }
             }
         }
+    }
+
+    private func reasonFilterChip(title: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(isSelected ? Color.white.opacity(0.3) : primary.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
+            .foregroundColor(isSelected ? .white : primary)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(isSelected ? primary : primary.opacity(0.08))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule().stroke(isSelected ? Color.clear : primary.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func reportRow(_ report: ReportedItem) -> some View {
@@ -762,11 +966,10 @@ struct GroupDetailSheet: View {
         }
     }
 
-    // MARK: Action Buttons — context-aware per type
+    // MARK: - Action Buttons
     private var actionButtons: some View {
         VStack(spacing: 12) {
             sectionLabel("Take Action")
-
             if group.reportCount > 1 {
                 Text("Action will be applied to all \(group.reportCount) reports for this content.")
                     .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
@@ -774,14 +977,14 @@ struct GroupDetailSheet: View {
 
             switch group.itemType {
             case "Account":
-                // Dismiss → Warn → Deactivate
                 actionButton(icon: "checkmark.circle", title: "Dismiss Report",
                              subtitle: "No action needed", color: BrandColors.actionGreen) {
                     Task { await vm.dismissGroup(group); dismiss() }
                 }
                 actionButton(icon: "bell.badge", title: "Send Warning",
                              subtitle: "Notify the user about their account", color: primary) {
-                    warnMessage = defaultWarnMessage; showWarnCompose = true
+                    warnMessage = ""
+                    showWarnCompose = true
                 }
                 actionButton(icon: "person.fill.xmark", title: "Deactivate Account",
                              subtitle: "Prevent user from posting or interacting", color: .red) {
@@ -789,33 +992,33 @@ struct GroupDetailSheet: View {
                 }
 
             case "Discovery Post", "Challenge Post":
-                // Dismiss → Warn → Delete post
                 actionButton(icon: "checkmark.circle", title: "Dismiss Report",
                              subtitle: "No action needed", color: BrandColors.actionGreen) {
                     Task { await vm.dismissGroup(group); dismiss() }
                 }
                 actionButton(icon: "bell.badge", title: "Send Warning",
                              subtitle: "Notify the user about their post", color: primary) {
-                    warnMessage = defaultWarnMessage; showWarnCompose = true
+                    warnMessage = ""
+                    showWarnCompose = true
                 }
                 actionButton(icon: "trash", title: "Delete Post",
                              subtitle: "Permanently remove this post", color: .red) {
-                    showDeleteConfirm = true
+                    showDeleteReason = true
                 }
 
             default: // Comment
-                // Dismiss → Warn → Delete comment
                 actionButton(icon: "checkmark.circle", title: "Dismiss Report",
                              subtitle: "No action needed", color: BrandColors.actionGreen) {
                     Task { await vm.dismissGroup(group); dismiss() }
                 }
                 actionButton(icon: "bell.badge", title: "Send Warning",
                              subtitle: "Notify the user about their comment", color: primary) {
-                    warnMessage = defaultWarnMessage; showWarnCompose = true
+                    warnMessage = ""
+                    showWarnCompose = true
                 }
                 actionButton(icon: "trash", title: "Delete Comment",
                              subtitle: "Permanently remove this comment", color: .red) {
-                    showDeleteConfirm = true
+                    showDeleteReason = true
                 }
             }
         }
@@ -841,7 +1044,7 @@ struct GroupDetailSheet: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: Resolved Banner
+    // MARK: - Resolved Banner
     private var resolvedBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: actionIcon(group.groupActionTaken ?? "")).font(.system(size: 22))
@@ -859,46 +1062,112 @@ struct GroupDetailSheet: View {
             .fill(actionColor(group.groupActionTaken ?? "").opacity(0.1)))
     }
 
-    // MARK: Warn Compose Sheet
+    // MARK: - Warn Compose Sheet
     private var warnComposeSheet: some View {
-        NavigationStack {
-            ZStack {
-                BrandColors.backgroundGradientEnd.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("This message will be sent to the user's notification inbox.")
-                        .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary)
-                        .padding(.horizontal, 20).padding(.top, 12)
-                    TextEditor(text: $warnMessage)
-                        .font(.system(size: 15, design: .rounded)).padding(12).frame(minHeight: 140)
-                        .background(BrandColors.background).cornerRadius(14).padding(.horizontal, 20)
-                    Button {
-                        Task { await vm.warnUser(group: group, message: warnMessage); showWarnCompose = false; dismiss() }
-                    } label: {
-                        Text("Send Warning").font(.system(size: 18, weight: .medium, design: .rounded))
-                            .foregroundColor(.white).frame(maxWidth: .infinity).padding()
-                            .background(primary).clipShape(Capsule())
+        VStack(spacing: 20) {
+            // Drag handle
+            Capsule()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+
+            // Header
+            VStack(spacing: 8) {
+                Text("Send Warning")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+
+                Text("\(group.itemType): \"\(group.contentPreview)\"")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            // Label
+            HStack(spacing: 4) {
+                Text("Warning message")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                Text("*")
+                    .foregroundColor(.red)
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            // Text Editor
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4)
+
+                TextEditor(text: $warnMessage)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .onChange(of: warnMessage) { _, newValue in
+                        if newValue.count > 300 {
+                            warnMessage = String(newValue.prefix(300))
+                        }
                     }
-                    .disabled(warnMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .padding(.horizontal, 20)
-                    Spacer()
-                }
             }
-            .navigationTitle("Write Warning").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { showWarnCompose = false }.foregroundColor(primary)
-                }
+            .frame(height: 120)
+            .padding(.horizontal)
+
+            // Character count
+            HStack {
+                Spacer()
+                Text("\(warnMessage.count)/300")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(warnMessage.count >= 300 ? .red : .secondary)
             }
+            .padding(.horizontal)
+
+            // Required field note
+            HStack {
+                Image(systemName: "asterisk")
+                    .font(.system(size: 8))
+                    .foregroundColor(.red)
+                Text("Required field")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            // Send button
+            Button {
+                Task {
+                    await vm.warnUser(group: group, message: warnMessage)
+                    warnSent = true
+                    showWarnCompose = false
+                }
+            } label: {
+                Text("Send Warning")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(warnMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : primary)
+                    .clipShape(Capsule())
+            }
+            .disabled(warnMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.horizontal)
+
+            Spacer()
         }
     }
 
-    // MARK: Helpers
+    // MARK: - Helpers
     private func sectionLabel(_ text: String) -> some View {
         Text(text).font(.system(size: 12, weight: .bold, design: .rounded))
             .foregroundColor(.secondary).textCase(.uppercase)
     }
 
-    private var sheetTitle: String {
+    private var pageTitle: String {
         switch group.itemType {
         case "Discovery Post", "Challenge Post": return "Reported Post"
         case "Account":                          return "Reported Account"
@@ -906,10 +1175,125 @@ struct GroupDetailSheet: View {
         default:                                 return "Reported Content"
         }
     }
+}
 
-    private var defaultWarnMessage: String {
-        let reasons = group.reasonSummary.map(\.title).joined(separator: ", ")
-        return "Your \(group.itemType.lowercased()) has been flagged for: \(reasons). Please review our community guidelines to avoid further action."
+// =======================================================
+// MARK: - Delete Reason Sheet
+// =======================================================
+
+struct DeleteReasonSheet: View {
+    let itemType: String
+    let contentPreview: String
+    var onCancel: () -> Void
+    var onConfirm: (String) -> Void
+
+    @State private var reason = ""
+    @State private var isProcessing = false
+    private let primary = BrandColors.darkTeal
+    private let charLimit = 300
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Drag handle
+            Capsule()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .padding(.top, 12)
+
+            // Header
+            VStack(spacing: 8) {
+                Text("Delete \(itemType)")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(primary)
+
+                if !contentPreview.isEmpty {
+                    Text("\"\(contentPreview)\"")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
+
+            // Label
+            HStack(spacing: 4) {
+                Text("Reason for deletion")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                Text("*")
+                    .foregroundColor(.red)
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            // Text Editor
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4)
+
+                TextEditor(text: $reason)
+                    .font(.system(size: 16, design: .rounded))
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .onChange(of: reason) { _, newValue in
+                        if newValue.count > charLimit {
+                            reason = String(newValue.prefix(charLimit))
+                        }
+                    }
+            }
+            .frame(height: 120)
+            .padding(.horizontal)
+
+            // Character count
+            HStack {
+                Spacer()
+                Text("\(reason.count)/\(charLimit)")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(reason.count >= charLimit ? .red : .secondary)
+            }
+            .padding(.horizontal)
+
+            // Required field note
+            HStack {
+                Image(systemName: "asterisk")
+                    .font(.system(size: 8))
+                    .foregroundColor(.red)
+                Text("Required field")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            // Delete button
+            Button {
+                isProcessing = true
+                onConfirm(reason)
+            } label: {
+                HStack {
+                    Text("Delete & Notify User")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    if isProcessing {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing ? Color.gray : Color.red)
+                .clipShape(Capsule())
+            }
+            .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
+            .padding(.horizontal)
+
+            Spacer()
+        }
     }
 }
 
@@ -965,6 +1349,46 @@ private func actionColor(_ action: String) -> Color {
 
 // =======================================================
 // MARK: - Redirect View (Post)
+// =======================================================
+
+// =======================================================
+// MARK: - Deleted Post View (snapshot from report data)
+// =======================================================
+
+struct DeletedPostView: View {
+    let videoURL: String
+    let thumbnailURL: String
+    let caption: String
+    let authorName: String
+    @EnvironmentObject var session: AppSession
+    @State private var showAuthSheet = false
+
+    var body: some View {
+        let post = Post(
+            authorUid: nil,
+            id: nil,
+            imageName: thumbnailURL,
+            videoURL: videoURL,
+            caption: caption,
+            timestamp: "",
+            isPrivate: false,
+            authorName: authorName,
+            authorImageName: "",
+            likeCount: 0,
+            commentCount: 0,
+            likedBy: [],
+            isLikedByUser: false,
+            stats: nil,
+            matchDate: nil
+        )
+        PostDetailView(post: post, showAuthSheet: $showAuthSheet, isAdminViewing: true)
+            .environmentObject(session)
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// =======================================================
+// MARK: - Reported Post View
 // =======================================================
 
 struct ReportedPostView: View {
