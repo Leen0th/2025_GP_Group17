@@ -176,7 +176,7 @@ final class PlayerProfileViewModel: ObservableObject {
                 self.userProfile.profileImage = UIImage(systemName: "person.circle.fill")
             }
 
-            userProfile.team  = (data["teamName"] as? String) ?? "Unassigned"
+            userProfile.team  = (data["currentAcademy"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Unassigned"
             userProfile.rank  = "0"
             
             // PHASE 2 Logic: Read positionStats map and calculate average

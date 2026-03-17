@@ -7,7 +7,8 @@ enum NotificationType: String, Codable {
     case playerChallengeSubmitted = "player_challenge_submitted"
     case challengeEnded = "challenge_ended"
     case newChallengeAvailable = "new_challenge_available"
-    case teamInvitation = "team_invitation"
+    // case teamInvitation = "team_invitation" — removed
+    case academyInvitation = "academy_invitation"   // NEW
     case invitationAccepted = "invitation_accepted"
     case invitationDeclined = "invitation_declined"
     case removedFromTeam = "removed_from_team"
@@ -33,6 +34,8 @@ struct HaddafNotification: Identifiable, Codable {
     let invitationId: String?
     let teamId: String?
     let teamName: String?
+    let academyId: String?    // NEW
+    let category: String?     // NEW
 
     init(
         id: String = UUID().uuidString,
@@ -47,7 +50,9 @@ struct HaddafNotification: Identifiable, Codable {
         monthName: String? = nil,
         invitationId: String? = nil,
         teamId: String? = nil,
-        teamName: String? = nil
+        teamName: String? = nil,
+        academyId: String? = nil,
+        category: String? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -62,6 +67,8 @@ struct HaddafNotification: Identifiable, Codable {
         self.invitationId = invitationId
         self.teamId = teamId
         self.teamName = teamName
+        self.academyId = academyId
+        self.category = category
     }
 
     var asDictionary: [String: Any] {
@@ -79,19 +86,31 @@ struct HaddafNotification: Identifiable, Codable {
         if let v = invitationId { dict["invitationId"] = v }
         if let v = teamId { dict["teamId"] = v }
         if let v = teamName { dict["teamName"] = v }
+        if let v = academyId { dict["academyId"] = v }
+        if let v = category { dict["category"] = v }
         return dict
     }
 
     static func from(doc: QueryDocumentSnapshot) -> HaddafNotification? {
         let data = doc.data()
-        guard
-            let userId = data["userId"] as? String,
-            let typeRaw = data["type"] as? String,
-            let type = NotificationType(rawValue: typeRaw),
-            let title = data["title"] as? String,
-            let message = data["message"] as? String,
-            let timestamp = data["createdAt"] as? Timestamp
-        else { return nil }
+        guard let userId = data["userId"] as? String else {
+            print("❌ notif \(doc.documentID): missing userId"); return nil
+        }
+        guard let typeRaw = data["type"] as? String else {
+            print("❌ notif \(doc.documentID): missing type"); return nil
+        }
+        guard let type = NotificationType(rawValue: typeRaw) else {
+            print("❌ notif \(doc.documentID): unknown type '\(typeRaw)'"); return nil
+        }
+        guard let title = data["title"] as? String else {
+            print("❌ notif \(doc.documentID): missing title"); return nil
+        }
+        guard let message = data["message"] as? String ?? data["body"] as? String else {
+            print("❌ notif \(doc.documentID): missing message/body"); return nil
+        }
+        guard let timestamp = data["createdAt"] as? Timestamp else {
+            print("❌ notif \(doc.documentID): missing createdAt"); return nil
+        }
 
         return HaddafNotification(
             id: doc.documentID,
@@ -106,7 +125,9 @@ struct HaddafNotification: Identifiable, Codable {
             monthName: data["monthName"] as? String,
             invitationId: data["invitationId"] as? String,
             teamId: data["teamId"] as? String,
-            teamName: data["teamName"] as? String
+            teamName: data["teamName"] as? String,
+            academyId: data["academyId"] as? String,
+            category: data["category"] as? String
         )
     }
 }

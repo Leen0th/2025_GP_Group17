@@ -39,7 +39,7 @@ struct PlayerProfileView: View {
                 case .discovery:
                     DiscoveryView()
                 case .teams:
-                    TeamsView()
+                    AcademyView()
                 case .challenge:
                     ChallengeView()
                 case .lineupBuilder:

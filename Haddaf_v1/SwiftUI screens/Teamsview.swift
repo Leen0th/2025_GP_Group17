@@ -1,4 +1,4 @@
-import SwiftUI
+/*import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
@@ -496,4 +496,4 @@ struct TeamCard: View {
             }
         }
     }
-}
+}*/

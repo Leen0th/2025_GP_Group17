@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Notifications View (Full Page with NavigationStack)
 struct NotificationsView: View {
@@ -11,6 +12,9 @@ struct NotificationsView: View {
     @State private var notificationToDelete: HaddafNotification?
     @State private var selectedInvitationID: String? = nil
     @State private var showInvitationSheet = false
+    // Academy invitation
+    @State private var selectedAcademyNotif: HaddafNotification? = nil
+    @State private var showAcademyInvitePopup = false
 
     private let accentColor = BrandColors.darkTeal
 
@@ -19,7 +23,7 @@ struct NotificationsView: View {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // ── Custom Header ─────────────────────────────────────
+
                 ZStack {
                     Text("Notifications")
                         .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -79,9 +83,9 @@ struct NotificationsView: View {
                                     notification: notification,
                                     onTap: {
                                         Task { await notificationService.markAsRead(notificationId: notification.id) }
-                                        if notification.type == .teamInvitation {
-                                            selectedInvitationID = notification.invitationId
-                                            showInvitationSheet = true
+                                        if notification.type == .academyInvitation && !notification.isRead {
+                                            selectedAcademyNotif = notification
+                                            showAcademyInvitePopup = true
                                         }
                                     },
                                     onDelete: {
@@ -95,6 +99,17 @@ struct NotificationsView: View {
                     }
                 }
             }
+
+            // Academy invitation popup — inside ZStack to cover full screen including footer
+            if showAcademyInvitePopup, let notif = selectedAcademyNotif {
+                AcademyInvitePopup(
+                    notification: notif,
+                    playerUID: session.user?.uid ?? "",
+                    onDismiss: { showAcademyInvitePopup = false; selectedAcademyNotif = nil }
+                )
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: showAcademyInvitePopup)
+            }
         }
         .navigationBarBackButtonHidden(true)
         .sheet(isPresented: $showInvitationSheet) {
@@ -103,21 +118,20 @@ struct NotificationsView: View {
                     .environmentObject(session)
             }
         }
-            .confirmationDialog("Delete this notification?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    if let n = notificationToDelete {
-                        Task { await notificationService.deleteNotification(notificationId: n.id) }
-                    }
+        .confirmationDialog("Delete this notification?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let n = notificationToDelete {
+                    Task { await notificationService.deleteNotification(notificationId: n.id) }
                 }
-                Button("Cancel", role: .cancel) {}
             }
-            .onAppear {
-                // Don't listen for anonymous users — they can't access notifications
-                guard let user = Auth.auth().currentUser, !user.isAnonymous else { return }
-                if let userId = session.user?.uid { notificationService.startListening(for: userId) }
-            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .onAppear {
+            guard let user = Auth.auth().currentUser, !user.isAnonymous else { return }
+            if let userId = session.user?.uid { notificationService.startListening(for: userId) }
         }
     }
+}
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
@@ -155,8 +169,8 @@ struct NotificationCard: View {
                     .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary).lineLimit(3)
                 Text(timeAgoText(from: notification.createdAt))
                     .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary.opacity(0.7))
-                if notification.type == .teamInvitation {
-                    Text("Tap to view invitation →")
+                if notification.type == .academyInvitation && !notification.isRead {
+                    Text("Tap to accept or decline →")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(accentColor)
                 }
@@ -189,7 +203,7 @@ struct NotificationCard: View {
         case .playerChallengeSubmitted: return "checkmark.circle.fill"
         case .challengeEnded: return "trophy.fill"
         case .newChallengeAvailable: return "star.circle.fill"
-        case .teamInvitation: return "envelope.fill"
+        case .academyInvitation: return "building.2.fill"
         case .invitationAccepted: return "person.badge.checkmark.fill"
         case .invitationDeclined: return "person.badge.minus"
         case .removedFromTeam: return "xmark.circle.fill"
@@ -216,5 +230,306 @@ struct NotificationCard: View {
         if let h = c.hour, h > 0 { return h == 1 ? "1 hour ago" : "\(h) hours ago" }
         if let m = c.minute, m > 0 { return m == 1 ? "1 minute ago" : "\(m) minutes ago" }
         return "Just now"
+    }
+}
+
+// MARK: - Academy Invite Popup
+struct AcademyInvitePopup: View {
+    let notification: HaddafNotification
+    let playerUID: String
+    let onDismiss: () -> Void
+
+    @State private var isProcessing = false
+    @State private var isDone = false
+    @State private var result: Bool? = nil
+    @State private var academyName = ""
+    @State private var coachName = ""
+    @State private var logoURL: String? = nil
+    @State private var showDeclineConfirm = false
+    private let accent = BrandColors.darkTeal
+    private let db = Firestore.firestore()
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea()
+                .onTapGesture { if !isProcessing && !isDone { onDismiss() } }
+
+            // Centered popup
+            VStack(spacing: 0) {
+                if isDone {
+                    VStack(spacing: 16) {
+                        Image(systemName: result == true ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 52))
+                            .foregroundColor(result == true ? BrandColors.actionGreen : .red)
+                        Text(result == true ? "Joined!" : "Declined")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                        if result == true {
+                            Text("You joined \(academyName)")
+                                .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        Button("Close") { onDismiss() }
+                            .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14).background(accent).clipShape(Capsule())
+                    }.padding(28)
+                } else {
+                    VStack(spacing: 12) {
+                        // Academy logo
+                        AcademyLogoView(logoURL: logoURL, size: 72)
+
+                        // Academy name
+                        Text(academyName.isEmpty ? "Academy Invitation" : academyName)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(accent).multilineTextAlignment(.center)
+
+                        // Category badge
+                        if let cat = notification.category {
+                            Text(cat).font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(.white).padding(.horizontal, 14).padding(.vertical, 6)
+                                .background(accent).clipShape(Capsule())
+                        }
+
+                        Divider().padding(.horizontal, 8)
+
+                        // Coach name
+                        if !coachName.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.fill").foregroundColor(.secondary).font(.system(size: 12))
+                                Text("Invited by \(coachName)")
+                                    .font(.system(size: 13, design: .rounded)).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.top, 28).padding(.horizontal, 20).padding(.bottom, 8)
+
+                    Divider().padding(.top, 8)
+
+                    HStack(spacing: 12) {
+                        // Decline — confirmation first
+                        Button { showDeclineConfirm = true } label: {
+                            Text("Decline")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(.red)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Color.red.opacity(0.1)).clipShape(Capsule())
+                        }.disabled(isProcessing)
+
+                        Button { Task { await respond(accept: true) } } label: {
+                            HStack {
+                                if isProcessing { ProgressView().tint(.white).scaleEffect(0.8) }
+                                Text("Accept")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(accent).clipShape(Capsule())
+                        }.disabled(isProcessing)
+                    }.padding(.horizontal, 20).padding(.vertical, 16)
+                }
+            }
+            .background(BrandColors.background)
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .padding(.horizontal, 32)
+            .shadow(color: .black.opacity(0.2), radius: 20, y: 8)
+
+            // Decline confirmation popup
+            if showDeclineConfirm {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                    .onTapGesture { showDeclineConfirm = false }
+                VStack(spacing: 20) {
+                    Text("Are you sure?")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                    Text("Do you want to decline the invitation to join \(academyName.isEmpty ? "this academy" : academyName)?")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 12) {
+                        Button { showDeclineConfirm = false } label: {
+                            Text("No")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Color(UIColor.systemGray5)).clipShape(Capsule())
+                        }
+                        Button {
+                            showDeclineConfirm = false
+                            Task { await respond(accept: false) }
+                        } label: {
+                            Text("Yes, Decline")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Color.red).clipShape(Capsule())
+                        }
+                    }
+                }
+                .padding(28)
+                .background(BrandColors.background)
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .padding(.horizontal, 32)
+                .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showDeclineConfirm)
+            }
+        }
+        .onAppear { Task { await loadInfo() } }
+    }
+
+    private func loadInfo() async {
+        // Priority 1: teamName field in notification
+        if let tn = notification.teamName, !tn.isEmpty {
+            await MainActor.run { academyName = tn }
+        }
+
+        guard let academyId = notification.academyId, !academyId.isEmpty,
+              let category = notification.category else {
+            // No academyId — try to get coach name from invitation
+            if let invId = notification.invitationId, !invId.isEmpty {
+                if let invDoc = try? await db.collection("invitations").document(invId).getDocument(),
+                   let coachID = invDoc.data()?["coachID"] as? String,
+                   let userDoc = try? await db.collection("users").document(coachID).getDocument(),
+                   let d = userDoc.data() {
+                    let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+                    await MainActor.run { coachName = name }
+                }
+            }
+            return
+        }
+
+        // Priority 2: load academy name + logo from Firestore
+        if let doc = try? await db.collection("academies").document(academyId).getDocument(),
+           let d = doc.data() {
+            let name = d["name"] as? String ?? ""
+            let logo = d["logoURL"] as? String
+            await MainActor.run {
+                if !name.isEmpty { academyName = name }
+                logoURL = logo
+            }
+        }
+
+        // Load coach name — first try invitation doc, then category coaches array
+        var resolvedCoachUID: String? = nil
+        if let invId = notification.invitationId, !invId.isEmpty,
+           let invDoc = try? await db.collection("invitations").document(invId).getDocument(),
+           let coachID = invDoc.data()?["coachID"] as? String, !coachID.isEmpty {
+            resolvedCoachUID = coachID
+        } else if let catDoc = try? await db.collection("academies").document(academyId)
+            .collection("categories").document(category).getDocument(),
+           let coaches = catDoc.data()?["coaches"] as? [String] {
+            resolvedCoachUID = coaches.first
+        }
+
+        if let uid = resolvedCoachUID,
+           let userDoc = try? await db.collection("users").document(uid).getDocument(),
+           let d = userDoc.data() {
+            let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+            await MainActor.run { coachName = name }
+        }
+    }
+
+    private func respond(accept: Bool) async {
+        guard let academyId = notification.academyId,
+              let category = notification.category else { onDismiss(); return }
+        isProcessing = true
+
+        // Fetch coach UID and player name once — needed in both branches
+        let coachUID = await fetchCoachUID(academyId: academyId, category: category)
+        let playerName = await fetchPlayerName()
+
+        if accept {
+            // 1. Update player status in academy
+            try? await db.collection("academies").document(academyId)
+                .collection("categories").document(category)
+                .collection("players").document(playerUID)
+                .updateData(["status": "accepted", "acceptedAt": FieldValue.serverTimestamp()])
+            // 2. Set currentAcademy — use academyName if loaded, else load from Firestore directly
+            var nameToSave = academyName
+            if nameToSave.isEmpty || nameToSave == "Academy Invitation" {
+                if let doc = try? await db.collection("academies").document(academyId).getDocument(),
+                   let n = doc.data()?["name"] as? String, !n.isEmpty {
+                    nameToSave = n
+                    await MainActor.run { academyName = n }
+                }
+            }
+            try? await db.collection("users").document(playerUID).updateData([
+                "currentAcademy": nameToSave,
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+            // 3. Update invitation
+            if let invId = notification.invitationId, !invId.isEmpty {
+                try? await db.collection("invitations").document(invId).updateData(["status": "accepted"])
+            }
+            // 4. Notify coach
+            if let uid = coachUID {
+                let notif: [String: Any] = [
+                    "userId": uid,
+                    "title": "✅ Invitation Accepted",
+                    "message": "\(playerName) accepted your invitation to join \(category) — \(academyName).",
+                    "type": "invitation_accepted",
+                    "isRead": false,
+                    "createdAt": FieldValue.serverTimestamp()
+                ]
+                try? await db.collection("notifications").addDocument(data: notif)
+            }
+        } else {
+            // 1. Delete player from academy subcollection
+            do {
+                try await db.collection("academies").document(academyId)
+                    .collection("categories").document(category)
+                    .collection("players").document(playerUID).delete()
+                print("✅ Player deleted from academy")
+            } catch {
+                print("❌ Failed to delete player: \(error.localizedDescription)")
+            }
+            // 2. Update invitation status
+            if let invId = notification.invitationId, !invId.isEmpty {
+                try? await db.collection("invitations").document(invId).updateData(["status": "declined"])
+            }
+            // 3. Set currentAcademy to "Unassigned"
+            try? await db.collection("users").document(playerUID).updateData([
+                "currentAcademy": "Unassigned",
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+            // 4. Notify coach
+            if let uid = coachUID {
+                print("✅ Sending decline notification to coach: \(uid)")
+                let notif: [String: Any] = [
+                    "userId": uid,
+                    "title": "❌ Invitation Declined",
+                    "message": "\(playerName) declined your invitation to join \(category) — \(academyName).",
+                    "type": "invitation_declined",
+                    "isRead": false,
+                    "createdAt": FieldValue.serverTimestamp()
+                ]
+                do {
+                    try await db.collection("notifications").addDocument(data: notif)
+                    print("✅ Coach notification sent")
+                } catch {
+                    print("❌ Failed to send coach notification: \(error.localizedDescription)")
+                }
+            } else {
+                print("❌ coachUID is nil — notification not sent")
+            }
+        }
+        // Delete the notification doc after action
+        try? await db.collection("notifications").document(notification.id).delete()
+        await MainActor.run { isProcessing = false; result = accept; isDone = true }
+    }
+
+    private func fetchCoachUID(academyId: String, category: String) async -> String? {
+        // First try: get coachID directly from the invitation doc (most reliable)
+        if let invId = notification.invitationId, !invId.isEmpty {
+            if let doc = try? await db.collection("invitations").document(invId).getDocument(),
+               let coachID = doc.data()?["coachID"] as? String, !coachID.isEmpty {
+                return coachID
+            }
+        }
+        // Fallback: get first coach from academy category
+        let doc = try? await db.collection("academies").document(academyId)
+            .collection("categories").document(category).getDocument()
+        return (doc?.data()?["coaches"] as? [String])?.first
+    }
+
+    private func fetchPlayerName() async -> String {
+        guard let doc = try? await db.collection("users").document(playerUID).getDocument(),
+              let d = doc.data() else { return "A player" }
+        return "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
     }
 }

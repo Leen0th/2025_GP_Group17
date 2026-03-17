@@ -25,6 +25,11 @@ struct CreateTeamSheet: View {
     @State private var selectedStreet: String = ""
     @State private var showStreetPicker = false
 
+    // Age Group
+    @State private var selectedAgeGroup: String = ""
+    @State private var showAgeGroupPicker = false
+    private let ageGroups = ["U8", "U10", "U12", "U14", "U16"]
+
     // Logo
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
@@ -77,7 +82,7 @@ struct CreateTeamSheet: View {
 
     private var canSubmit: Bool {
         !selectedAcademy.isEmpty && !selectedCity.isEmpty && !selectedStreet.isEmpty
-            && !isUploading && !isSaving
+            && !selectedAgeGroup.isEmpty && !isUploading && !isSaving
     }
 
     var body: some View {
@@ -159,6 +164,14 @@ struct CreateTeamSheet: View {
                     .disabled(selectedCity.isEmpty)
                     .opacity(selectedCity.isEmpty ? 0.5 : 1)
 
+                    // ── Age Group Picker ─────────────────────────────────
+                    fieldLabel("Age Group", required: true)
+                    pickerButton(
+                        value: selectedAgeGroup,
+                        placeholder: "Select age group (e.g. U12)",
+                        action: { showAgeGroupPicker = true }
+                    )
+
                     // Create Button
                     Button {
                         Task { await saveTeam() }
@@ -222,6 +235,40 @@ struct CreateTeamSheet: View {
                     showStreetPicker = false
                 }
             )
+        }
+        // ── Age Group Sheet ───────────────────────────────────────────────
+        .sheet(isPresented: $showAgeGroupPicker) {
+            NavigationStack {
+                ZStack {
+                    BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                    List(ageGroups, id: \.self) { group in
+                        Button {
+                            selectedAgeGroup = group
+                            showAgeGroupPicker = false
+                        } label: {
+                            HStack {
+                                Text(group)
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                    .foregroundColor(primary)
+                                Spacer()
+                                if selectedAgeGroup == group {
+                                    Image(systemName: "checkmark").foregroundColor(primary)
+                                }
+                            }
+                        }
+                        .listRowBackground(BrandColors.backgroundGradientEnd)
+                    }
+                    .listStyle(.plain)
+                }
+                .navigationTitle("Select Age Group")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") { showAgeGroupPicker = false }
+                            .foregroundColor(primary)
+                    }
+                }
+            }
         }
         .onChange(of: selectedItem) { _, newItem in
             selectedImageData = nil; teamLogoImage = nil; downloadURL = nil; isUploading = false
@@ -297,20 +344,20 @@ struct CreateTeamSheet: View {
 
         var payload: [String: Any] = [
             "coachUid": uid,
-            "teamName": selectedAcademy,
+            "academyName": selectedAcademy,
             "city": selectedCity,
             "street": selectedStreet,
+            "ageGroup": selectedAgeGroup,
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
         if let logo = downloadURL?.absoluteString { payload["logoURL"] = logo }
 
         do {
-            let teamDocRef = db.collection("teams").document()  // ✅ unique ID per team
+            let teamDocRef = db.collection("teams").document()
             try await teamDocRef.setData(payload)
             try await db.collection("users").document(uid).setData([
-                "teamId": teamDocRef.documentID,
-                "teamName": selectedAcademy,
+                "currentAcademy": selectedAcademy,
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
             await MainActor.run { isSaving = false; onCreated() }

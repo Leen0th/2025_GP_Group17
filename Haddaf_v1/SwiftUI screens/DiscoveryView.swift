@@ -40,7 +40,7 @@ struct DiscoveryView: View {
     @State private var filterAgeMax: Int? = nil
     @State private var filterScoreMin: Int? = nil
     @State private var filterScoreMax: Int? = nil
-    @State private var filterTeam: String? = nil
+    @State private var filterAcademy: String? = nil
     @State private var filterLocation: String? = nil
 
     // Controls the presentation of the `FiltersSheetView`
@@ -76,7 +76,7 @@ struct DiscoveryView: View {
             let score = Int(profile.score) ?? 0
             let scoreMatch = (filterScoreMin == nil || score >= filterScoreMin!) &&
                              (filterScoreMax == nil || score <= filterScoreMax!)
-            let teamMatch = filterTeam == nil || profile.team == filterTeam
+            let teamMatch = filterAcademy == nil || profile.team == filterAcademy
             let locationMatch = filterLocation == nil || profile.location == filterLocation
             
             // Return true only if all conditions are met
@@ -87,7 +87,7 @@ struct DiscoveryView: View {
     // returns `true` if any filter (including search) is active
     private var isFiltering: Bool {
         !searchText.isEmpty || filterPosition != nil || filterAgeMin != nil || filterAgeMax != nil ||
-        filterScoreMin != nil || filterScoreMax != nil || filterTeam != nil || filterLocation != nil
+        filterScoreMin != nil || filterScoreMax != nil || filterAcademy != nil || filterLocation != nil
     }
 
     var body: some View {
@@ -158,7 +158,7 @@ struct DiscoveryView: View {
                     ageMax: $filterAgeMax,
                     scoreMin: $filterScoreMin,
                     scoreMax: $filterScoreMax,
-                    team: $filterTeam,
+                    academy: $filterAcademy,
                     location: $filterLocation
                 )
             }
@@ -667,7 +667,7 @@ struct FiltersSheetView: View {
     @Binding var ageMax: Int?
     @Binding var scoreMin: Int?
     @Binding var scoreMax: Int?
-    @Binding var team: String?
+    @Binding var academy: String?
     @Binding var location: String?
 
     // Local Data
@@ -675,7 +675,7 @@ struct FiltersSheetView: View {
     let locations = SAUDI_CITIES
 
     // ✅ Dynamic team names fetched from Firestore
-    @State private var teamNames: [String] = ["Unassigned"]
+    @State private var academyNames: [String] = ["Unassigned"]
 
     // The environment object for dismissing the sheet
     @Environment(\.dismiss) private var dismiss
@@ -931,10 +931,10 @@ struct FiltersSheetView: View {
                     }
                 }
                 // MARK: - Team Filter
-                Section("Current Team") {
-                    Picker("Team", selection: $team) {
+                Section("Current Academy") {
+                    Picker("Academy", selection: $academy) {
                         Text("Any").tag(String?.none)
-                        ForEach(teamNames, id: \.self) { t in Text(t).tag(String?.some(t)) }
+                        ForEach(academyNames, id: \.self) { t in Text(t).tag(String?.some(t)) }
                     }
                 }
                 // MARK: - Location Filter
@@ -969,7 +969,7 @@ struct FiltersSheetView: View {
                         // Clear all bindings and local string state
                         position = nil; ageMin = nil; ageMax = nil
                         scoreMin = nil; scoreMax = nil
-                        team = nil; location = nil
+                        academy = nil; location = nil
                         ageMinString = ""; ageMaxString = ""
                         scoreMinString = ""; scoreMaxString = ""
                         dismiss()
@@ -1008,27 +1008,13 @@ struct FiltersSheetView: View {
                 Text("The player's place of residence.")
             }
             .onAppear {
-                // When the sheet appears, populate the string text fields from the main view's filter bindings
                 ageMinString = ageMin.map { String($0) } ?? ""
                 ageMaxString = ageMax.map { String($0) } ?? ""
                 scoreMinString = scoreMin.map { String($0) } ?? ""
                 scoreMaxString = scoreMax.map { String($0) } ?? ""
 
-                // ✅ Fetch team names from Firestore dynamically
-                Task {
-                    do {
-                        let db = Firestore.firestore()
-                        let snap = try await db.collection("teams").getDocuments()
-                        let names: [String] = snap.documents.compactMap {
-                            $0.data()["teamName"] as? String
-                        }.sorted()
-                        await MainActor.run {
-                            teamNames = ["Unassigned"] + names
-                        }
-                    } catch {
-                        print("Failed to fetch teams: \(error)")
-                    }
-                }
+                // Load academy names from local data
+                academyNames = ["Unassigned"] + SAUDI_ACADEMY_NAMES
             }
         }
     }

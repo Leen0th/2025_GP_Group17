@@ -182,6 +182,10 @@ struct CoachRequestItem: Identifiable {
     let rejectionCategory: String?
     let previousRequests: [PreviousRequest]
     let timeline: [TimelineEntry]
+    // Academy info
+    let requestType: String     // "initial", "change_academy", "join_academy"
+    let requestedAcademy: String
+    let isInAcademy: Bool
 }
 
 struct PreviousRequest: Identifiable {
@@ -231,6 +235,7 @@ struct AdminCoachesApprovalView: View {
     @State private var selectedTab: RequestTab = .pending // Tab selection
     @State private var statusFilter: String = "all" // "all", "approved", "rejected"
     @State private var pendingStatusFilter: String = "all" // "all", "new", "returned"
+    @State private var pendingTypeFilter: String = "all"   // "all", "verification", "join_academy", "change_academy"
     @State private var reviewed: [CoachRequestItem] = [] // For approved/rejected requests
 
     enum RequestTab: String, CaseIterable {
@@ -293,23 +298,45 @@ struct AdminCoachesApprovalView: View {
                                 Menu {
                                     Button {
                                         pendingStatusFilter = "all"
+                                        pendingTypeFilter = "all"
                                     } label: {
-                                        Label("All", systemImage: pendingStatusFilter == "all" ? "checkmark" : "")
+                                        Label("All", systemImage: (pendingStatusFilter == "all" && pendingTypeFilter == "all") ? "checkmark" : "")
                                     }
                                     Button {
                                         pendingStatusFilter = "new"
+                                        pendingTypeFilter = "all"
                                     } label: {
                                         Label("New Only", systemImage: pendingStatusFilter == "new" ? "checkmark" : "")
                                     }
                                     Button {
                                         pendingStatusFilter = "returned"
+                                        pendingTypeFilter = "all"
                                     } label: {
                                         Label("Returned Only", systemImage: pendingStatusFilter == "returned" ? "checkmark" : "")
                                     }
+                                    Button {
+                                        pendingTypeFilter = "verification"
+                                        pendingStatusFilter = "all"
+                                    } label: {
+                                        Label("Coach Verification", systemImage: pendingTypeFilter == "verification" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingTypeFilter = "join_academy"
+                                        pendingStatusFilter = "all"
+                                    } label: {
+                                        Label("Join Academy", systemImage: pendingTypeFilter == "join_academy" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingTypeFilter = "change_academy"
+                                        pendingStatusFilter = "all"
+                                    } label: {
+                                        Label("Academy Change", systemImage: pendingTypeFilter == "change_academy" ? "checkmark" : "")
+                                    }
                                 } label: {
-                                    Image(systemName: pendingStatusFilter == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                                    let isFiltered = pendingStatusFilter != "all" || pendingTypeFilter != "all"
+                                    Image(systemName: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                                         .font(.system(size: 22))
-                                        .foregroundColor(pendingStatusFilter != "all" ? BrandColors.darkTeal : .secondary)
+                                        .foregroundColor(isFiltered ? BrandColors.darkTeal : .secondary)
                                         .padding(8)
                                 }
                             }
@@ -424,9 +451,9 @@ struct AdminCoachesApprovalView: View {
     
     private var filteredAndSortedPending: [CoachRequestItem] {
         let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
-        // Filter by new/returned
-        let statusFiltered: [CoachRequestItem]
+
+        // Filter by status (new/returned)
+        var statusFiltered: [CoachRequestItem]
         if pendingStatusFilter == "new" {
             statusFiltered = pending.filter { item in
                 !item.timeline.contains { $0.type == .coachResponse || $0.type == .documentReuploaded }
@@ -437,6 +464,15 @@ struct AdminCoachesApprovalView: View {
             }
         } else {
             statusFiltered = pending
+        }
+
+        // Filter by request type
+        if pendingTypeFilter == "verification" {
+            statusFiltered = statusFiltered.filter { $0.requestType == "initial" }
+        } else if pendingTypeFilter == "join_academy" {
+            statusFiltered = statusFiltered.filter { $0.requestType == "join_academy" }
+        } else if pendingTypeFilter == "change_academy" {
+            statusFiltered = statusFiltered.filter { $0.requestType == "change_academy" }
         }
         
         // Filter by search
@@ -504,11 +540,11 @@ struct AdminCoachesApprovalView: View {
         
         switch selectedTab {
         case .pending:
-            if pendingStatusFilter == "new" {
-                return "There are no new requests."
-            } else if pendingStatusFilter == "returned" {
-                return "There are no returned requests."
-            }
+            if pendingStatusFilter == "new" { return "There are no new requests." }
+            if pendingStatusFilter == "returned" { return "There are no returned requests." }
+            if pendingTypeFilter == "verification" { return "There are no coach verification requests." }
+            if pendingTypeFilter == "join_academy" { return "There are no join academy requests." }
+            if pendingTypeFilter == "change_academy" { return "There are no academy change requests." }
             return "There are no coach requests yet."
         case .reviewed:
             if statusFilter == "approved" {
@@ -587,10 +623,10 @@ struct AdminCoachesApprovalView: View {
                         Text(item.fullName.isEmpty ? "Coach" : item.fullName)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                             .foregroundColor(primary)
-                            .padding(.trailing, (item.status == "approved" || item.status == "rejected") ? 90 : 36)
-                        
-                        Text(item.email)
-                            .font(.system(size: 14, design: .rounded))
+                            .padding(.trailing, 120)
+
+                        Text(timeAgoString(from: item.submittedAt))
+                            .font(.system(size: 13, design: .rounded))
                             .foregroundColor(.secondary)
                     }
                     .padding(16)
@@ -600,49 +636,68 @@ struct AdminCoachesApprovalView: View {
                             .fill(BrandColors.background)
                             .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
                     )
-                    
-                    // NEW: red dot indicator
-                    if item.status == "pending" && !isResubmission {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 26, height: 26)
-                            Image(systemName: "circle.fill")
-                                .font(.system(size: 22))
-                                .foregroundColor(Color.red)
-                        }
-                        .offset(x: -8, y: 8)
-                    }
 
-                    // yellow icon — shown for both resubmitted (pending) and awaiting-coach-response (under_review)
-                    if (item.status == "pending" && isResubmission) || item.status == "under_review" {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 26, height: 26)
+                    // Right column: badge top, status indicator below
+                    VStack(alignment: .trailing, spacing: 6) {
+                        // Type badge
+                        if item.requestType == "change_academy" {
+                            Text("Academy Change")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(BrandColors.gold)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(BrandColors.gold.opacity(0.13))
+                                .clipShape(Capsule())
+                        } else if item.requestType == "join_academy" {
+                            Text("Join Academy")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(BrandColors.actionGreen)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(BrandColors.actionGreen.opacity(0.13))
+                                .clipShape(Capsule())
+                        } else {
+                            Text("Coach Verification")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(BrandColors.darkTeal)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(BrandColors.darkTeal.opacity(0.10))
+                                .clipShape(Capsule())
+                        }
+
+                        // Status indicator
+                        if item.status == "approved" || item.status == "rejected" {
+                            Text(statusLabel(for: item.status))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(statusColor(for: item.status))
+                                .clipShape(Capsule())
+                        } else if (item.status == "pending" && isResubmission) || item.status == "under_review" {
                             Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: 22))
                                 .foregroundColor(BrandColors.gold)
                         }
-                        .offset(x: -8, y: 8)
                     }
-
-                    // Show status pill only for approved/rejected
-                    if item.status == "approved" || item.status == "rejected" {
-                        Text(statusLabel(for: item.status))
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(statusColor(for: item.status))
-                            .clipShape(Capsule())
-                            .padding([.top, .trailing], 12)
-                    }
+                    .padding(.top, 10)
+                    .padding(.trailing, 12)
                 }
             }
         }
-    }
-    
+
+        private func timeAgoString(from date: Date?) -> String {
+            guard let date = date else { return "" }
+            let diff = Calendar.current.dateComponents([.minute, .hour, .day, .month], from: date, to: Date())
+            if let months = diff.month, months > 0 { return "\(months)mo ago" }
+            if let days = diff.day, days > 0 { return "\(days)d ago" }
+            if let hours = diff.hour, hours > 0 { return "\(hours)h ago" }
+            if let minutes = diff.minute, minutes > 0 { return "\(minutes)m ago" }
+            return "Just now"
+        }
+    } // end AdminCoachCardView
+
     private func coachApprovalButtons(item: CoachRequestItem) -> some View {
         HStack(spacing: 10) {
             Button {
@@ -699,51 +754,37 @@ private func loadPending() async {
         loading = true
         errorText = nil
         do {
-            // Fetch pending requests
+            // No server-side order to avoid composite index requirement
             let pendingSnap = try await Firestore.firestore().collection("coachRequests")
                 .whereField("status", isEqualTo: "pending")
-                .order(by: "submittedAt", descending: true)
                 .getDocuments()
 
-            // Fetch reviewed requests (approved and rejected only)
             let reviewedSnap = try await Firestore.firestore().collection("coachRequests")
                 .whereField("status", in: ["approved", "rejected"])
-                .order(by: "reviewedAt", descending: true)
                 .limit(to: 100)
                 .getDocuments()
 
-            // Fetch returned (under_review) requests separately — they live in "Needs Review"
             let returnedSnap = try await Firestore.firestore().collection("coachRequests")
                 .whereField("status", isEqualTo: "under_review")
-                .order(by: "reviewedAt", descending: true)
                 .limit(to: 100)
                 .getDocuments()
 
-            // Process pending requests
             var pendingItems: [CoachRequestItem] = []
             for d in pendingSnap.documents {
                 if let item = try? await buildCoachRequestItem(from: d) {
                     pendingItems.append(item)
-                } else {
-                    print("Skipped or failed to build item for document \(d.documentID)")
                 }
             }
-            // Add returned requests into the pending (Needs Review) tab
             for d in returnedSnap.documents {
                 if let item = try? await buildCoachRequestItem(from: d) {
                     pendingItems.append(item)
-                } else {
-                    print("Skipped or failed to build item for document \(d.documentID)")
                 }
             }
 
-            // Process reviewed requests
             var reviewedItems: [CoachRequestItem] = []
             for d in reviewedSnap.documents {
                 if let item = try? await buildCoachRequestItem(from: d) {
                     reviewedItems.append(item)
-                } else {
-                    print("Skipped or failed to build item for document \(d.documentID)")
                 }
             }
 
@@ -782,11 +823,10 @@ private func loadPending() async {
         //let uid = data["uid"] as? String ?? ""
         let ts = data["submittedAt"] as? Timestamp
         
-        // Fetch previous requests for this coach
+        // Fetch previous requests — no server-side order to avoid composite index
         let historySnap = try await Firestore.firestore().collection("coachRequests")
             .whereField("uid", isEqualTo: uid)
             .whereField("status", in: ["rejected", "approved"])
-            .order(by: "submittedAt", descending: true)
             .getDocuments()
         
         let previousRequests = historySnap.documents.compactMap { prevDoc -> PreviousRequest? in
@@ -870,7 +910,17 @@ private func loadPending() async {
             rejectionReason: data["rejectionReason"] as? String,
             rejectionCategory: data["rejectionCategory"] as? String,
             previousRequests: previousRequests,
-            timeline: timelineEntries
+            timeline: timelineEntries,
+            requestType: {
+                let raw = data["requestType"] as? String ?? ""
+                let academy = data["requestedAcademy"] as? String ?? ""
+                let inAcademy = data["isInAcademy"] as? Bool ?? false
+                if raw == "change_academy" || raw == "join_academy" { return raw }
+                if !academy.isEmpty || inAcademy { return "join_academy" }
+                return "initial"
+            }(),
+            requestedAcademy: data["requestedAcademy"] as? String ?? "",
+            isInAcademy: data["isInAcademy"] as? Bool ?? false
         )
     }
     
@@ -878,11 +928,10 @@ private func loadPending() async {
         do {
             let db = Firestore.firestore()
             
-            // Get current timeline
             let doc = try await db.collection("coachRequests").document(requestId).getDocument()
             var timeline = doc.data()?["timeline"] as? [[String: Any]] ?? []
-            
-            // Add approval entry to timeline
+            let requestedAcademy = doc.data()?["requestedAcademy"] as? String ?? ""
+
             let approvalEntry: [String: Any] = [
                 "id": UUID().uuidString,
                 "timestamp": Timestamp(date: Date()),
@@ -901,11 +950,16 @@ private func loadPending() async {
             ], forDocument: reqRef)
 
             let userRef = db.collection("users").document(uid)
-            batch.updateData([
+            var userUpdate: [String: Any] = [
                 "role": "coach",
                 "coachStatus": "approved",
                 "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: userRef)
+            ]
+            if !requestedAcademy.isEmpty {
+                userUpdate["currentAcademy"] = requestedAcademy
+                userUpdate["pendingAcademy"] = FieldValue.delete()
+            }
+            batch.updateData(userUpdate, forDocument: userRef)
 
             try await batch.commit()
             await loadPending()
@@ -1027,6 +1081,62 @@ struct CoachRequestDetailView: View {
                     }
                     .padding(.horizontal)
                     
+                    // Academy Request section — only for academy-related requests
+                    if request.requestType == "change_academy" || request.requestType == "join_academy" {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Academy Request")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(primary)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    let (badgeLabel, badgeColor, icon): (String, Color, String) = {
+                                        switch request.requestType {
+                                        case "change_academy":
+                                            return ("Academy Change", BrandColors.gold, "arrow.left.arrow.right")
+                                        case "join_academy":
+                                            return ("Join Academy", BrandColors.actionGreen, "building.2.fill")
+                                        default:
+                                            return ("", .clear, "")
+                                        }
+                                    }()
+                                    if !badgeLabel.isEmpty {
+                                        Label(badgeLabel, systemImage: icon)
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundColor(badgeColor)
+                                            .padding(.horizontal, 12).padding(.vertical, 5)
+                                            .background(badgeColor.opacity(0.12))
+                                            .clipShape(Capsule())
+                                    }
+                                    Spacer()
+                                }
+                                if !request.requestedAcademy.isEmpty {
+                                    Divider()
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "building.2.fill")
+                                            .foregroundColor(primary.opacity(0.7))
+                                            .font(.system(size: 14))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Requested Academy")
+                                                .font(.system(size: 11, design: .rounded))
+                                                .foregroundColor(.secondary)
+                                            Text(request.requestedAcademy)
+                                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.primary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 4)
+                            )
+                        }
+                        .padding(.horizontal)
+                    }
+
                     // Request Timeline
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Request Timeline")
@@ -1232,6 +1342,22 @@ struct CoachRequestDetailView: View {
             try await db.collection("users").document(request.uid).updateData([
                 "coachStatus": "under_review"
             ])
+            
+            // Send in-app notification to coach
+            let notifTitle = actionType == .askClarification ? "Request Returned" : "Document Reupload Required"
+            let notifBody  = actionType == .askClarification
+                ? "The admin has a comment on your request. Please review and respond."
+                : "The admin is requesting you to re-upload your verification document."
+            let notification: [String: Any] = [
+                "userId": request.uid,
+                "title": notifTitle,
+                "body": notifBody,
+                "type": "coach_request_returned",
+                "requestId": request.id,
+                "isRead": false,
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+            try? await db.collection("notifications").addDocument(data: notification)
             
             await MainActor.run {
                 isProcessing = false

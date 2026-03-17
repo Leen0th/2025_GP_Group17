@@ -934,7 +934,7 @@ struct StatsGridView: View {
             // 3. System Stats
             HStack(alignment: .top) {
                 Spacer()
-                SystemStatItem(title: "Team", value: userProfile.team)
+                SystemStatItem(title: "Academy", value: userProfile.team.isEmpty ? "Unassigned" : userProfile.team)
                 Spacer()
                 SystemStatItem(title: "Challenge Rank", value: userProfile.rank)
                 Spacer()

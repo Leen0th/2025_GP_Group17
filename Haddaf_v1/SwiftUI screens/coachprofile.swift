@@ -17,8 +17,18 @@ class CoachProfile: ObservableObject {
     @Published var profileImage: UIImage? = nil
     @Published var coachStatus: String = ""
     @Published var rejectionReason: String = ""
+    // Academy
+    @Published var currentAcademy: String = ""
+    @Published var pendingAcademy: String = ""
+    // DOB / Age
+    @Published var dob: Date? = nil
 
     init() {}
+
+    var age: Int? {
+        guard let dob = dob else { return nil }
+        return Calendar.current.dateComponents([.year], from: dob, to: Date()).year
+    }
 }
 
 // MARK: - Coach Profile View Model
@@ -42,18 +52,9 @@ class CoachProfileViewModel: ObservableObject {
                 return
             }
             
-            // Fetch first team name BEFORE entering MainActor.run
-            let teamSnap = try? await self.db.collection("teams")
-                .whereField("coachUid", isEqualTo: userID)
-                .getDocuments()
-            // Sort client-side by createdAt (handles docs without the field)
-            let sortedDocs = (teamSnap?.documents ?? []).sorted {
-                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                return a < b
-            }
-            let hasTeam = !sortedDocs.isEmpty
-            let firstTeamName = hasTeam ? (sortedDocs.first!.data()["teamName"] as? String ?? "") : ""
+            // Read currentAcademy from users doc directly
+            let currentAcademy = data["currentAcademy"] as? String ?? ""
+            let hasTeam = !currentAcademy.isEmpty
 
             await MainActor.run {
                 // 1. Map basic info immediately
@@ -63,9 +64,14 @@ class CoachProfileViewModel: ObservableObject {
                 self.coachProfile.phone = data["phone"] as? String ?? ""
                 self.coachProfile.isEmailVisible = data["isEmailVisible"] as? Bool ?? false
                 self.coachProfile.isPhoneNumberVisible = data["isPhoneNumberVisible"] as? Bool ?? false
-                self.coachProfile.team = firstTeamName
+                self.coachProfile.team = currentAcademy
                 self.coachProfile.coachStatus = data["coachStatus"] as? String ?? ""
                 self.coachProfile.rejectionReason = data["rejectionReason"] as? String ?? ""
+                self.coachProfile.currentAcademy = data["currentAcademy"] as? String ?? ""
+                self.coachProfile.pendingAcademy = data["pendingAcademy"] as? String ?? ""
+                if let dobTS = data["dob"] as? Timestamp {
+                    self.coachProfile.dob = dobTS.dateValue()
+                }
                 
                 // 2. Handle Profile Picture asynchronously
                 if let urlString = data["profilePic"] as? String,
@@ -101,9 +107,10 @@ class CoachProfileViewModel: ObservableObject {
 struct CoachProfileContentView: View {
     @EnvironmentObject var session: AppSession
     @StateObject private var viewModel: CoachProfileViewModel
-    @State private var selectedContent: ContentType = .currentTeam
+    @State private var selectedContent: ContentType = .currentAcademy
     @State private var goToSettings = false
     @State private var showNotificationsList = false
+    @State private var showLeaveAcademyConfirm = false
 
     private var isCurrentUser: Bool
     private var isRootProfileView: Bool = true // Adjust if needed
@@ -113,7 +120,7 @@ struct CoachProfileContentView: View {
     var onAdminReject: (() -> Void)?
 
     enum ContentType: String, CaseIterable {
-        case currentTeam = "Current Teams"
+        case currentAcademy = "Current Academy"
         case matchSchedule = "Match Schedule"
     }
 
@@ -162,9 +169,14 @@ struct CoachProfileContentView: View {
                         InfoGridViewCoach(coachProfile: viewModel.coachProfile)
                         ContentTabViewCoach(selectedContent: $selectedContent)
                         switch selectedContent {
-                        case .currentTeam:
-                            CurrentTeamView()
-                                .padding(.top, 10)
+                        case .currentAcademy:
+                            CurrentAcademyView(
+                                coachProfile: viewModel.coachProfile,
+                                isCurrentUser: isCurrentUser,
+                                showLeaveConfirm: $showLeaveAcademyConfirm
+                            )
+                            .padding(.horizontal, 20)
+                            .padding(.top, 10)
                         case .matchSchedule:
                             EmptyStateView(
                                 imageName: "calendar",
@@ -183,20 +195,92 @@ struct CoachProfileContentView: View {
                 NotificationsView()
                     .environmentObject(session)
             }
+
+            // Full-screen Leave Academy popup — same style as Logout
+            if showLeaveAcademyConfirm {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                GeometryReader { geometry in
+                    VStack {
+                        Spacer()
+                        VStack(spacing: 20) {
+                            Text("Leave Academy?")
+                                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.center)
+
+                            Text("Are you sure you want to leave \(viewModel.coachProfile.currentAcademy)?")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 24)
+
+                            HStack(spacing: 16) {
+                                Button("No") {
+                                    withAnimation { showLeaveAcademyConfirm = false }
+                                }
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                .foregroundColor(BrandColors.darkGray)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(BrandColors.lightGray)
+                                .cornerRadius(12)
+
+                                Button("Yes") {
+                                    withAnimation { showLeaveAcademyConfirm = false }
+                                    Task { await leaveAcademy() }
+                                }
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.red)
+                                .cornerRadius(12)
+                            }
+                            .padding(.top, 4)
+                        }
+                        .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
+                        .frame(width: 320)
+                        .background(BrandColors.background)
+                        .cornerRadius(20)
+                        .shadow(radius: 12)
+                        Spacer()
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+                .transition(.scale)
+            }
         }
+        .animation(.easeInOut, value: showLeaveAcademyConfirm)
         .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
             Task {
                 await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
-            // Refresh coach header (TEAM field) immediately after deletion
             Task {
                 await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
             }
         }
         .navigationBarBackButtonHidden(true)
         } // end NavigationStack
+    }
+
+    private func leaveAcademy() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        do {
+            try await Firestore.firestore().collection("users").document(uid).updateData([
+                "currentAcademy": FieldValue.delete()
+            ])
+            await MainActor.run {
+                viewModel.coachProfile.currentAcademy = ""
+            }
+        } catch {
+            print("Error leaving academy: \(error)")
+        }
     }
 }
 
@@ -313,119 +397,74 @@ struct ProfileHeaderViewCoach: View {
 struct InfoGridViewCoach: View {
     @ObservedObject var coachProfile: CoachProfile
     let accentColor = BrandColors.darkTeal
-    @State private var allTeamNames: [String] = []
-    @State private var showAllTeamNames = false
 
-    // TEAMS stat — first team default, arrow shows remaining teams only
-    @ViewBuilder private func TeamsStatItem(coachProfile: CoachProfile) -> some View {
-        VStack(spacing: 6) {
-            Text("TEAMS")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundColor(accentColor.opacity(0.8))
-
-            if allTeamNames.isEmpty {
-                Text("-")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(.black)
-            } else {
-                // Default: first team name (bold, black)
-                Text(allTeamNames.first ?? "-")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
-
-                // Arrow — only show if there are more teams beyond first
-                if allTeamNames.count > 1 {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showAllTeamNames.toggle() }
-                    } label: {
-                        Image(systemName: showAllTeamNames ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(accentColor)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Expanded: show ONLY the other teams (not the first one again)
-                    if showAllTeamNames {
-                        VStack(spacing: 4) {
-                            ForEach(allTeamNames.dropFirst(), id: \.self) { name in
-                                Text(name)
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(.black.opacity(0.7))
-                            }
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-            }
-        }
-        .onAppear { loadAllTeamNames() }
-        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in loadAllTeamNames() }
-        .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in loadAllTeamNames() }
-    }
-
-    private func loadAllTeamNames() {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        Task {
-            let snap = try? await Firestore.firestore().collection("teams")
-                .whereField("coachUid", isEqualTo: uid)
-                .getDocuments()
-            // Sort client-side by createdAt
-            let sorted = (snap?.documents ?? []).sorted {
-                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                return a < b
-            }
-            let names = sorted.compactMap { $0.data()["teamName"] as? String }
-            await MainActor.run { allTeamNames = names }
-        }
-    }
-
-    @ViewBuilder private func UserStatItem(title: String, value: String) -> some View {
+    @ViewBuilder private func StatItem(title: String, value: String, isPending: Bool = false) -> some View {
         VStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundColor(accentColor.opacity(0.8))
-            Text(value.isEmpty ? "-" : value)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(BrandColors.darkGray)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if isPending {
+                VStack(spacing: 2) {
+                    Text(value.isEmpty ? "-" : value)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Pending")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundColor(BrandColors.gold)
+                }
+            } else {
+                Text(value.isEmpty ? "-" : value)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
     var body: some View {
         VStack(spacing: 18) {
-
-            // Row 1: Team & Location
-            HStack {
-                Spacer()
-                TeamsStatItem(coachProfile: coachProfile)
-                Spacer()
-                UserStatItem(title: "LOCATION", value: coachProfile.location)
-                Spacer()
+            // Row 1: Academy Name · Age · Location
+            HStack(spacing: 0) {
+                // If coach has a pending *change* request, show "-" until admin approves
+                let hasPendingChange = !coachProfile.pendingAcademy.isEmpty && !coachProfile.currentAcademy.isEmpty
+                let isPendingJoin    = !coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty
+                let academyDisplay: String = {
+                    if hasPendingChange { return "-" }                          // change pending → hide current
+                    if !coachProfile.currentAcademy.isEmpty { return coachProfile.currentAcademy }
+                    if isPendingJoin { return coachProfile.pendingAcademy }      // first join pending → show name
+                    return "-"
+                }()
+                StatItem(title: "ACADEMY NAME", value: academyDisplay, isPending: isPendingJoin)
+                    .frame(maxWidth: .infinity)
+                Divider().frame(height: 36)
+                StatItem(title: "AGE", value: coachProfile.age.map { "\($0)" } ?? "-")
+                    .frame(maxWidth: .infinity)
+                Divider().frame(height: 36)
+                StatItem(title: "LOCATION", value: coachProfile.location)
+                    .frame(maxWidth: .infinity)
             }
 
             // Row 2: Contact Info (if visible)
-            HStack {
-                if coachProfile.isEmailVisible {
-                    Spacer()
-                    UserStatItem(title: "EMAIL", value: coachProfile.email)
-                    Spacer()
-                }
-                
-                if coachProfile.isPhoneNumberVisible {
-                    Spacer()
-                    UserStatItem(title: "PHONE", value: coachProfile.phone)
-                    Spacer()
+            if coachProfile.isEmailVisible || coachProfile.isPhoneNumberVisible {
+                HStack {
+                    if coachProfile.isEmailVisible {
+                        Spacer()
+                        StatItem(title: "EMAIL", value: coachProfile.email)
+                        Spacer()
+                    }
+                    if coachProfile.isPhoneNumberVisible {
+                        Spacer()
+                        StatItem(title: "PHONE", value: coachProfile.phone)
+                        Spacer()
+                    }
                 }
             }
-            .opacity((coachProfile.isEmailVisible || coachProfile.isPhoneNumberVisible) ? 1 : 0)
-            .frame(height: (coachProfile.isEmailVisible || coachProfile.isPhoneNumberVisible) ? nil : 0)
-
-
         }
         .padding(.vertical, 25)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -445,7 +484,7 @@ struct ContentTabViewCoach: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ContentTabButton(title: "Current Teams", type: .currentTeam, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "Current Academy", type: .currentAcademy, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
             ContentTabButton(title: "Match Schedule", type: .matchSchedule, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
         .font(.system(size: 16, weight: .medium, design: .rounded))
@@ -1423,15 +1462,497 @@ struct SettingsViewCoach: View {
     }
 }
 
+// MARK: - Current Academy View
+struct CurrentAcademyView: View {
+    @ObservedObject var coachProfile: CoachProfile
+    var isCurrentUser: Bool = true
+    @Binding var showLeaveConfirm: Bool
+    private let accent = BrandColors.darkTeal
+
+    @State private var showChangeAcademySheet = false
+    @State private var isProcessing = false
+    @State private var errorText: String? = nil
+    @State private var showAcademySetup = false
+    @State private var createdAcademy: HaddafAcademy? = nil
+    @State private var navigateToCreated = false
+    @State private var navigateToAcademyDetail = false
+    @State private var loadedAcademy: HaddafAcademy? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty {
+                // No academy at all
+                noAcademyRow
+            } else if !coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty {
+                // Pending join — first time
+                pendingAcademyRow
+            } else if !coachProfile.pendingAcademy.isEmpty && !coachProfile.currentAcademy.isEmpty {
+                // Has current academy + pending change request
+                pendingChangeRow
+            } else {
+                // Has approved academy, no pending change
+                approvedAcademyRow
+            }
+
+            if let err = errorText {
+                Text(err)
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(BrandColors.background)
+                .shadow(color: .black.opacity(0.07), radius: 8, y: 3)
+        )
+        // Change Academy Sheet
+        .sheet(isPresented: $showChangeAcademySheet) {
+            ChangeAcademySheet(
+                currentAcademy: coachProfile.currentAcademy,
+                onSubmit: { newAcademy, fileURL in
+                    Task { await submitAcademyChangeRequest(newAcademy: newAcademy, fileURL: fileURL) }
+                }
+            )
+            .presentationDetents([.large])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
+        }
+    }
+
+    // MARK: - Sub-views
+
+    private var noAcademyRow: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Color.gray.opacity(0.1)).frame(width: 48, height: 48)
+                Image(systemName: "building.2")
+                    .font(.system(size: 20))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No Academy")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                if isCurrentUser {
+                    Text("Tap Join to join an academy")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            Spacer()
+            if isCurrentUser {
+                Button { showChangeAcademySheet = true } label: {
+                    Text("Join")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .background(accent)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var pendingAcademyRow: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(BrandColors.gold.opacity(0.12)).frame(width: 48, height: 48)
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 20))
+                    .foregroundColor(BrandColors.gold)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(coachProfile.pendingAcademy)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                Text("Pending admin approval")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(BrandColors.gold)
+            }
+            Spacer()
+        }
+    }
+
+    // Current academy exists but a *change* request is pending
+    private var pendingChangeRow: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(BrandColors.gold.opacity(0.12)).frame(width: 48, height: 48)
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.system(size: 20))
+                        .foregroundColor(BrandColors.gold)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    // Show the requested new academy name
+                    Text(coachProfile.pendingAcademy)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.badge.exclamationmark")
+                            .font(.system(size: 11))
+                            .foregroundColor(BrandColors.gold)
+                        Text("Change request pending approval")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(BrandColors.gold)
+                    }
+                }
+                Spacer()
+            }
+            // No Change/Leave buttons while change is pending
+        }
+    }
+
+    private var approvedAcademyRow: some View {
+        VStack(spacing: 10) {
+            Button {
+                if isCurrentUser {
+                    Task {
+                        await loadCurrentAcademy()
+                        await MainActor.run { navigateToAcademyDetail = true }
+                    }
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(accent.opacity(0.1)).frame(width: 48, height: 48)
+                        Image(systemName: "building.2.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(accent)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(coachProfile.currentAcademy)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                        Text("Current academy")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    if isCurrentUser {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(accent.opacity(0.4))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!isCurrentUser)
+
+            if isCurrentUser {
+                HStack(spacing: 10) {
+                    Button {
+                        showChangeAcademySheet = true
+                    } label: {
+                        Text("Change")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showLeaveConfirm = true
+                    } label: {
+                        Text("Leave")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.red.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessing)
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showAcademySetup) {
+            AcademySetupFlow(academyName: coachProfile.currentAcademy, coachUID: Auth.auth().currentUser?.uid ?? "") { academy in
+                showAcademySetup = false
+                if let academy = academy {
+                    createdAcademy = academy
+                    navigateToCreated = true
+                }
+            }
+        }
+        // Hidden NavigationLinks for programmatic navigation
+        .background(
+            Group {
+                NavigationLink(destination: createdAcademy.map { AcademyDetailView(academy: $0) },
+                               isActive: $navigateToCreated) { EmptyView() }
+                NavigationLink(destination: loadedAcademy.map { AcademyDetailView(academy: $0) },
+                               isActive: $navigateToAcademyDetail) { EmptyView() }
+            }
+        )
+        .onChange(of: navigateToAcademyDetail) { _, isOn in
+            if isOn && loadedAcademy == nil {
+                Task { await loadCurrentAcademy() }
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func submitAcademyChangeRequest(newAcademy: String, fileURL: URL) async {
+        guard let uid = Auth.auth().currentUser?.uid,
+              let email = Auth.auth().currentUser?.email else { return }
+        isProcessing = true
+        errorText = nil
+        do {
+            let db = Firestore.firestore()
+            // Upload doc
+            let storage = Storage.storage()
+            let accessing = fileURL.startAccessingSecurityScopedResource()
+            defer { if accessing { fileURL.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: fileURL)
+            let ref = storage.reference().child("coach_verifications/\(uid)/academy_change_\(UUID().uuidString).\(fileURL.pathExtension)")
+            _ = try await ref.putDataAsync(data)
+            let downloadURL = try await ref.downloadURL()
+
+            let requestType = coachProfile.currentAcademy.isEmpty ? "join_academy" : "change_academy"
+            let requestData: [String: Any] = [
+                "uid": uid,
+                "email": email,
+                "status": "pending",
+                "requestType": requestType,
+                "requestedAcademy": newAcademy,
+                "previousAcademy": coachProfile.currentAcademy,
+                "isInAcademy": true,
+                "submittedAt": FieldValue.serverTimestamp(),
+                "verificationFile": downloadURL.absoluteString,
+                "timeline": [[
+                    "id": UUID().uuidString,
+                    "timestamp": Timestamp(date: Date()),
+                    "type": "Submitted",
+                    "documentURL": downloadURL.absoluteString,
+                    "status": "pending"
+                ]]
+            ]
+
+            // Store as new document so admin sees it as separate request
+            let reqRef = db.collection("coachRequests").document()
+            try await reqRef.setData(requestData)
+
+            // Mark pending on user doc
+            try await db.collection("users").document(uid).updateData([
+                "pendingAcademy": newAcademy
+            ])
+
+            await MainActor.run {
+                coachProfile.pendingAcademy = newAcademy
+                isProcessing = false
+            }
+        } catch {
+            await MainActor.run {
+                errorText = "Failed to submit request: \(error.localizedDescription)"
+                isProcessing = false
+            }
+        }
+    }
+}
+
+// MARK: - Change Academy Sheet
+struct ChangeAcademySheet: View {
+    let currentAcademy: String
+    let onSubmit: (String, URL) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    private let accent = BrandColors.darkTeal
+
+    @State private var selectedAcademy = ""
+    @State private var academySearch = ""
+    @State private var showAcademyPicker = false
+    @State private var verificationFile: URL? = nil
+    @State private var verificationFileName = ""
+    @State private var showFileImporter = false
+    @State private var fileSizeError: String? = nil
+    @State private var showVerificationInfo = false
+    private let maxFileSizeBytes: Int64 = 10 * 1024 * 1024
+
+    private var isFormValid: Bool {
+        !selectedAcademy.isEmpty && verificationFile != nil && fileSizeError == nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if !currentAcademy.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Current Academy")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.secondary)
+                            Text(currentAcademy)
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemGray6)))
+                    }
+
+                    // Academy picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("New Academy")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(accent.opacity(0.75))
+                            Text("*").font(.system(size: 12, weight: .bold)).foregroundColor(.red).padding(.top, -2)
+                        }
+                        Button { academySearch = ""; showAcademyPicker = true } label: {
+                            HStack {
+                                Text(selectedAcademy.isEmpty ? "Select academy" : selectedAcademy)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .foregroundColor(selectedAcademy.isEmpty ? .gray : accent)
+                                    .lineLimit(1).truncationMode(.tail)
+                                Spacer()
+                                Image(systemName: "chevron.down").foregroundColor(accent.opacity(0.85))
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .sheet(isPresented: $showAcademyPicker) {
+                            AcademyPickerSheet(
+                                selection: $selectedAcademy,
+                                searchText: $academySearch,
+                                showSheet: $showAcademyPicker,
+                                accent: accent
+                            )
+                        }
+                    }
+
+                    // Verification doc
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("Verification Document")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(accent.opacity(0.75))
+                            Text("*").font(.system(size: 12, weight: .bold)).foregroundColor(.red).padding(.top, -2)
+                            Button { showVerificationInfo = true } label: {
+                                Image(systemName: "info.circle").font(.system(size: 15)).foregroundColor(accent)
+                            }
+                        }
+                        .alert("Verification Help", isPresented: $showVerificationInfo) {
+                            Button("OK", role: .cancel) {}
+                        } message: {
+                            Text("Upload a document proving your affiliation with the selected academy.")
+                            + Text("\n\nAccepted: PDF or image. Max 10 MB.")
+                        }
+
+                        Button { showFileImporter = true } label: {
+                            HStack {
+                                Image(systemName: verificationFile == nil ? "doc.badge.plus" : "doc.fill")
+                                    .foregroundColor(accent)
+                                Text(verificationFileName.isEmpty ? "Upload Document (Max 10 MB)" : verificationFileName)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .foregroundColor(verificationFile == nil ? .gray : accent)
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                if verificationFile != nil {
+                                    Image(systemName: "checkmark.circle.fill").foregroundColor(BrandColors.actionGreen)
+                                } else {
+                                    Image(systemName: "arrow.up.doc").foregroundColor(.gray)
+                                }
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(BrandColors.background)
+                                    .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: false) { result in
+                            switch result {
+                            case .success(let urls):
+                                guard let url = urls.first else { return }
+                                do {
+                                    let accessing = url.startAccessingSecurityScopedResource()
+                                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                                    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                                    let size = attrs[.size] as? Int64 ?? 0
+                                    if size > maxFileSizeBytes {
+                                        fileSizeError = "File exceeds 10 MB limit."
+                                        verificationFile = nil; verificationFileName = ""
+                                    } else {
+                                        verificationFile = url
+                                        verificationFileName = url.lastPathComponent
+                                        fileSizeError = nil
+                                    }
+                                } catch {
+                                    fileSizeError = "Unable to read file."
+                                }
+                            case .failure:
+                                fileSizeError = "Failed to import file."
+                            }
+                        }
+
+                        if let err = fileSizeError {
+                            Text(err).font(.system(size: 13, design: .rounded)).foregroundColor(.red)
+                        }
+                    }
+
+                    // Submit
+                    Button {
+                        if isFormValid, let file = verificationFile {
+                            onSubmit(selectedAcademy, file)
+                            dismiss()
+                        }
+                    } label: {
+                        Text(currentAcademy.isEmpty ? "Request to Join Academy" : "Request Academy Change")
+                            .font(.system(size: 17, weight: .medium, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(isFormValid ? accent : accent.opacity(0.4))
+                            .clipShape(Capsule())
+                    }
+                    .disabled(!isFormValid)
+                    .padding(.top, 8)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+            .navigationTitle(currentAcademy.isEmpty ? "Join Academy" : "Change Academy")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .background(BrandColors.backgroundGradientEnd.ignoresSafeArea())
+        }
+    }
+}
+
 // MARK: - CurrentTeamView for Coach Profile
 struct CurrentTeamView: View {
     @EnvironmentObject var session: AppSession
-    @State private var teams: [SaudiTeam] = []
-    @State private var team: SaudiTeam? = nil
+    @State private var academies: [HaddafAcademy] = []
     @State private var isLoading = true
-    @State private var navigateToTeamDetail = false
-    @State private var selectedTeamForDetail: SaudiTeam? = nil
-    @State private var showAllTeams = false
+    @State private var selectedAcademy: HaddafAcademy? = nil
     @State private var showCreateTeam = false
     @State private var coachStatusApproved = false
     @State private var showNotApprovedAlert = false
@@ -1442,14 +1963,16 @@ struct CurrentTeamView: View {
             if isLoading {
                 ProgressView().tint(accentColor).padding()
             } else {
-                // ── All teams stacked — all highlighted equally ──
-                ForEach(teams) { t in
-                    TeamCard(team: t, isHighlighted: true)
-                        .padding(.horizontal, 20)
-                        .onTapGesture { selectedTeamForDetail = t }
+                // ── All academies ──
+                ForEach(academies) { academy in
+                    NavigationLink(destination: AcademyDetailView(academy: academy)) {
+                        AcademyListCard(academy: academy)
+                            .padding(.horizontal, 20)
+                    }
+                    .buttonStyle(.plain)
                 }
 
-                // ── Create Team button — always visible ───────────────
+                // ── Create Team button ──
                 Button {
                     if coachStatusApproved { showCreateTeam = true }
                     else { showNotApprovedAlert = true }
@@ -1488,60 +2011,21 @@ struct CurrentTeamView: View {
                 .padding(.vertical, 10)
             }
         }
-        .navigationDestination(item: $selectedTeamForDetail) { t in
-            TeamDetailView(team: t)
-        }
         .navigationDestination(isPresented: $showCreateTeam) {
             CreateTeamSheet(onCreated: {
                 showCreateTeam = false
                 loadTeam()
-                // Refresh coach profile header (TEAM field) immediately
                 NotificationCenter.default.post(name: .profileUpdated, object: nil)
             })
         }
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
-            loadTeam()  // reload all teams after deletion
+            loadTeam()
         }
-        .overlay {
-            if showNotApprovedAlert {
-                ZStack {
-                    Color.black.opacity(0.35).ignoresSafeArea()
-                        .onTapGesture { withAnimation { showNotApprovedAlert = false } }
-                    VStack(spacing: 0) {
-                        VStack(spacing: 12) {
-                            Image(systemName: "clock.badge.exclamationmark")
-                                .font(.system(size: 40)).foregroundColor(accentColor)
-                            Text("Pending Approval")
-                                .font(.system(size: 18, weight: .bold))
-                            Text("Your account is pending admin approval. You'll be able to create a team once approved.")
-                                .font(.system(size: 14)).foregroundColor(.secondary).multilineTextAlignment(.center)
-                        }
-                        .padding(.top, 24).padding(.horizontal, 20).padding(.bottom, 20)
-                        Divider()
-                        Button { withAnimation { showNotApprovedAlert = false } } label: {
-                            Text("OK").font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
-                                .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .background(accentColor).clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 16)
-                    }
-                    .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
-                    .padding(.horizontal, 30)
-                    .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
-                    .transition(.scale.combined(with: .opacity))
-                }
-                .animation(.spring(response: 0.3), value: showNotApprovedAlert)
-            }
-        }
-        .onAppear { loadTeam(); loadCoachStatus() }
-    }
-
-    private func loadCoachStatus() {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        Task {
-            let doc = try? await Firestore.firestore().collection("users").document(uid).getDocument()
-            let status = doc?.data()?["coachStatus"] as? String
-            await MainActor.run { coachStatusApproved = (status == "approved") }
+        .onAppear { loadTeam() }
+        .alert("Not Available", isPresented: $showNotApprovedAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your coach account must be approved before creating a team.")
         }
     }
 
@@ -1549,48 +2033,80 @@ struct CurrentTeamView: View {
         guard let uid = Auth.auth().currentUser?.uid else { isLoading = false; return }
         Task {
             let db = Firestore.firestore()
-            let snap = try? await db.collection("teams")
-                .whereField("coachUid", isEqualTo: uid)
-                .getDocuments()
-            // Sort client-side by createdAt (oldest first = default shown)
-            let docs = (snap?.documents ?? []).sorted {
-                let a = ($0.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                let b = ($1.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date.distantPast
-                return a < b
+            if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+               let status = userDoc.data()?["coachStatus"] as? String {
+                await MainActor.run { coachStatusApproved = (status == "approved") }
             }
-            guard !docs.isEmpty else {
-                await MainActor.run { self.teams = []; self.team = nil; self.isLoading = false }
-                return
-            }
-            var coachName: String? = nil
-            if let cd = try? await db.collection("users").document(uid).getDocument(),
-               let cdata = cd.data() {
-                let fn = cdata["firstName"] as? String ?? ""
-                let ln = cdata["lastName"]  as? String ?? ""
-                coachName = "\(fn) \(ln)".trimmingCharacters(in: .whitespaces)
-            }
-            var loaded: [SaudiTeam] = []
-            for doc in docs {
-                let data = doc.data()
-                let playersSnap = try? await db.collection("teams").document(doc.documentID)
-                    .collection("players").getDocuments()
-                loaded.append(SaudiTeam(
-                    id: doc.documentID,
-                    teamName: data["teamName"] as? String ?? "",
-                    logoURL:  data["logoURL"]  as? String,
-                    coachUID: uid,
-                    coachName: coachName,
-                    playerCount: playersSnap?.documents.count ?? 0,
-                    city:   data["city"]   as? String ?? "",
-                    street: data["street"] as? String ?? ""
-                ))
+            // Load academies where this coach is in any category's coaches array
+            let snap = try? await db.collection("academies").getDocuments()
+            var result: [HaddafAcademy] = []
+            for doc in snap?.documents ?? [] {
+                let d = doc.data()
+                let name = d["name"] as? String ?? ""
+                guard !name.isEmpty else { continue }
+                // Check if coach is in any category
+                let catsSnap = try? await db.collection("academies").document(doc.documentID)
+                    .collection("categories").getDocuments()
+                var cats: [String] = []
+                var isCoachHere = false
+                for catDoc in catsSnap?.documents ?? [] {
+                    let coaches = catDoc.data()["coaches"] as? [String] ?? []
+                    if coaches.contains(uid) { isCoachHere = true }
+                    cats.append(catDoc.documentID)
+                }
+                if isCoachHere {
+                    var academy = HaddafAcademy(
+                        id: doc.documentID, name: name,
+                        logoURL: d["logoURL"] as? String,
+                        city: d["city"] as? String ?? "",
+                        street: d["street"] as? String ?? ""
+                    )
+                    academy.categories = cats.sorted()
+                    academy.coachUIDs = [uid]
+                    result.append(academy)
+                }
             }
             await MainActor.run {
-                self.teams = loaded
-                self.team  = loaded.first  // default = oldest (first created)
+                self.academies = result.sorted { $0.name < $1.name }
                 self.isLoading = false
             }
         }
+    }
+}
+
+// MARK: - CurrentAcademyView helper extension
+extension CurrentAcademyView {
+    func loadCurrentAcademy() async {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        let academyName = coachProfile.currentAcademy
+        guard !academyName.isEmpty else { return }
+
+        let snap = try? await db.collection("academies")
+            .whereField("name", isEqualTo: academyName)
+            .limit(to: 1).getDocuments()
+
+        guard let doc = snap?.documents.first else { return }
+        let d = doc.data()
+        let catsSnap = try? await db.collection("academies").document(doc.documentID)
+            .collection("categories").getDocuments()
+        var cats: [String] = []
+        var coachSet = Set<String>()
+        for catDoc in catsSnap?.documents ?? [] {
+            cats.append(catDoc.documentID)
+            let coaches = catDoc.data()["coaches"] as? [String] ?? []
+            coaches.forEach { coachSet.insert($0) }
+        }
+        var academy = HaddafAcademy(
+            id: doc.documentID,
+            name: d["name"] as? String ?? academyName,
+            logoURL: d["logoURL"] as? String,
+            city: d["city"] as? String ?? "",
+            street: d["street"] as? String ?? ""
+        )
+        academy.categories = cats.sorted()
+        academy.coachUIDs = Array(coachSet)
+        await MainActor.run { self.loadedAcademy = academy }
     }
 }
 

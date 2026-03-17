@@ -31,6 +31,12 @@ struct SignUpView: View {
     @State private var coachPhoneLocal = ""
     @State private var coachPhoneNonDigitError = false
     
+    // Academy Fields
+    @State private var isInAcademy: Bool? = nil // nil = not answered, true/false
+    @State private var selectedAcademy = ""
+    @State private var showAcademyPicker = false
+    @State private var academySearch = ""
+    
     // Coach Document
     @State private var fileSizeError: String? = nil
     private let maxFileSizeBytes: Int64 = 10 * 1024 * 1024 // File size limit: 10MB
@@ -127,7 +133,14 @@ struct SignUpView: View {
     }
     
     private var isCoachFormValid: Bool {
-        isNameValid && isPasswordValid && isEmailValid && !coachLocation.isEmpty && isValidPhone(code: selectedDialCode, local: coachPhoneLocal) && verificationFile != nil && fileSizeError == nil && !emailExists
+        guard isNameValid && isPasswordValid && isEmailValid && !coachLocation.isEmpty
+              && isValidPhone(code: selectedDialCode, local: coachPhoneLocal)
+              && verificationFile != nil && fileSizeError == nil && !emailExists
+              && dob != nil else { return false }
+        // Academy question must be answered; if yes, an academy must be selected
+        guard let inAcademy = isInAcademy else { return false }
+        if inAcademy && selectedAcademy.isEmpty { return false }
+        return true
     }
     
     // Computed property to get missing required fields
@@ -148,9 +161,12 @@ struct SignUpView: View {
             if emailExists { missing.append("Email (already in use)") }
             if !isEmailValid { missing.append("Email") }
             if !isValidPhone(code: selectedDialCode, local: coachPhoneLocal) { missing.append("Phone number") }
+            if dob == nil { missing.append("Date of birth") }
             if coachLocation.isEmpty { missing.append("Location") }
             if verificationFile == nil { missing.append("Verification File") }
             if fileSizeError != nil { missing.append("File size (must be under 10MB)") }
+            if isInAcademy == nil { missing.append("Academy affiliation question") }
+            if isInAcademy == true && selectedAcademy.isEmpty { missing.append("Academy name") }
         }
         
         return missing
@@ -503,6 +519,9 @@ struct SignUpView: View {
                     attemptedSubmit = false
                     inlineVerifyError = nil
                     fileSizeError = nil
+                    isInAcademy = nil
+                    selectedAcademy = ""
+                    academySearch = ""
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -734,6 +753,13 @@ struct SignUpView: View {
                 draftData["location"] = coachLocation
                 draftData["verificationFile"] = finalVerificationURL
                 draftData["profilePic"] = profilePicURL
+                draftData["isInAcademy"] = isInAcademy ?? false
+                if isInAcademy == true {
+                    draftData["academy"] = selectedAcademy
+                }
+                if let d = dob {
+                    draftData["dob"] = d.timeIntervalSince1970
+                }
             }
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: draftData),
@@ -829,6 +855,13 @@ struct SignUpView: View {
                 data["location"] = draft["location"] as? String ?? ""
                 data["verificationFile"] = draft["verificationFile"] as? String ?? ""
                 data["profilePic"] = draft["profilePic"] as? String ?? ""
+                data["isInAcademy"] = draft["isInAcademy"] as? Bool ?? false
+                if let academy = draft["academy"] as? String {
+                    data["pendingAcademy"] = academy
+                }
+                if let dobTimestamp = draft["dob"] as? TimeInterval {
+                    data["dob"] = Timestamp(date: Date(timeIntervalSince1970: dobTimestamp))
+                }
             }
             
             try? await Firestore.firestore().collection("users").document(user.uid).setData(data, merge: true)
@@ -841,8 +874,11 @@ struct SignUpView: View {
                 "fullName": fullName,
                 "email": accountEmail,
                 "status": "pending",
+                "requestType": "initial",
                 "submittedAt": FieldValue.serverTimestamp(),
                 "verificationFile": initialDocURL,
+                "isInAcademy": draft["isInAcademy"] as? Bool ?? false,
+                "requestedAcademy": draft["academy"] as? String ?? "",
                 "timeline": [
                     [
                         "id": UUID().uuidString,
@@ -1257,6 +1293,33 @@ struct SignUpView: View {
                     .padding(.top, 4)
             }
             
+            // Date of Birth
+            fieldLabel("Date of birth", required: true)
+            buttonLikeField(action: {
+                tempDOB = dob ?? Calendar.current.date(byAdding: .year, value: -25, to: Date())!
+                showDOBPicker = true
+            }) {
+                HStack {
+                    Text(dob.map { formatDate($0) } ?? "")
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundColor(primary)
+                    Spacer()
+                    Image(systemName: "calendar").foregroundColor(primary.opacity(0.85))
+                }
+                .frame(height: 22)
+            }
+            .sheet(isPresented: $showDOBPicker) {
+                DateWheelPickerSheet(
+                    selection: $dob,
+                    tempSelection: $tempDOB,
+                    showSheet: $showDOBPicker,
+                    in: Calendar.current.date(byAdding: .year, value: -100, to: Date())! ... Calendar.current.date(byAdding: .year, value: -16, to: Date())!
+                )
+                .presentationDetents([.height(300)])
+                .presentationBackground(BrandColors.background)
+                .presentationCornerRadius(28)
+            }
+            
             // Location
             fieldLabel("City of Residence", required: true)
             buttonLikeField(action: { coachLocationSearch = ""
@@ -1281,23 +1344,97 @@ struct SignUpView: View {
                 )
             }
             
+            // Academy Affiliation Question
+            VStack(alignment: .leading, spacing: 12) {
+                fieldLabel("Are you a coach at an academy?", required: true)
+
+                HStack(spacing: 12) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isInAcademy = true }
+                    } label: {
+                        HStack {
+                            Image(systemName: isInAcademy == true ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(isInAcademy == true ? primary : .gray.opacity(0.5))
+                            Text("Yes")
+                                .font(.system(size: 16, weight: .medium, design: .rounded))
+                                .foregroundColor(isInAcademy == true ? primary : .gray)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(isInAcademy == true ? primary.opacity(0.08) : BrandColors.background)
+                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                .overlay(RoundedRectangle(cornerRadius: 14)
+                                    .stroke(isInAcademy == true ? primary : Color.gray.opacity(0.1),
+                                            lineWidth: isInAcademy == true ? 1.5 : 1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isInAcademy = false; selectedAcademy = "" }
+                    } label: {
+                        HStack {
+                            Image(systemName: isInAcademy == false ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(isInAcademy == false ? primary : .gray.opacity(0.5))
+                            Text("No")
+                                .font(.system(size: 16, weight: .medium, design: .rounded))
+                                .foregroundColor(isInAcademy == false ? primary : .gray)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(isInAcademy == false ? primary.opacity(0.08) : BrandColors.background)
+                                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                                .overlay(RoundedRectangle(cornerRadius: 14)
+                                    .stroke(isInAcademy == false ? primary : Color.gray.opacity(0.1),
+                                            lineWidth: isInAcademy == false ? 1.5 : 1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if isInAcademy == true {
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("Academy Name", required: true)
+                        buttonLikeField(action: { academySearch = ""; showAcademyPicker = true }) {
+                            HStack {
+                                Text(selectedAcademy.isEmpty ? "Select academy" : selectedAcademy)
+                                    .font(.system(size: 16, design: .rounded))
+                                    .foregroundColor(selectedAcademy.isEmpty ? .gray : primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .foregroundColor(primary.opacity(0.85))
+                            }
+                        }
+                        .sheet(isPresented: $showAcademyPicker) {
+                            AcademyPickerSheet(
+                                selection: $selectedAcademy,
+                                searchText: $academySearch,
+                                showSheet: $showAcademyPicker,
+                                accent: primary
+                            )
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+
             // Verification File
             VStack(alignment: .leading, spacing: 8) {
-                // Label with (i) icon
                 HStack(spacing: 4) {
                     Text("Verification Document")
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(primary.opacity(0.75))
-                    
                     Text("*")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(.red)
                         .padding(.top, -2)
-                    
-                    // The Info Button
-                    Button {
-                        showVerificationInfo = true
-                    } label: {
+                    Button { showVerificationInfo = true } label: {
                         Image(systemName: "info.circle")
                             .font(.system(size: 15))
                             .foregroundColor(primary)
@@ -1469,6 +1606,89 @@ struct SignUpView: View {
     }
 }
 
+
+// MARK: - Academy Picker Sheet
+struct AcademyPickerSheet: View {
+    @Binding var selection: String
+    @Binding var searchText: String
+    @Binding var showSheet: Bool
+    let accent: Color
+
+    private var filtered: [String] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return SAUDI_ACADEMY_NAMES }
+        return SAUDI_ACADEMY_NAMES.filter { $0.localizedCaseInsensitiveContains(q) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button { showSheet = false } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Text("Select Academy")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(accent)
+                Spacer()
+                Color.clear.frame(width: 22, height: 22)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            // Search field
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Search academies...", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(UIColor.systemGray6))
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if filtered.isEmpty {
+                Spacer()
+                Text("No academies found")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 15, design: .rounded))
+                Spacer()
+            } else {
+                List(filtered, id: \.self) { name in
+                    Button {
+                        selection = name
+                        showSheet = false
+                    } label: {
+                        HStack {
+                            Text(name)
+                                .font(.system(size: 16, design: .rounded))
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.leading)
+                            Spacer()
+                            if selection == name {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(accent)
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .background(BrandColors.background)
+    }
+}
 
 // MARK: - Verify sheet
 struct SimpleVerifySheet: View {

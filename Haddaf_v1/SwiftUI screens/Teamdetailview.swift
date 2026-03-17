@@ -1,4 +1,4 @@
-import SwiftUI
+/*import SwiftUI
 import PhotosUI
 import FirebaseAuth
 import FirebaseFirestore
@@ -1067,4 +1067,4 @@ struct InvitePlayerPage: View {
             await MainActor.run { searchResults = results; isSearching = false }
         }
     }
-}
+}*/

@@ -155,7 +155,7 @@ class NotificationService: ObservableObject {
 
         let notification = HaddafNotification(
             userId: playerUID,
-            type: .teamInvitation,
+            type: .academyInvitation,
             title: "⚽ Team Invitation",
             message: "\(coachName) has invited you to join \(teamName). Accept or decline the invitation.",
             invitationId: invitationId,

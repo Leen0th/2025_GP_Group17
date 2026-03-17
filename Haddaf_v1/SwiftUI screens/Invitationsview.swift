@@ -6,8 +6,10 @@ import FirebaseFirestore
 struct TeamInvitation: Identifiable {
     let id: String
     let coachID: String
-    let teamID: String
+    let teamID: String       // kept for backward compat
     let teamName: String
+    let academyId: String    // new
+    let category: String     // new
     let status: String
     let createdAt: Date
     var coachName: String = ""
@@ -34,20 +36,27 @@ class InvitationsViewModel: ObservableObject {
                     var invites: [TeamInvitation] = []
                     for doc in snap?.documents ?? [] {
                         let data = doc.data()
-                        let coachID = data["coachID"] as? String ?? ""
-                        let teamID = data["teamID"] as? String ?? ""
-                        let teamName = data["teamName"] as? String ?? ""
+                        let coachID  = data["coachID"]   as? String ?? ""
+                        let teamID   = data["teamID"]    as? String ?? ""
+                        let teamName = data["teamName"]  as? String ?? ""
+                        let academyId = data["academyId"] as? String ?? ""
+                        let category  = data["category"]  as? String ?? ""
                         let ts = data["createdAt"] as? Timestamp
                         var inv = TeamInvitation(
                             id: doc.documentID, coachID: coachID, teamID: teamID,
-                            teamName: teamName, status: data["status"] as? String ?? "pending",
+                            teamName: teamName, academyId: academyId, category: category,
+                            status: data["status"] as? String ?? "pending",
                             createdAt: ts?.dateValue() ?? Date()
                         )
                         if let cd = try? await self.db.collection("users").document(coachID).getDocument(),
                            let cdata = cd.data() {
                             inv.coachName = "\(cdata["firstName"] as? String ?? "") \(cdata["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
                         }
-                        if let td = try? await self.db.collection("teams").document(teamID).getDocument() {
+                        // Try academy logo first, fallback to teams
+                        if !academyId.isEmpty,
+                           let ad = try? await self.db.collection("academies").document(academyId).getDocument() {
+                            inv.teamLogoURL = ad.data()?["logoURL"] as? String
+                        } else if let td = try? await self.db.collection("teams").document(teamID).getDocument() {
                             inv.teamLogoURL = td.data()?["logoURL"] as? String
                         }
                         invites.append(inv)
@@ -59,10 +68,23 @@ class InvitationsViewModel: ObservableObject {
 
     func acceptInvitation(_ inv: TeamInvitation, playerUID: String) async throws {
         let batch = db.batch()
+        // Mark invitation as accepted
         batch.updateData(["status": "accepted"], forDocument: db.collection("invitations").document(inv.id))
-        batch.setData(["joinedAt": FieldValue.serverTimestamp()],
-                      forDocument: db.collection("teams").document(inv.teamID).collection("players").document(playerUID))
-        batch.updateData(["teamId": inv.teamID, "teamName": inv.teamName],
+        // Update player status in academies collection (new structure)
+        if !inv.academyId.isEmpty && !inv.category.isEmpty {
+            batch.updateData([
+                "status": "accepted",
+                "acceptedAt": FieldValue.serverTimestamp()
+            ], forDocument: db.collection("academies").document(inv.academyId)
+                .collection("categories").document(inv.category)
+                .collection("players").document(playerUID))
+        }
+        // Backward compat — also update teams if teamID exists
+        if !inv.teamID.isEmpty {
+            batch.setData(["joinedAt": FieldValue.serverTimestamp()],
+                          forDocument: db.collection("teams").document(inv.teamID).collection("players").document(playerUID))
+        }
+        batch.updateData(["currentAcademy": inv.teamName, "updatedAt": FieldValue.serverTimestamp()],
                          forDocument: db.collection("users").document(playerUID))
         try await batch.commit()
         await NotificationService.sendInvitationResponseNotification(
@@ -267,7 +289,7 @@ struct InvitationCard: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 14) {
-                TeamLogoCircle(logoURL: invitation.teamLogoURL, size: 54)
+                AcademyLogoView(logoURL: invitation.teamLogoURL, size: 54)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.teamName)
                         .font(.system(size: 17, weight: .bold, design: .rounded)).foregroundColor(accentColor)
@@ -344,7 +366,7 @@ struct SingleInvitationSheet: View {
                 VStack(spacing: 24) {
                     Spacer()
 
-                    TeamLogoCircle(logoURL: inv.teamLogoURL, size: 90)
+                    AcademyLogoView(logoURL: inv.teamLogoURL, size: 90)
                         .shadow(color: accentColor.opacity(0.15), radius: 12, y: 4)
 
                     VStack(spacing: 6) {
@@ -507,26 +529,30 @@ struct SingleInvitationSheet: View {
                 await MainActor.run { isLoading = false }
                 return
             }
-            // Only show if still pending
             let status = data["status"] as? String ?? "pending"
             guard status == "pending" else {
                 await MainActor.run { isLoading = false }
                 return
             }
-            let coachID  = data["coachID"]  as? String ?? ""
-            let teamID   = data["teamID"]   as? String ?? ""
-            let teamName = data["teamName"] as? String ?? ""
+            let coachID   = data["coachID"]   as? String ?? ""
+            let teamID    = data["teamID"]    as? String ?? ""
+            let teamName  = data["teamName"]  as? String ?? ""
+            let academyId = data["academyId"] as? String ?? ""
+            let category  = data["category"]  as? String ?? ""
             let ts = data["createdAt"] as? Timestamp
             var inv = TeamInvitation(
                 id: doc.documentID, coachID: coachID, teamID: teamID,
-                teamName: teamName, status: status,
-                createdAt: ts?.dateValue() ?? Date()
+                teamName: teamName, academyId: academyId, category: category,
+                status: status, createdAt: ts?.dateValue() ?? Date()
             )
             if let cd = try? await db.collection("users").document(coachID).getDocument(),
                let cdata = cd.data() {
                 inv.coachName = "\(cdata["firstName"] as? String ?? "") \(cdata["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
             }
-            if let td = try? await db.collection("teams").document(teamID).getDocument() {
+            if !academyId.isEmpty,
+               let ad = try? await db.collection("academies").document(academyId).getDocument() {
+                inv.teamLogoURL = ad.data()?["logoURL"] as? String
+            } else if let td = try? await db.collection("teams").document(teamID).getDocument() {
                 inv.teamLogoURL = td.data()?["logoURL"] as? String
             }
             await MainActor.run { self.invitation = inv; self.isLoading = false }
