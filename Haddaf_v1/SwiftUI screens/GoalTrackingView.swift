@@ -24,9 +24,10 @@ struct GoalTrackingSection: View {
         VStack(alignment: .leading, spacing: 20) {
 
             HStack {
-                Text("My Goals")
+                /*Text("My Goals")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(BrandColors.darkGray)
+                 */
                 Spacer()
                 if !service.goals.isEmpty {
                     Menu {

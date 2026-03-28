@@ -31,6 +31,7 @@ struct PostDetailView: View {
     @State private var isSavingCaption = false
     
     @State private var navigateToProfileID: String?
+    @State private var navigateToProfileRole: String? // "coach" or "player"
     @State private var navigationTrigger = false
     
     private let captionLimit = 15
@@ -56,10 +57,20 @@ struct PostDetailView: View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
             
-            NavigationLink(
-                destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
-                isActive: $navigationTrigger
-            ) { EmptyView() }
+            // Role-aware profile navigation: routes to coach or player profile depending on the tapped user's role
+            Group {
+                if navigateToProfileRole == "coach" {
+                    NavigationLink(
+                        destination: CoachProfileContentView(userID: navigateToProfileID ?? "", isAdminViewing: isAdminViewing),
+                        isActive: $navigationTrigger
+                    ) { EmptyView() }
+                } else {
+                    NavigationLink(
+                        destination: PlayerProfileContentView(userID: navigateToProfileID ?? "", isAdminViewing: isAdminViewing),
+                        isActive: $navigationTrigger
+                    ) { EmptyView() }
+                }
+            }
             
             if let postId = post.id, reportService.hiddenPostIDs.contains(postId) {
                 VStack {
@@ -155,10 +166,17 @@ struct PostDetailView: View {
                 CommentsView(
                     postId: postId,
                     onProfileTapped: { userID in
-                        navigateToProfileID = userID
                         showCommentsSheet = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            navigationTrigger = true
+                        // Fetch the tapped user's role to route to the correct profile view
+                        Task {
+                            let role = await fetchUserRole(uid: userID)
+                            await MainActor.run {
+                                navigateToProfileID = userID
+                                navigateToProfileRole = role
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    navigationTrigger = true
+                                }
+                            }
                         }
                     },
                     showAuthSheet: $showAuthSheet
@@ -468,7 +486,16 @@ struct PostDetailView: View {
     private var authorInfoAndInteractions: some View {
         HStack {
             if let uid = post.authorUid, !uid.isEmpty {
-                NavigationLink(destination: PlayerProfileContentView(userID: uid, isAdminViewing: isAdminViewing)) {
+                Button {
+                    Task {
+                        let role = await fetchUserRole(uid: uid)
+                        await MainActor.run {
+                            navigateToProfileID = uid
+                            navigateToProfileRole = role
+                            navigationTrigger = true
+                        }
+                    }
+                } label: {
                     authorHeaderContent
                 }
                 .buttonStyle(.plain)
@@ -552,6 +579,18 @@ struct PostDetailView: View {
         }
     }
     
+    // Fetches a user's role from Firestore to enable correct profile routing (coach vs player)
+    private func fetchUserRole(uid: String) async -> String {
+        guard !uid.isEmpty else { return "player" }
+        do {
+            let doc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+            return (doc.data()?["role"] as? String) ?? "player"
+        } catch {
+            print("PostDetailView: fetchUserRole error for UID \(uid): \(error)")
+            return "player"
+        }
+    }
+
     // --- Function to fetch the author's profile ---
     private func fetchAuthorProfile() async {
         guard let uid = post.authorUid else { return }

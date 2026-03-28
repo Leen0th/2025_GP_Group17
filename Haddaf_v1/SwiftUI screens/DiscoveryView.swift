@@ -51,6 +51,8 @@ struct DiscoveryView: View {
     
     // The user ID to navigate to
     @State private var navigateToProfileID: String?
+    // The role of the user to navigate to ("coach" or "player")
+    @State private var navigateToProfileRole: String?
     // The `isActive` binding for the `NavigationLink`.
     @State private var navigationTrigger = false
     
@@ -97,7 +99,7 @@ struct DiscoveryView: View {
                 
                 // navigation link to push to a user's profile
                 NavigationLink(
-                    destination: PlayerProfileContentView(userID: navigateToProfileID ?? ""),
+                    destination: resolvedProfileDestination,
                     isActive: $navigationTrigger
                 ) { EmptyView() }
 
@@ -168,12 +170,16 @@ struct DiscoveryView: View {
                     CommentsView(
                         postId: postId,
                         onProfileTapped: { userID in
-                            // This closure handles navigation from a comment to a profile
-                            navigateToProfileID = userID
-                            postForComments = nil // Dismiss the comment sheet
-                            // Use a slight delay to allow the sheet to dismiss before navigating
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                navigationTrigger = true
+                            postForComments = nil
+                            Task {
+                                let role = await fetchUserRole(uid: userID)
+                                await MainActor.run {
+                                    navigateToProfileID = userID
+                                    navigateToProfileRole = role
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        navigationTrigger = true
+                                    }
+                                }
                             }
                         },
                         showAuthSheet: $showAuthSheet
@@ -204,6 +210,29 @@ struct DiscoveryView: View {
     }
     
     // MARK: - ViewBuilders
+
+    // Returns the correct profile destination after role has been fetched
+    @ViewBuilder
+    private var resolvedProfileDestination: some View {
+        let uid = navigateToProfileID ?? ""
+        if navigateToProfileRole == "coach" {
+            CoachProfileContentView(userID: uid)
+        } else {
+            PlayerProfileContentView(userID: uid)
+        }
+    }
+
+    // Fetches a user's role from Firestore to enable correct profile routing
+    private func fetchUserRole(uid: String) async -> String {
+        guard !uid.isEmpty else { return "player" }
+        do {
+            let doc = try await Firestore.firestore().collection("users").document(uid).getDocument()
+            return (doc.data()?["role"] as? String) ?? "player"
+        } catch {
+            print("DiscoveryView: fetchUserRole error for UID \(uid): \(error)")
+            return "player"
+        }
+    }
 
     // A view builder for the top tab buttons ("Discovery", "Leaderboard")
     @ViewBuilder
@@ -446,6 +475,17 @@ struct DiscoveryView: View {
                                         onCommentTapped: {
                                             self.postForComments = post
                                         },
+                                        onAuthorTapped: {
+                                            let uid = post.authorUid ?? ""
+                                            Task {
+                                                let role = await fetchUserRole(uid: uid)
+                                                await MainActor.run {
+                                                    navigateToProfileID = uid
+                                                    navigateToProfileRole = role
+                                                    navigationTrigger = true
+                                                }
+                                            }
+                                        },
                                         onReport: {
                                             itemToReport = ReportableItem(
                                                 id: post.id ?? "",
@@ -501,6 +541,7 @@ struct DiscoveryPostCardView: View {
     let post: Post
     let authorProfile: UserProfile
     let onCommentTapped: () -> Void
+    let onAuthorTapped: () -> Void
     let onReport: () -> Void
     
     @ObservedObject var reportService: ReportStateService
@@ -519,7 +560,7 @@ struct DiscoveryPostCardView: View {
             HStack(spacing: 12) {
                 // Navigate to profile if UID exists
                 if let uid = post.authorUid, !uid.isEmpty {
-                    NavigationLink(destination: PlayerProfileContentView(userID: uid)) {
+                    Button(action: onAuthorTapped) {
                         profileImage
                     }
                     .buttonStyle(.plain)
