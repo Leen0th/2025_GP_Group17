@@ -203,7 +203,7 @@ enum Tab {
     var title: String {
         switch self {
         case .discovery: return "Discovery"
-        case .teams: return "Teams"
+        case .teams: return "Academies"
         case .action: return ""
         case .challenge: return "Challenge"
         case .profile: return "Profile"

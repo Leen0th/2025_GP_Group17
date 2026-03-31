@@ -1,4 +1,4 @@
-import SwiftUI
+/*import SwiftUI
 import PhotosUI
 import FirebaseAuth
 import FirebaseStorage
@@ -339,4 +339,4 @@ struct CoachTeamSetupView: View {
             }
         }
     }
-}
+}*/
