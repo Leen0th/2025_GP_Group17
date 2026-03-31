@@ -373,27 +373,31 @@ struct AcademyInvitePopup: View {
     }
 
     private func loadInfo() async {
-        // Priority 1: teamName field in notification
+        // Step 1: teamName from notification
         if let tn = notification.teamName, !tn.isEmpty {
             await MainActor.run { academyName = tn }
         }
 
-        guard let academyId = notification.academyId, !academyId.isEmpty,
-              let category = notification.category else {
-            // No academyId — try to get coach name from invitation
-            if let invId = notification.invitationId, !invId.isEmpty {
-                if let invDoc = try? await db.collection("invitations").document(invId).getDocument(),
-                   let coachID = invDoc.data()?["coachID"] as? String,
-                   let userDoc = try? await db.collection("users").document(coachID).getDocument(),
-                   let d = userDoc.data() {
-                    let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
-                    await MainActor.run { coachName = name }
-                }
+        // Step 2: load invitation doc to get coachID
+        var resolvedCoachUID: String? = nil
+        if let invId = notification.invitationId, !invId.isEmpty,
+           let invDoc = try? await db.collection("invitations").document(invId).getDocument(),
+           let coachID = invDoc.data()?["coachID"] as? String, !coachID.isEmpty {
+            resolvedCoachUID = coachID
+        }
+
+        guard let academyId = notification.academyId, !academyId.isEmpty else {
+            // No academyId — load coach name only
+            if let uid = resolvedCoachUID,
+               let userDoc = try? await db.collection("users").document(uid).getDocument(),
+               let d = userDoc.data() {
+                let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+                await MainActor.run { coachName = name }
             }
             return
         }
 
-        // Priority 2: load academy name + logo from Firestore
+        // Step 3: load academy doc for name + logo
         if let doc = try? await db.collection("academies").document(academyId).getDocument(),
            let d = doc.data() {
             let name = d["name"] as? String ?? ""
@@ -404,18 +408,24 @@ struct AcademyInvitePopup: View {
             }
         }
 
-        // Load coach name — first try invitation doc, then category coaches array
-        var resolvedCoachUID: String? = nil
-        if let invId = notification.invitationId, !invId.isEmpty,
-           let invDoc = try? await db.collection("invitations").document(invId).getDocument(),
-           let coachID = invDoc.data()?["coachID"] as? String, !coachID.isEmpty {
-            resolvedCoachUID = coachID
-        } else if let catDoc = try? await db.collection("academies").document(academyId)
-            .collection("categories").document(category).getDocument(),
+        // Step 4: if academy name still empty, get from coach's users doc currentAcademy
+        if (academyName.isEmpty || academyName == "Academy Invitation"),
+           let uid = resolvedCoachUID,
+           let cDoc = try? await db.collection("users").document(uid).getDocument(),
+           let n = cDoc.data()?["currentAcademy"] as? String, !n.isEmpty {
+            await MainActor.run { academyName = n }
+        }
+
+        // Step 5: also try category coaches array if invitation not found
+        if resolvedCoachUID == nil,
+           let cat = notification.category,
+           let catDoc = try? await db.collection("academies").document(academyId)
+               .collection("categories").document(cat).getDocument(),
            let coaches = catDoc.data()?["coaches"] as? [String] {
             resolvedCoachUID = coaches.first
         }
 
+        // Step 6: load coach name
         if let uid = resolvedCoachUID,
            let userDoc = try? await db.collection("users").document(uid).getDocument(),
            let d = userDoc.data() {
@@ -434,34 +444,61 @@ struct AcademyInvitePopup: View {
         let playerName = await fetchPlayerName()
 
         if accept {
-            // 1. Update player status in academy
-            try? await db.collection("academies").document(academyId)
+            // 1. Update player status ONLY in the specific category from this notification
+            // First verify the player doc actually exists in this category
+            let playerRef = db.collection("academies").document(academyId)
                 .collection("categories").document(category)
                 .collection("players").document(playerUID)
-                .updateData(["status": "accepted", "acceptedAt": FieldValue.serverTimestamp()])
-            // 2. Set currentAcademy — use academyName if loaded, else load from Firestore directly
-            var nameToSave = academyName
-            if nameToSave.isEmpty || nameToSave == "Academy Invitation" {
-                if let doc = try? await db.collection("academies").document(academyId).getDocument(),
-                   let n = doc.data()?["name"] as? String, !n.isEmpty {
+            let playerDoc = try? await playerRef.getDocument()
+            if playerDoc?.exists == true {
+                try? await playerRef.updateData([
+                    "status": "accepted",
+                    "acceptedAt": FieldValue.serverTimestamp()
+                ])
+            }
+
+            // 2. Resolve academy name using multiple fallback sources:
+            //    a) Already loaded in the popup UI (academyName state)
+            //    b) notification.teamName field
+            //    c) Firestore academy doc "name" field
+            //    d) Coach's users doc "currentAcademy" field (most reliable for old accounts)
+            var nameToSave = academyName.isEmpty || academyName == "Academy Invitation" ? "" : academyName
+            if nameToSave.isEmpty, let tn = notification.teamName, !tn.isEmpty { nameToSave = tn }
+            if nameToSave.isEmpty {
+                if let aDoc = try? await db.collection("academies").document(academyId).getDocument(),
+                   let n = aDoc.data()?["name"] as? String, !n.isEmpty {
                     nameToSave = n
-                    await MainActor.run { academyName = n }
                 }
             }
-            try? await db.collection("users").document(playerUID).updateData([
-                "currentAcademy": nameToSave,
+            // Last resort: get from coach's users doc currentAcademy
+            if nameToSave.isEmpty, let cUID = coachUID,
+               let cDoc = try? await db.collection("users").document(cUID).getDocument(),
+               let n = cDoc.data()?["currentAcademy"] as? String, !n.isEmpty {
+                nameToSave = n
+            }
+            if !nameToSave.isEmpty { await MainActor.run { academyName = nameToSave } }
+
+            // 3. Write to player's users doc
+            var playerUpdate: [String: Any] = [
+                "academyId": academyId,
+                "isInAcademy": true,
                 "updatedAt": FieldValue.serverTimestamp()
-            ])
-            // 3. Update invitation
+            ]
+            if !nameToSave.isEmpty { playerUpdate["currentAcademy"] = nameToSave }
+            try? await db.collection("users").document(playerUID).updateData(playerUpdate)
+
+            // 4. Update invitation
             if let invId = notification.invitationId, !invId.isEmpty {
                 try? await db.collection("invitations").document(invId).updateData(["status": "accepted"])
             }
-            // 4. Notify coach
+
+            // 6. Notify coach with full player name and academy name
             if let uid = coachUID {
+                let displayAcademy = nameToSave.isEmpty ? "the academy" : nameToSave
                 let notif: [String: Any] = [
                     "userId": uid,
                     "title": "✅ Invitation Accepted",
-                    "message": "\(playerName) accepted your invitation to join \(category) — \(academyName).",
+                    "message": "\(playerName) accepted your invitation to join \(displayAcademy) — \(category).",
                     "type": "invitation_accepted",
                     "isRead": false,
                     "createdAt": FieldValue.serverTimestamp()

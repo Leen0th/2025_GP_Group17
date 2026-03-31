@@ -171,9 +171,7 @@ struct Post: Identifiable, Equatable {
 // MARK: - Enums
 
 // Represents the different tabs that can be displayed on a user's profile
-enum ContentType {
-    case posts, progress, endorsements
-}
+enum ContentType { case posts, progress, skills }
 
 // Represents the main tabs in the app's `TabView`.
 enum Tab {

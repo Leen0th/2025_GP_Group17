@@ -22,7 +22,7 @@ enum ScoreFilter: String, CaseIterable, Identifiable {
 struct PlayerProfileContentView: View {
     // The view model responsible for fetching and managing all profile data
     @StateObject private var viewModel: PlayerProfileViewModel
-    // The currently selected tab in the content section (Posts, Progress, or Endorsements)
+    // The currently selected tab in the content section (Posts, Progress, or Skills)
     @State private var selectedContent: ContentType = .posts
     // Controls the visibility of the popup explaining the score calculation
     @State private var showScoreInfoAlert = false
@@ -298,16 +298,15 @@ struct PlayerProfileContentView: View {
                                     .padding(.horizontal, 16)
                                     .padding(.top, 8)
                             }
-                            // ProgressTabView() // <-- Placeholder commented out
-                            //EmptyStateView(
-                            //    imageName: "chart.bar.xaxis",
-                            //    message: "To be developed in upcoming sprints"
-                            //)
-                            //.padding(.top, 40)
 
-                        case .endorsements:
-                            EndorsementsListView(endorsements: viewModel.userProfile.endorsements)
-                                .padding(.horizontal)
+                        // MARK: - Skills Tab (replaces Endorsements)
+                        case .skills:
+                            SkillsTabView(
+                                profileUserID: profileUserID ?? Auth.auth().currentUser?.uid ?? "",
+                                isCurrentUser: isCurrentUser
+                            )
+                            .environmentObject(session)
+                            .padding(.horizontal)
                         }
                     }
                     .padding(.bottom, 100)
@@ -517,7 +516,6 @@ struct PlayerProfileContentView: View {
                     Image(systemName: "arrow.up.arrow.down.circle")
                     Text("Sort: \(postSort.rawValue)")
                 }
-                // MODIFIED: New style
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundColor(BrandColors.darkTeal)
                 .padding(.horizontal, 10)
@@ -530,6 +528,7 @@ struct PlayerProfileContentView: View {
         }
         .padding(.top, 8)
     }
+
     // A view builder for the 3-column grid of post thumbnails
     private var postsGrid: some View {
         LazyVGrid(columns: postColumns, spacing: 2) {
@@ -698,7 +697,7 @@ struct TopNavigationBar: View {
                 
             } else if !isAdminViewing {
                 // It's another user. (!isRootProfileView is true)
-                // Show the "Report" button insted
+                // Show the "Report" button instead
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)
                 
                 Button(action: onReport) {
@@ -740,7 +739,6 @@ struct ProfileHeaderView: View {
 
 // MARK: - Stats Grid
 // The main grid of stats on the profile, including the hero score and user-provided details
-// MARK: - Stats Grid (UPDATED)
 struct StatsGridView: View {
     // The profile data to display.
     @ObservedObject var userProfile: UserProfile
@@ -951,7 +949,7 @@ struct StatsGridView: View {
                         Button(action: { withAnimation(.spring()) { showOtherPositions.toggle() } }) {
                             HStack(spacing: 4) {
                                 Text(showOtherPositions ? "Hide Past" : "Past Positions")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
                                 Image(systemName: showOtherPositions ? "chevron.up" : "chevron.down")
                                     .font(.caption)
                             }
@@ -964,7 +962,7 @@ struct StatsGridView: View {
                                     VStack(spacing: 4) {
                                         // Position Name
                                         Text(item.position)
-                                            .font(.system(size: 12, weight: .medium, design: .rounded)) // MATCHES CONTACT FONT
+                                            .font(.system(size: 12, weight: .medium, design: .rounded))
                                             .foregroundColor(BrandColors.darkGray)
                                         
                                         // Score Pills
@@ -997,7 +995,7 @@ struct StatsGridView: View {
                             .padding(.bottom, 4)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
 
                 // Vertical Divider
@@ -1013,7 +1011,7 @@ struct StatsGridView: View {
                         Button(action: { withAnimation(.spring()) { showContactInfo.toggle() } }) {
                             HStack(spacing: 4) {
                                 Text(showContactInfo ? "Hide Contact" : "Contact Info")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded)) // UNIFIED FONT
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
                                 Image(systemName: showContactInfo ? "chevron.up" : "chevron.down")
                                     .font(.caption)
                             }
@@ -1032,7 +1030,7 @@ struct StatsGridView: View {
                             .padding(.bottom, 4)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .top) // TOP ALIGNMENT
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
             }
             .padding(.top, 4)
@@ -1056,7 +1054,7 @@ struct StatsGridView: View {
                 .foregroundColor(accentColor)
                 .frame(width: 16)
             Text(value)
-                .font(.system(size: 12, weight: .medium, design: .rounded)) // UNIFIED FONT
+                .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundColor(BrandColors.darkGray)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1065,7 +1063,7 @@ struct StatsGridView: View {
 }
 
 // MARK: - Content Tab
-// The tab bar for switching between "Posts", "Progress", and "Endorsements".
+// The tab bar for switching between "Posts", "Progress", and "Skills".
 struct ContentTabView: View {
     // The binding to the parent view's selected tab.
     @Binding var selectedContent: ContentType
@@ -1083,7 +1081,7 @@ struct ContentTabView: View {
             if isCurrentUser {
                 ContentTabButton(title: "My progress", type: .progress, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
             }
-            ContentTabButton(title: "Endorsements", type: .endorsements, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
+            ContentTabButton(title: "Skills", type: .skills, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
         }
         .font(.system(size: 16, weight: .medium, design: .rounded))
     }
@@ -1107,63 +1105,6 @@ fileprivate struct ContentTabButton: View {
                 } else { Color.clear.frame(height: 2) }
             }
         }.frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - Endorsements
-// A view that displays a list of `EndorsementCardView`s or an empty state.
-struct EndorsementsListView: View {
-    // The list of endorsements to display.
-    let endorsements: [CoachEndorsement]
-    var body: some View {
-        VStack(spacing: 16) {
-            if endorsements.isEmpty {
-                EmptyStateView(
-                    imageName: "person.badge.shield.checkmark",
-                    message: "To be developed in upcoming sprints"
-                )
-                .padding(.top, 40)
-            } else {
-                ForEach(endorsements) { endorsement in EndorsementCardView(endorsement: endorsement) }
-            }
-        }
-    }
-}
-
-// A card view that displays a single coach endorsement.
-struct EndorsementCardView: View {
-    // The endorsement data to display.
-    let endorsement: CoachEndorsement
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(endorsement.coachImage).resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 44, height: 44).clipShape(Circle())
-                VStack(alignment: .leading) {
-                    Text(endorsement.coachName)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                    // Star rating
-                    HStack(spacing: 2) {
-                        ForEach(0..<5) { i in
-                            Image(systemName: i < endorsement.rating ? "star.fill" : "star")
-                                .font(.caption).foregroundColor(.yellow)
-                        }
-                    }
-                }
-            }
-            Text(endorsement.endorsementText)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding().frame(maxWidth: .infinity, alignment: .leading)
-        .background(BrandColors.background)
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(BrandColors.darkTeal.opacity(0.2), lineWidth: 1)
-        )
     }
 }
 

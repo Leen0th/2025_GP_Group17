@@ -958,6 +958,35 @@ private func loadPending() async {
             if !requestedAcademy.isEmpty {
                 userUpdate["currentAcademy"] = requestedAcademy
                 userUpdate["pendingAcademy"] = FieldValue.delete()
+
+                // Find or create the academy document so it appears in Saudi Academies list.
+                let trimmedName = requestedAcademy.trimmingCharacters(in: .whitespacesAndNewlines)
+                let academySnap = try? await db.collection("academies").getDocuments()
+                var academyDocID: String? = academySnap?.documents.first(where: {
+                    ($0.data()["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == trimmedName
+                })?.documentID
+
+                if academyDocID == nil {
+                    // Academy doesn't exist yet — create it so it shows in Saudi Academies
+                    let newRef = db.collection("academies").document()
+                    try? await newRef.setData([
+                        "name": trimmedName,
+                        "createdAt": FieldValue.serverTimestamp()
+                    ])
+                    academyDocID = newRef.documentID
+                }
+
+                if let aID = academyDocID {
+                    userUpdate["academyId"] = aID
+                    // Ensure coach is in the coaches array of at least one category
+                    let catsSnap = try? await db.collection("academies").document(aID)
+                        .collection("categories").getDocuments()
+                    if let firstCat = catsSnap?.documents.first {
+                        try? await db.collection("academies").document(aID)
+                            .collection("categories").document(firstCat.documentID)
+                            .updateData(["coaches": FieldValue.arrayUnion([uid])])
+                    }
+                }
             }
             batch.updateData(userUpdate, forDocument: userRef)
 

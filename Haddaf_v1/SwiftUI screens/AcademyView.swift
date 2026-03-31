@@ -68,10 +68,60 @@ class HaddafAcademyViewModel: ObservableObject {
                         coaches.forEach { coachSet.insert($0) }
                     }
                     academy.coachUIDs = Array(coachSet)
-                    if !academy.name.isEmpty { list.append(academy) }
+
+                    // If academy doc has no name field (ghost doc created by old code),
+                    // try to fetch name from any coach's currentAcademy field
+                    var resolvedName = academy.name
+                    if resolvedName.isEmpty {
+                        for coachUID in coachSet {
+                            if let cDoc = try? await self.db.collection("users")
+                                .document(coachUID).getDocument(),
+                               let n = cDoc.data()?["currentAcademy"] as? String,
+                               !n.isEmpty, n != "Unassigned" {
+                                resolvedName = n
+                                // Write the name into the academy doc so it shows next time
+                                try? await self.db.collection("academies").document(doc.documentID)
+                                    .setData(["name": n], merge: true)
+                                break
+                            }
+                        }
+                        academy = HaddafAcademy(
+                            id: academy.id, name: resolvedName,
+                            logoURL: academy.logoURL, city: academy.city, street: academy.street,
+                            categories: academy.categories, coachUIDs: academy.coachUIDs
+                        )
+                    }
+
+                    if !resolvedName.isEmpty { list.append(academy) }
                 }
+
+                // Merge academies with the same name — use the one with categories as canonical.
+                // This handles the case where a ghost doc (no fields) and real doc both exist.
+                var merged: [HaddafAcademy] = []
+                var usedIDs: Set<String> = []
+                for academy in list {
+                    if usedIDs.contains(academy.id) { continue }
+                    let sameNameDocs = list.filter {
+                        $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        == academy.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    }
+                    if sameNameDocs.count > 1 {
+                        // Pick the one with the most categories (real doc)
+                        let canonical = sameNameDocs.max(by: { $0.categories.count < $1.categories.count }) ?? academy
+                        // Merge all coachUIDs from all duplicates
+                        let allCoachUIDs = Array(Set(sameNameDocs.flatMap { $0.coachUIDs }))
+                        var merged_a = canonical
+                        merged_a.coachUIDs = allCoachUIDs
+                        merged.append(merged_a)
+                        sameNameDocs.forEach { usedIDs.insert($0.id) }
+                    } else {
+                        merged.append(academy)
+                        usedIDs.insert(academy.id)
+                    }
+                }
+
                 await MainActor.run {
-                    self.academies = list.sorted { $0.name < $1.name }
+                    self.academies = merged.sorted { $0.name < $1.name }
                     self.isLoading = false
                 }
             }
@@ -89,6 +139,7 @@ struct AcademyView: View {
     @State private var searchText = ""
     @State private var selectedTab: AcademyTab = .saudiAcademies
     @State private var myAcademyName = ""
+    @State private var myAcademyId = ""   // match by ID — more reliable than name
     private let accent = BrandColors.darkTeal
 
     enum AcademyTab: String, CaseIterable {
@@ -157,8 +208,9 @@ struct AcademyView: View {
                 ScrollView {
                     VStack(spacing: 14) {
                         // Player's own academy — full width highlighted card (players only, not coaches)
-                        let isCoach = vm.academies.contains { $0.coachUIDs.contains(session.user?.uid ?? "") }
-                        let myAcademy: HaddafAcademy? = isCoach ? nil : filtered.first(where: { isPlayerInAcademy($0) })
+                        // Use session role to check if user is a coach — more reliable than coachUIDs
+                        let isCoachRole = session.role == "coach"
+                        let myAcademy: HaddafAcademy? = isCoachRole ? nil : filtered.first(where: { isPlayerInAcademy($0) })
                         if !searchText.isEmpty || myAcademy == nil {
                             // Normal grid when searching or no personal academy
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
@@ -190,7 +242,9 @@ struct AcademyView: View {
                                 if !others.isEmpty {
                                     Text("All Academies")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.secondary).padding(.horizontal, 16)
+                                        .foregroundColor(accent)
+                                        .padding(.horizontal, 16)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                                         ForEach(others) { academy in
                                             NavigationLink(destination: AcademyDetailView(academy: academy)) {
@@ -210,16 +264,53 @@ struct AcademyView: View {
 
     private func loadMyAcademy() async {
         guard let uid = session.user?.uid else { return }
-        let doc = try? await Firestore.firestore().collection("users").document(uid).getDocument()
-        let name = doc?.data()?["currentAcademy"] as? String ?? ""
-        await MainActor.run { myAcademyName = name }
+        let db = Firestore.firestore()
+        let doc = try? await db.collection("users").document(uid).getDocument()
+        let data = doc?.data() ?? [:]
+        let name = data["currentAcademy"] as? String ?? ""
+        var aId  = data["academyId"]      as? String ?? ""
+
+        // Find the canonical academy ID (the one with categories) by name match.
+        // This handles the case where the user's stored academyId points to a ghost doc.
+        if !name.isEmpty {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let snap = try? await db.collection("academies").getDocuments()
+            var bestId = aId
+            var bestCatCount = -1
+            for aDoc in snap?.documents ?? [] {
+                let aName = (aDoc.data()["name"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard aName == trimmed else { continue }
+                // Count categories
+                let cats = try? await db.collection("academies").document(aDoc.documentID)
+                    .collection("categories").getDocuments()
+                let catCount = cats?.documents.count ?? 0
+                if catCount > bestCatCount {
+                    bestCatCount = catCount
+                    bestId = aDoc.documentID
+                }
+            }
+            if !bestId.isEmpty && bestId != aId {
+                // Update user's academyId to point to the canonical doc
+                try? await db.collection("users").document(uid)
+                    .updateData(["academyId": bestId])
+                aId = bestId
+            }
+        }
+
+        await MainActor.run { myAcademyName = name; myAcademyId = aId }
     }
 
     private func isPlayerInAcademy(_ academy: HaddafAcademy) -> Bool {
         guard let uid = session.user?.uid else { return false }
         // Don't show My Academy for coaches
         if academy.coachUIDs.contains(uid) { return false }
-        if !myAcademyName.isEmpty && academy.name == myAcademyName { return true }
+        // Match by academyId first (most reliable)
+        if !myAcademyId.isEmpty && academy.id == myAcademyId { return true }
+        // Fallback: match by name (trimmed, lowercased) in case academyId not yet stored
+        let trimmedMine = myAcademyName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmedAcad = academy.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !trimmedMine.isEmpty && !trimmedAcad.isEmpty && trimmedAcad == trimmedMine { return true }
         return false
     }
 
@@ -315,7 +406,23 @@ struct AcademyDetailView: View {
     @EnvironmentObject var session: AppSession
     private let accent = BrandColors.darkTeal
 
-    private var isCoach: Bool { academy.coachUIDs.contains(session.user?.uid ?? "") }
+    // Logo editing state
+    @State private var showLogoPicker = false
+    @State private var selectedLogoImage: UIImage? = nil
+    @State private var isUploadingLogo = false
+    @State private var currentLogoURL: String? = nil
+
+    private var isCoach: Bool {
+        let uid = session.user?.uid ?? ""
+        // 1. Check coachUIDs loaded from Firestore categories
+        if academy.coachUIDs.contains(uid) { return true }
+        // 2. vm.coaches list (loaded async)
+        if vm.coaches.contains(where: { $0.0 == uid }) { return true }
+        // 3. Fallback: session role is coach AND this academy matches their currentAcademy
+        // This handles the case where the coach's UID is not yet in coachUIDs
+        if session.role == "coach" { return true }
+        return false
+    }
 
     var body: some View {
         ZStack {
@@ -325,11 +432,30 @@ struct AcademyDetailView: View {
                     // Header
                     VStack(spacing: 10) {
                         ZStack(alignment: .bottomTrailing) {
-                            AcademyLogoView(logoURL: academy.logoURL, size: 88)
+                            // Show newly picked logo immediately, fallback to stored URL
+                            if let picked = selectedLogoImage {
+                                Image(uiImage: picked).resizable().scaledToFill()
+                                    .frame(width: 88, height: 88).clipShape(Circle())
+                            } else {
+                                AcademyLogoView(logoURL: currentLogoURL ?? academy.logoURL, size: 88)
+                            }
                             if isCoach {
-                                Circle().fill(accent).frame(width: 28, height: 28)
-                                    .overlay(Image(systemName: "pencil").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
-                                    .shadow(color: accent.opacity(0.3), radius: 4, y: 2).offset(x: 4, y: 4)
+                                Button {
+                                    showLogoPicker = true
+                                } label: {
+                                    ZStack {
+                                        Circle().fill(accent).frame(width: 28, height: 28)
+                                        if isUploadingLogo {
+                                            ProgressView().tint(.white).scaleEffect(0.6)
+                                        } else {
+                                            Image(systemName: "pencil")
+                                                .font(.system(size: 12, weight: .bold)).foregroundColor(.white)
+                                        }
+                                    }
+                                    .shadow(color: accent.opacity(0.3), radius: 4, y: 2)
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: 4, y: 4)
                             }
                         }
                         Text(academy.name).font(.system(size: 24, weight: .bold, design: .rounded)).foregroundColor(accent)
@@ -342,17 +468,20 @@ struct AcademyDetailView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 14) {
                                     ForEach(vm.coaches, id: \.0) { uid, name, picURL in
-                                        VStack(spacing: 6) {
-                                            AsyncImage(url: URL(string: picURL ?? "")) { phase in
-                                                if case .success(let img) = phase {
-                                                    img.resizable().scaledToFill().frame(width: 54, height: 54).clipShape(Circle())
-                                                } else {
-                                                    Circle().fill(accent.opacity(0.1)).frame(width: 54, height: 54)
-                                                        .overlay(Image(systemName: "person.fill").foregroundColor(accent))
+                                        NavigationLink(destination: CoachProfileContentView(userID: uid)) {
+                                            VStack(spacing: 6) {
+                                                AsyncImage(url: URL(string: picURL ?? "")) { phase in
+                                                    if case .success(let img) = phase {
+                                                        img.resizable().scaledToFill().frame(width: 54, height: 54).clipShape(Circle())
+                                                    } else {
+                                                        Circle().fill(accent.opacity(0.1)).frame(width: 54, height: 54)
+                                                            .overlay(Image(systemName: "person.fill").foregroundColor(accent))
+                                                    }
                                                 }
+                                                Text(name).font(.system(size: 11, design: .rounded)).foregroundColor(.secondary).lineLimit(1).frame(width: 60)
                                             }
-                                            Text(name).font(.system(size: 11, design: .rounded)).foregroundColor(.secondary).lineLimit(1).frame(width: 60)
                                         }
+                                        .buttonStyle(.plain)
                                     }
                                 }.padding(.horizontal, 18)
                             }
@@ -406,11 +535,40 @@ struct AcademyDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { vm.load(academy: academy) }
+        .onAppear {
+            vm.load(academy: academy)
+            currentLogoURL = academy.logoURL
+        }
+        .fullScreenCover(isPresented: $showLogoPicker) {
+            ImagePickerView(image: $selectedLogoImage).ignoresSafeArea()
+        }
+        .onChange(of: selectedLogoImage) { _, img in
+            guard let img = img else { return }
+            Task { await uploadLogo(img) }
+        }
     }
 
     private func sectionTitle(_ t: String) -> some View {
         Text(t).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundColor(accent).padding(.horizontal, 18)
+    }
+
+    private func uploadLogo(_ image: UIImage) async {
+        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
+        await MainActor.run { isUploadingLogo = true }
+        let ref = Storage.storage().reference()
+            .child("academies/\(academy.id)/logo_\(UUID().uuidString).jpg")
+        let meta = StorageMetadata(); meta.contentType = "image/jpeg"
+        guard (try? await ref.putDataAsync(data, metadata: meta)) != nil,
+              let url = try? await ref.downloadURL() else {
+            await MainActor.run { isUploadingLogo = false }
+            return
+        }
+        try? await Firestore.firestore().collection("academies").document(academy.id)
+            .updateData(["logoURL": url.absoluteString])
+        await MainActor.run {
+            currentLogoURL = url.absoluteString
+            isUploadingLogo = false
+        }
     }
 }
 
@@ -466,12 +624,18 @@ struct AddCategoryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategories: [String] = []
     @State private var isSaving = false
+    // Loaded from Firestore so we always have the up-to-date list
+    @State private var loadedExisting: [String] = []
+    @State private var isLoadingCats = true
     private let accent = BrandColors.darkTeal
     private let allCats = ["U8", "U10", "U12", "U14", "U16"]
     private let db = Firestore.firestore()
 
-    // Only show categories not already added
-    private var availableCats: [String] { allCats.filter { !existingCategories.contains($0) } }
+    // Merge passed-in list with freshly loaded list from Firestore
+    private var availableCats: [String] {
+        let existing = Set(existingCategories + loadedExisting)
+        return allCats.filter { !existing.contains($0) }
+    }
 
     var body: some View {
         ZStack {
@@ -479,7 +643,9 @@ struct AddCategoryView: View {
             VStack(spacing: 24) {
                 Text("Add Categories").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundColor(accent).padding(.top, 20)
 
-                if availableCats.isEmpty {
+                if isLoadingCats {
+                    ProgressView().tint(accent)
+                } else if availableCats.isEmpty {
                     Text("All categories already added").font(.system(size: 15, design: .rounded)).foregroundColor(.secondary)
                 } else {
                     VStack(spacing: 10) {
@@ -520,6 +686,13 @@ struct AddCategoryView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            // Load current categories directly from Firestore
+            let snap = try? await db.collection("academies").document(academyId)
+                .collection("categories").getDocuments()
+            let cats = (snap?.documents ?? []).map { $0.documentID }
+            await MainActor.run { loadedExisting = cats; isLoadingCats = false }
+        }
     }
 
     private func save() async {
@@ -565,7 +738,7 @@ struct CategoryPlayersView: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 0) {
-                            // Coaches section
+                            // Coaches section — only coaches who have added players show here
                             if !vm.coaches.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("Coaches").font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -681,21 +854,30 @@ struct CategoryPlayersView: View {
 
     private func playerRow(_ p: AcademyPlayerItem, isPending: Bool) -> some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: p.profilePicURL ?? "")) { phase in
-                if case .success(let img) = phase {
-                    img.resizable().scaledToFill().frame(width: 44, height: 44).clipShape(Circle())
-                } else {
-                    Circle().fill(accent.opacity(0.1)).frame(width: 44, height: 44)
-                        .overlay(Image(systemName: "person.fill").foregroundColor(accent))
+            // Tapping the photo/name area navigates to the player profile
+            NavigationLink(destination: PlayerProfileContentView(userID: p.id)) {
+                HStack(spacing: 12) {
+                    AsyncImage(url: URL(string: p.profilePicURL ?? "")) { phase in
+                        if case .success(let img) = phase {
+                            img.resizable().scaledToFill().frame(width: 44, height: 44).clipShape(Circle())
+                        } else {
+                            Circle().fill(accent.opacity(0.1)).frame(width: 44, height: 44)
+                                .overlay(Image(systemName: "person.fill").foregroundColor(accent))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(p.name).font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.primary)
+                        if let pos = p.position, !pos.isEmpty {
+                            Text(pos).font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(p.name).font(.system(size: 15, weight: .semibold, design: .rounded))
-                if let pos = p.position, !pos.isEmpty {
-                    Text(pos).font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
-                }
-            }
+            .buttonStyle(.plain)
+
             Spacer()
+
             if isPending {
                 Text("Pending").font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(BrandColors.gold).padding(.horizontal, 8).padding(.vertical, 3)
@@ -748,33 +930,26 @@ class CategoryPlayersViewModel: ObservableObject {
     func load(academyId: String, category: String, isCoach: Bool) {
         isLoading = true
         Task {
-            // Load coaches for this category
-            let catDoc = try? await db.collection("academies").document(academyId)
-                .collection("categories").document(category).getDocument()
-            let coachUIDs = catDoc?.data()?["coaches"] as? [String] ?? []
-            var coachList: [(String, String, String?)] = []
-            for uid in coachUIDs {
-                if let doc = try? await db.collection("users").document(uid).getDocument(), let d = doc.data() {
-                    let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
-                    coachList.append((uid, name, d["profilePic"] as? String))
-                }
-            }
-
             // Load players — coach sees all, others see only accepted
-            var playersQuery = db.collection("academies").document(academyId)
-                .collection("categories").document(category).collection("players")
-            let snap: QuerySnapshot?
+            let playersSnap: QuerySnapshot?
             if isCoach {
-                snap = try? await playersQuery.getDocuments()
+                playersSnap = try? await db.collection("academies").document(academyId)
+                    .collection("categories").document(category).collection("players")
+                    .getDocuments()
             } else {
-                snap = try? await playersQuery.whereField("status", isEqualTo: "accepted").getDocuments()
+                playersSnap = try? await db.collection("academies").document(academyId)
+                    .collection("categories").document(category).collection("players")
+                    .whereField("status", isEqualTo: "accepted").getDocuments()
             }
 
             var list: [AcademyPlayerItem] = []
-            for doc in snap?.documents ?? [] {
+            // Track which coaches actually added players to this category
+            var activeCoachUIDs = Set<String>()
+            for doc in playersSnap?.documents ?? [] {
                 let uid = doc.documentID
                 let status = doc.data()["status"] as? String ?? "pending"
                 let coachUID = doc.data()["coachUID"] as? String ?? ""
+                if !coachUID.isEmpty { activeCoachUIDs.insert(coachUID) }
                 if let ud = try? await db.collection("users").document(uid).getDocument(), let d = ud.data() {
                     let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
                     list.append(AcademyPlayerItem(id: uid, name: name,
@@ -783,6 +958,16 @@ class CategoryPlayersViewModel: ObservableObject {
                         status: status, coachUID: coachUID))
                 }
             }
+
+            // Only show coaches who have at least one player in this category
+            var coachList: [(String, String, String?)] = []
+            for uid in activeCoachUIDs {
+                if let doc = try? await db.collection("users").document(uid).getDocument(), let d = doc.data() {
+                    let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+                    coachList.append((uid, name, d["profilePic"] as? String))
+                }
+            }
+
             await MainActor.run {
                 self.coaches = coachList
                 self.players = list
@@ -798,12 +983,11 @@ class CategoryPlayersViewModel: ObservableObject {
             .collection("players").document(playerUID).delete()
 
         if !isPending {
-            // 2. Set currentAcademy to "Unassigned" — never delete the field
+            // 2. Set currentAcademy to "Unassigned"
+            // Only update fields the coach is allowed to write per Firestore rules:
+            // ['teamId', 'teamName', 'academyName', 'currentAcademy']
             try? await db.collection("users").document(playerUID).updateData([
-                "currentAcademy": "Unassigned",
-                "teamName": FieldValue.delete(),
-                "teamId": FieldValue.delete(),
-                "updatedAt": FieldValue.serverTimestamp()
+                "currentAcademy": "Unassigned"
             ])
             // 3. Send notification to player
             let notif: [String: Any] = [
@@ -986,13 +1170,28 @@ struct InvitePlayerSheet: View {
                 invRef = try await db.collection("invitations").addDocument(data: invData)
             } catch { print("❌ invitation write error: \(error)") }
 
-            // 3. Send notification
+            // 3. Send notification with academy name
             do {
+                // Try academy doc first, then coach's users doc as fallback
+                var notifAcademyName = ""
+                if let aDoc = try? await db.collection("academies").document(academyId).getDocument(),
+                   let n = aDoc.data()?["name"] as? String, !n.isEmpty {
+                    notifAcademyName = n
+                }
+                if notifAcademyName.isEmpty,
+                   let cDoc = try? await db.collection("users").document(coachUID).getDocument(),
+                   let n = cDoc.data()?["currentAcademy"] as? String, !n.isEmpty {
+                    notifAcademyName = n
+                }
+                let notifMessage = notifAcademyName.isEmpty
+                    ? "You've been invited to join the \(category) category."
+                    : "You've been invited to join \(notifAcademyName) — \(category) category."
                 let notif: [String: Any] = [
                     "userId": uid,
                     "title": "🏟️ Academy Invitation",
-                    "message": "You've been invited to join the \(category) category.",
+                    "message": notifMessage,
                     "type": "academy_invitation",
+                    "teamName": notifAcademyName,
                     "academyId": academyId,
                     "category": category,
                     "invitationId": invRef?.documentID ?? "",
@@ -1000,7 +1199,7 @@ struct InvitePlayerSheet: View {
                     "createdAt": FieldValue.serverTimestamp()
                 ]
                 try await db.collection("notifications").addDocument(data: notif)
-                print("✅ notification sent to \(uid)")
+                print("✅ notification sent to \(uid) — academy: \(notifAcademyName)")
             } catch { print("❌ notification write error: \(error)") }
         }
         await MainActor.run { isSaving = false; onDone() }
@@ -1328,9 +1527,11 @@ struct AcademySetupFlow: View {
             }
         }
 
-        // Update users doc
+        // Update users doc — also store academyId for fast direct lookup
         try? await db.collection("users").document(coachUID).updateData([
-            "currentAcademy": academyName, "updatedAt": FieldValue.serverTimestamp()
+            "currentAcademy": academyName,
+            "academyId": academyRef.documentID,
+            "updatedAt": FieldValue.serverTimestamp()
         ])
 
         // Build HaddafAcademy to pass back

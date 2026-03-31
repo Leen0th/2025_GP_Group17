@@ -51,7 +51,7 @@ class CoachProfileViewModel: ObservableObject {
                 await MainActor.run { self.isLoading = false }
                 return
             }
-            
+
             // Read currentAcademy from users doc directly
             let currentAcademy = data["currentAcademy"] as? String ?? ""
             let hasTeam = !currentAcademy.isEmpty
@@ -72,12 +72,12 @@ class CoachProfileViewModel: ObservableObject {
                 if let dobTS = data["dob"] as? Timestamp {
                     self.coachProfile.dob = dobTS.dateValue()
                 }
-                
+
                 // 2. Handle Profile Picture asynchronously
                 if let urlString = data["profilePic"] as? String,
                    !urlString.isEmpty,
                    let url = URL(string: urlString) {
-                    
+
                     // Start background download immediately without delay
                     Task(priority: .userInitiated) {
                         do {
@@ -92,7 +92,7 @@ class CoachProfileViewModel: ObservableObject {
                         }
                     }
                 }
-                
+
                 self.isLoading = false
             }
         } catch {
@@ -100,7 +100,6 @@ class CoachProfileViewModel: ObservableObject {
             await MainActor.run { self.isLoading = false }
         }
     }
-
 }
 
 // MARK: - Coach Profile Content View
@@ -112,8 +111,15 @@ struct CoachProfileContentView: View {
     @State private var showNotificationsList = false
     @State private var showLeaveAcademyConfirm = false
 
+    // Navigation state lifted up from CurrentAcademyView so that
+    // .navigationDestination sits directly inside the NavigationStack owner,
+    // which is the only reliable way to trigger push navigation in SwiftUI.
+    @State private var navigateToAcademyDetail = false
+    @State private var navigateToCreatedAcademy = false
+    @State private var destinationAcademy: HaddafAcademy? = nil
+
     private var isCurrentUser: Bool
-    private var isRootProfileView: Bool = true // Adjust if needed
+    private var isRootProfileView: Bool = true
 
     var isAdminViewing: Bool
     var onAdminApprove: (() -> Void)?
@@ -143,140 +149,176 @@ struct CoachProfileContentView: View {
 
     var body: some View {
         NavigationStack {
-        ZStack {
-            BrandColors.backgroundGradientEnd.ignoresSafeArea()
-            ScrollView {
-                if viewModel.isLoading {
-                    ProgressView()
-                        .padding(.top, 50)
-                        .tint(BrandColors.darkTeal)
-                } else {
-                    VStack(spacing: 24) {
-                        TopNavigationBarCoach(
-                            coachProfile: viewModel.coachProfile,
-                            goToSettings: $goToSettings,
-                            showNotifications: $showNotificationsList,
-                            isCurrentUser: isCurrentUser,
-                            isRootProfileView: isRootProfileView,
-                            onReport: {},
-                            reportService: ReportStateService.shared,
-                            reportedID: viewModel.coachProfile.email,
-                            isAdminViewing: isAdminViewing,
-                            onAdminApprove: onAdminApprove,
-                            onAdminReject: onAdminReject
-                        )
-                        ProfileHeaderViewCoach(coachProfile: viewModel.coachProfile)
-                        InfoGridViewCoach(coachProfile: viewModel.coachProfile)
-                        ContentTabViewCoach(selectedContent: $selectedContent)
-                        switch selectedContent {
-                        case .currentAcademy:
-                            CurrentAcademyView(
+            ZStack {
+                BrandColors.backgroundGradientEnd.ignoresSafeArea()
+                ScrollView {
+                    if viewModel.isLoading {
+                        ProgressView()
+                            .padding(.top, 50)
+                            .tint(BrandColors.darkTeal)
+                    } else {
+                        VStack(spacing: 24) {
+                            TopNavigationBarCoach(
                                 coachProfile: viewModel.coachProfile,
+                                goToSettings: $goToSettings,
+                                showNotifications: $showNotificationsList,
                                 isCurrentUser: isCurrentUser,
-                                showLeaveConfirm: $showLeaveAcademyConfirm
+                                isRootProfileView: isRootProfileView,
+                                onReport: {},
+                                reportService: ReportStateService.shared,
+                                reportedID: viewModel.coachProfile.email,
+                                isAdminViewing: isAdminViewing,
+                                onAdminApprove: onAdminApprove,
+                                onAdminReject: onAdminReject
                             )
-                            .padding(.horizontal, 20)
-                            .padding(.top, 10)
-                        case .matchSchedule:
-                            EmptyStateView(
-                                imageName: "calendar",
-                                message: "To be developed in the next sprint"
-                            )
-                            .padding(.top, 40)
-                        }
-                    }
-                    .padding(.bottom, 100)
-                }
-            }
-            .navigationDestination(isPresented: $goToSettings) {
-                SettingsViewCoach(coachProfile: viewModel.coachProfile)
-            }
-            .navigationDestination(isPresented: $showNotificationsList) {
-                NotificationsView()
-                    .environmentObject(session)
-            }
-
-            // Full-screen Leave Academy popup — same style as Logout
-            if showLeaveAcademyConfirm {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-
-                GeometryReader { geometry in
-                    VStack {
-                        Spacer()
-                        VStack(spacing: 20) {
-                            Text("Leave Academy?")
-                                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .foregroundColor(.primary)
-                                .multilineTextAlignment(.center)
-
-                            Text("Are you sure you want to leave \(viewModel.coachProfile.currentAcademy)?")
-                                .font(.system(size: 14, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 24)
-
-                            HStack(spacing: 16) {
-                                Button("No") {
-                                    withAnimation { showLeaveAcademyConfirm = false }
-                                }
-                                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                                .foregroundColor(BrandColors.darkGray)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(BrandColors.lightGray)
-                                .cornerRadius(12)
-
-                                Button("Yes") {
-                                    withAnimation { showLeaveAcademyConfirm = false }
-                                    Task { await leaveAcademy() }
-                                }
-                                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.red)
-                                .cornerRadius(12)
+                            ProfileHeaderViewCoach(coachProfile: viewModel.coachProfile)
+                            InfoGridViewCoach(coachProfile: viewModel.coachProfile)
+                            ContentTabViewCoach(selectedContent: $selectedContent)
+                            switch selectedContent {
+                            case .currentAcademy:
+                                CurrentAcademyView(
+                                    coachProfile: viewModel.coachProfile,
+                                    isCurrentUser: isCurrentUser,
+                                    showLeaveConfirm: $showLeaveAcademyConfirm,
+                                    navigateToAcademyDetail: $navigateToAcademyDetail,
+                                    navigateToCreated: $navigateToCreatedAcademy,
+                                    destinationAcademy: $destinationAcademy
+                                )
+                                .padding(.horizontal, 20)
+                                .padding(.top, 10)
+                            case .matchSchedule:
+                                EmptyStateView(
+                                    imageName: "calendar",
+                                    message: "To be developed in the next sprint"
+                                )
+                                .padding(.top, 40)
                             }
-                            .padding(.top, 4)
                         }
-                        .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
-                        .frame(width: 320)
-                        .background(BrandColors.background)
-                        .cornerRadius(20)
-                        .shadow(radius: 12)
-                        Spacer()
+                        .padding(.bottom, 100)
                     }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
                 }
-                .transition(.scale)
+                .navigationDestination(isPresented: $goToSettings) {
+                    SettingsViewCoach(coachProfile: viewModel.coachProfile)
+                }
+                .navigationDestination(isPresented: $showNotificationsList) {
+                    NotificationsView()
+                        .environmentObject(session)
+                }
+                // These two are lifted from CurrentAcademyView so they live
+                // directly inside the NavigationStack — the only place SwiftUI
+                // reliably handles push navigation.
+                .navigationDestination(isPresented: $navigateToAcademyDetail) {
+                    if let academy = destinationAcademy {
+                        AcademyDetailView(academy: academy)
+                            .environmentObject(session)
+                    }
+                }
+                .navigationDestination(isPresented: $navigateToCreatedAcademy) {
+                    if let academy = destinationAcademy {
+                        AcademyDetailView(academy: academy)
+                            .environmentObject(session)
+                    }
+                }
+
+                // Full-screen Leave Academy confirmation popup
+                if showLeaveAcademyConfirm {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer()
+                            VStack(spacing: 20) {
+                                Text("Leave Academy?")
+                                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.center)
+
+                                Text("Are you sure you want to leave \(viewModel.coachProfile.currentAcademy)?")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 24)
+
+                                HStack(spacing: 16) {
+                                    Button("No") {
+                                        withAnimation { showLeaveAcademyConfirm = false }
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(BrandColors.darkGray)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(BrandColors.lightGray)
+                                    .cornerRadius(12)
+
+                                    Button("Yes") {
+                                        withAnimation { showLeaveAcademyConfirm = false }
+                                        Task { await leaveAcademy() }
+                                    }
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.red)
+                                    .cornerRadius(12)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
+                            .frame(width: 320)
+                            .background(BrandColors.background)
+                            .cornerRadius(20)
+                            .shadow(radius: 12)
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
+                    .transition(.scale)
+                }
             }
-        }
-        .animation(.easeInOut, value: showLeaveAcademyConfirm)
-        .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
-            Task {
-                await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
+            .animation(.easeInOut, value: showLeaveAcademyConfirm)
+            .onReceive(NotificationCenter.default.publisher(for: .profileUpdated)) { _ in
+                Task {
+                    await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
-            Task {
-                await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
+            .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
+                Task {
+                    await viewModel.fetchProfile(userID: Auth.auth().currentUser?.uid ?? "")
+                }
             }
-        }
-        .navigationBarBackButtonHidden(true)
+            .navigationBarBackButtonHidden(true)
         } // end NavigationStack
     }
 
     private func leaveAcademy() async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
         do {
-            try await Firestore.firestore().collection("users").document(uid).updateData([
-                "currentAcademy": FieldValue.delete()
+            // 1. Remove coach from all categories' coaches array in the academy
+            let userDoc = try? await db.collection("users").document(uid).getDocument()
+            let academyId = userDoc?.data()?["academyId"] as? String ?? ""
+            if !academyId.isEmpty {
+                let catsSnap = try? await db.collection("academies").document(academyId)
+                    .collection("categories").getDocuments()
+                for catDoc in catsSnap?.documents ?? [] {
+                    try? await db.collection("academies").document(academyId)
+                        .collection("categories").document(catDoc.documentID)
+                        .updateData(["coaches": FieldValue.arrayRemove([uid])])
+                }
+            }
+
+            // 2. Clear academy fields from users doc
+            try await db.collection("users").document(uid).updateData([
+                "currentAcademy": FieldValue.delete(),
+                "academyId": FieldValue.delete(),
+                "isInAcademy": false
             ])
             await MainActor.run {
                 viewModel.coachProfile.currentAcademy = ""
+                viewModel.coachProfile.pendingAcademy = ""
             }
         } catch {
             print("Error leaving academy: \(error)")
@@ -312,7 +354,7 @@ struct TopNavigationBarCoach: View {
             }
             Spacer()
             if isAdminViewing {
-                // Admin viewing - show approve/reject buttons (same style as in coach cards)
+                // Admin viewing — show approve/reject buttons
                 HStack(spacing: 8) {
                     if let onApprove = onAdminApprove {
                         Button(action: onApprove) {
@@ -325,7 +367,7 @@ struct TopNavigationBarCoach: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    
+
                     if let onReject = onAdminReject {
                         Button(action: onReject) {
                             Text("Reject")
@@ -356,7 +398,7 @@ struct TopNavigationBarCoach: View {
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
             } else if !isAdminViewing {
-                // Only show report flag if not admin
+                // Show report flag only when not admin
                 let isReported = reportService.reportedProfileIDs.contains(reportedID)
                 Button(action: onReport) {
                     Image(systemName: isReported ? "flag.fill" : "flag")
@@ -432,9 +474,9 @@ struct InfoGridViewCoach: View {
                 let hasPendingChange = !coachProfile.pendingAcademy.isEmpty && !coachProfile.currentAcademy.isEmpty
                 let isPendingJoin    = !coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty
                 let academyDisplay: String = {
-                    if hasPendingChange { return "-" }                          // change pending → hide current
+                    if hasPendingChange { return "-" }
                     if !coachProfile.currentAcademy.isEmpty { return coachProfile.currentAcademy }
-                    if isPendingJoin { return coachProfile.pendingAcademy }      // first join pending → show name
+                    if isPendingJoin { return coachProfile.pendingAcademy }
                     return "-"
                 }()
                 StatItem(title: "ACADEMY NAME", value: academyDisplay, isPending: isPendingJoin)
@@ -473,7 +515,6 @@ struct InfoGridViewCoach: View {
         )
         .padding(.horizontal)
     }
-
 }
 
 // Content Tab for Coach
@@ -509,6 +550,7 @@ fileprivate struct ContentTabButton: View {
         }.frame(maxWidth: .infinity)
     }
 }
+
 // MARK: - Edit Coach Profile View
 struct EditCoachProfileView: View {
     @Environment(\.dismiss) private var dismiss
@@ -536,7 +578,7 @@ struct EditCoachProfileView: View {
     @State private var emailCheckError: String? = nil
     @State private var emailCheckTask: Task<Void, Never>? = nil
     @State private var isCheckingEmail = false
-    
+
     // Phone State
     @State private var phone: String
     @State private var isPhoneNumberVisible: Bool
@@ -591,8 +633,8 @@ struct EditCoachProfileView: View {
         _email = State(initialValue: authEmail)
         _isEmailVisible = State(initialValue: coachProfile.isEmailVisible)
         _profileImage = State(initialValue: coachProfile.profileImage)
-        
-        // Initialize phone - Extract local phone part (remove +966)
+
+        // Initialize phone — extract local part (remove +966 prefix)
         let storedPhone = coachProfile.phone
         let localPart = storedPhone.hasPrefix("+966") ? String(storedPhone.dropFirst(4)) : storedPhone
         _phone = State(initialValue: localPart)
@@ -833,7 +875,7 @@ struct EditCoachProfileView: View {
                 }
             }
 
-            // EMAIL ERRORS
+            // Email error messages
             if !email.isEmpty {
                 if !isEmailFieldValid {
                     Text("Please enter a valid email address (name@domain).")
@@ -849,7 +891,7 @@ struct EditCoachProfileView: View {
                         .foregroundColor(.red)
                 }
             }
-            
+
             // Phone Field
             fieldLabel("Phone number")
             roundedField {
@@ -863,7 +905,7 @@ struct EditCoachProfileView: View {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(primary.opacity(0.08))
                         )
-                    
+
                     TextField("", text: Binding(
                         get: { phone },
                         set: { val in
@@ -895,13 +937,12 @@ struct EditCoachProfileView: View {
             }
         }
     }
-    
+
     private var isPhoneValid: Bool {
         isValidPhone(code: selectedDialCode, local: phone)
     }
 
-
-    // Toggles Section (Reused)
+    // Toggles Section
     private var togglesSection: some View {
         VStack(spacing: 16) {
             HStack {
@@ -913,7 +954,7 @@ struct EditCoachProfileView: View {
                     .labelsHidden()
                     .tint(primary)
             }
-            
+
             HStack {
                 Text("Make my phone number visible")
                     .font(.system(size: 16, design: .rounded))
@@ -927,7 +968,7 @@ struct EditCoachProfileView: View {
         .padding(.top, 10)
     }
 
-    // Update Button (Reused)
+    // Update Button
     private var updateButton: some View {
         Button { Task { await saveChanges() } } label: {
             HStack {
@@ -942,7 +983,7 @@ struct EditCoachProfileView: View {
         .opacity((!isFormValid || isSaving || isCheckingEmail) ? 0.6 : 1.0)
     }
 
-    // MARK: - Helper Functions (Reused from EditProfileView)
+    // MARK: - Helper Functions
     private func checkEmailImmediately() {
         emailCheckTask?.cancel(); emailExists = false; emailCheckError = nil; isCheckingEmail = false
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1009,7 +1050,7 @@ struct EditCoachProfileView: View {
 
         do {
             let fullPhone = selectedDialCode + phone
-            
+
             var userUpdates: [String: Any] = [
                 "firstName": name.split(separator: " ").first.map(String.init) ?? name,
                 "lastName": name.split(separator: " ").dropFirst().joined(separator: " "),
@@ -1024,7 +1065,7 @@ struct EditCoachProfileView: View {
                 userUpdates["email"] = email
             }
 
-            // Profile Pic
+            // Upload profile picture if changed
             let oldImage = coachProfile.profileImage
             if let newImage = profileImage, newImage != oldImage {
                 if let imageData = newImage.jpegData(compressionQuality: 0.8) {
@@ -1040,7 +1081,7 @@ struct EditCoachProfileView: View {
 
             try await db.collection("users").document(uid).setData(userUpdates, merge: true)
 
-            // Update Local Object
+            // Update local model
             await MainActor.run {
                 coachProfile.name = name
                 coachProfile.location = location
@@ -1214,7 +1255,7 @@ struct EditCoachProfileView: View {
         let pattern = #"^(?![.])([A-Za-z0-9._%+-]{1,64})(?<![.])@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$"#
         return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
     }
-    
+
     private func isValidPhone(code: String, local: String) -> Bool {
         guard !local.isEmpty else { return false }
         let len = local.count
@@ -1223,16 +1264,17 @@ struct EditCoachProfileView: View {
         return ok
     }
 }
+
 // MARK: - Settings View for Coach
 struct SettingsViewCoach: View {
     @EnvironmentObject var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @Environment(\.presentationMode) var presentationMode
-    @ObservedObject var coachProfile: CoachProfile  // Changed from UserProfile to CoachProfile
-    
+    @ObservedObject var coachProfile: CoachProfile
+
     private let primary = BrandColors.darkTeal
     private let dividerColor = Color.black.opacity(0.15)
-    
+
     @State private var showLogoutPopup = false
     @State private var isSigningOut = false
     @State private var signOutError: String?
@@ -1272,7 +1314,7 @@ struct SettingsViewCoach: View {
                         settingsRow(icon: "person", title: "Edit Profile",
                                     iconColor: primary, showChevron: true, showDivider: true)
                     }
-                    
+
                     NavigationLink {
                         NotificationsView()
                     } label: {
@@ -1302,7 +1344,7 @@ struct SettingsViewCoach: View {
                 Spacer()
             }
 
-            // MARK: - Logout Popup (identical to player version)
+            // MARK: - Logout Popup
             if showLogoutPopup {
                 Color.black.opacity(0.4)
                     .ignoresSafeArea()
@@ -1392,28 +1434,28 @@ struct SettingsViewCoach: View {
 
     private func signOutFirebase() {
         do {
-            // 1. أرسل notification فوراً لإغلاق fullScreenCover
+            // 1. Post notification immediately to close any fullScreenCover
             NotificationCenter.default.post(name: .forceLogout, object: nil)
-            
-            // 2. امسح session
+
+            // 2. Clear session
             session.user = nil
             session.role = nil
             session.isVerifiedCoach = false
             session.coachStatus = nil
             session.isGuest = false
             session.userListener?.remove()
-            
-            // 3. سجل خروج من Firebase
+
+            // 3. Sign out from Firebase
             try Auth.auth().signOut()
-            
-            // 4. اطلع من Settings
+
+            // 4. Dismiss settings screen
             DispatchQueue.main.async {
                 self.presentationMode.wrappedValue.dismiss()
             }
-            
+
             isSigningOut = false
             showLogoutPopup = false
-            
+
         } catch {
             isSigningOut = false
             signOutError = "Failed to sign out: \(error.localizedDescription)"
@@ -1427,7 +1469,7 @@ struct SettingsViewCoach: View {
         ReportStateService.shared.reset()
     }
 
-    // MARK: - View Builders (identical to player version)
+    // MARK: - View Builders
     private func settingsRow(icon: String, title: String,
                              iconColor: Color, showChevron: Bool, showDivider: Bool) -> some View {
         VStack(spacing: 0) {
@@ -1467,30 +1509,34 @@ struct CurrentAcademyView: View {
     @ObservedObject var coachProfile: CoachProfile
     var isCurrentUser: Bool = true
     @Binding var showLeaveConfirm: Bool
+
+    // Navigation state is owned by CoachProfileContentView (the NavigationStack owner)
+    // and passed down as bindings, so .navigationDestination works reliably.
+    @Binding var navigateToAcademyDetail: Bool
+    @Binding var navigateToCreated: Bool
+    @Binding var destinationAcademy: HaddafAcademy?
+
     private let accent = BrandColors.darkTeal
 
     @State private var showChangeAcademySheet = false
     @State private var isProcessing = false
     @State private var errorText: String? = nil
     @State private var showAcademySetup = false
-    @State private var createdAcademy: HaddafAcademy? = nil
-    @State private var navigateToCreated = false
-    @State private var navigateToAcademyDetail = false
-    @State private var loadedAcademy: HaddafAcademy? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Show the appropriate row based on academy/pending state
             if coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty {
                 // No academy at all
                 noAcademyRow
             } else if !coachProfile.pendingAcademy.isEmpty && coachProfile.currentAcademy.isEmpty {
-                // Pending join — first time
+                // Pending join — first time joining
                 pendingAcademyRow
             } else if !coachProfile.pendingAcademy.isEmpty && !coachProfile.currentAcademy.isEmpty {
-                // Has current academy + pending change request
+                // Has current academy + a pending change request
                 pendingChangeRow
             } else {
-                // Has approved academy, no pending change
+                // Has an approved academy, no pending change
                 approvedAcademyRow
             }
 
@@ -1517,6 +1563,12 @@ struct CurrentAcademyView: View {
             .presentationDetents([.large])
             .presentationBackground(BrandColors.background)
             .presentationCornerRadius(28)
+        }
+        // Pre-load academy data on appear so logo is visible immediately
+        .task {
+            if !coachProfile.currentAcademy.isEmpty && destinationAcademy == nil {
+                await loadCurrentAcademy()
+            }
         }
     }
 
@@ -1603,52 +1655,50 @@ struct CurrentAcademyView: View {
                 }
                 Spacer()
             }
-            // No Change/Leave buttons while change is pending
+            // No Change/Leave buttons while a change request is pending
         }
     }
 
+    // MARK: - FIX: Navigation state is lifted to CoachProfileContentView (NavigationStack owner).
+    // Tapping the academy row loads the academy data then sets the parent binding,
+    // which triggers .navigationDestination defined at the NavigationStack level.
     private var approvedAcademyRow: some View {
         VStack(spacing: 10) {
             Button {
-                if isCurrentUser {
-                    Task {
-                        await loadCurrentAcademy()
-                        await MainActor.run { navigateToAcademyDetail = true }
-                    }
+                Task {
+                    await loadCurrentAcademy()
+                    await MainActor.run { navigateToAcademyDetail = true }
                 }
             } label: {
                 HStack(spacing: 12) {
-                    ZStack {
-                        Circle().fill(accent.opacity(0.1)).frame(width: 48, height: 48)
-                        Image(systemName: "building.2.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(accent)
+                    // Show actual academy logo if loaded, otherwise fallback icon
+                    if let logoURL = destinationAcademy?.logoURL, !logoURL.isEmpty {
+                        AcademyLogoView(logoURL: logoURL, size: 48)
+                    } else {
+                        ZStack {
+                            Circle().fill(accent.opacity(0.1)).frame(width: 48, height: 48)
+                            Image(systemName: "building.2.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(accent)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text(coachProfile.currentAcademy)
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(.primary)
                             .lineLimit(2)
-                        Text("Current academy")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(.secondary)
                     }
                     Spacer()
-                    if isCurrentUser {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(accent.opacity(0.4))
-                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(accent.opacity(0.4))
                 }
             }
             .buttonStyle(.plain)
-            .disabled(!isCurrentUser)
 
             if isCurrentUser {
                 HStack(spacing: 10) {
-                    Button {
-                        showChangeAcademySheet = true
-                    } label: {
+                    Button { showChangeAcademySheet = true } label: {
                         Text("Change")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
@@ -1659,9 +1709,7 @@ struct CurrentAcademyView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        showLeaveConfirm = true
-                    } label: {
+                    Button { showLeaveConfirm = true } label: {
                         Text("Leave")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.red)
@@ -1679,23 +1727,9 @@ struct CurrentAcademyView: View {
             AcademySetupFlow(academyName: coachProfile.currentAcademy, coachUID: Auth.auth().currentUser?.uid ?? "") { academy in
                 showAcademySetup = false
                 if let academy = academy {
-                    createdAcademy = academy
+                    destinationAcademy = academy
                     navigateToCreated = true
                 }
-            }
-        }
-        // Hidden NavigationLinks for programmatic navigation
-        .background(
-            Group {
-                NavigationLink(destination: createdAcademy.map { AcademyDetailView(academy: $0) },
-                               isActive: $navigateToCreated) { EmptyView() }
-                NavigationLink(destination: loadedAcademy.map { AcademyDetailView(academy: $0) },
-                               isActive: $navigateToAcademyDetail) { EmptyView() }
-            }
-        )
-        .onChange(of: navigateToAcademyDetail) { _, isOn in
-            if isOn && loadedAcademy == nil {
-                Task { await loadCurrentAcademy() }
             }
         }
     }
@@ -1709,7 +1743,7 @@ struct CurrentAcademyView: View {
         errorText = nil
         do {
             let db = Firestore.firestore()
-            // Upload doc
+            // Upload verification document to Firebase Storage
             let storage = Storage.storage()
             let accessing = fileURL.startAccessingSecurityScopedResource()
             defer { if accessing { fileURL.stopAccessingSecurityScopedResource() } }
@@ -1738,7 +1772,7 @@ struct CurrentAcademyView: View {
                 ]]
             ]
 
-            // Store as new document so admin sees it as separate request
+            // Store as a new document so admin sees it as a separate request
             let reqRef = db.collection("coachRequests").document()
             try await reqRef.setData(requestData)
 
@@ -1800,7 +1834,7 @@ struct ChangeAcademySheet: View {
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemGray6)))
                     }
 
-                    // Academy picker
+                    // Academy Picker
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 4) {
                             Text("New Academy")
@@ -1837,7 +1871,7 @@ struct ChangeAcademySheet: View {
                         }
                     }
 
-                    // Verification doc
+                    // Verification Document Upload
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 4) {
                             Text("Verification Document")
@@ -1910,7 +1944,7 @@ struct ChangeAcademySheet: View {
                         }
                     }
 
-                    // Submit
+                    // Submit Button
                     Button {
                         if isFormValid, let file = verificationFile {
                             onSubmit(selectedAcademy, file)
@@ -1963,7 +1997,7 @@ struct CurrentTeamView: View {
             if isLoading {
                 ProgressView().tint(accentColor).padding()
             } else {
-                // ── All academies ──
+                // All academies this coach belongs to
                 ForEach(academies) { academy in
                     NavigationLink(destination: AcademyDetailView(academy: academy)) {
                         AcademyListCard(academy: academy)
@@ -1972,7 +2006,7 @@ struct CurrentTeamView: View {
                     .buttonStyle(.plain)
                 }
 
-                // ── Create Team button ──
+                // Create Team button
                 Button {
                     if coachStatusApproved { showCreateTeam = true }
                     else { showNotApprovedAlert = true }
@@ -2037,14 +2071,14 @@ struct CurrentTeamView: View {
                let status = userDoc.data()?["coachStatus"] as? String {
                 await MainActor.run { coachStatusApproved = (status == "approved") }
             }
-            // Load academies where this coach is in any category's coaches array
+            // Load academies where this coach is listed in any category's coaches array
             let snap = try? await db.collection("academies").getDocuments()
             var result: [HaddafAcademy] = []
             for doc in snap?.documents ?? [] {
                 let d = doc.data()
                 let name = d["name"] as? String ?? ""
                 guard !name.isEmpty else { continue }
-                // Check if coach is in any category
+                // Check if the coach is in any category
                 let catsSnap = try? await db.collection("academies").document(doc.documentID)
                     .collection("categories").getDocuments()
                 var cats: [String] = []
@@ -2076,18 +2110,100 @@ struct CurrentTeamView: View {
 
 // MARK: - CurrentAcademyView helper extension
 extension CurrentAcademyView {
+    /// Fetches the full HaddafAcademy object for the coach's current academy
+    /// and stores it in the parent-owned `destinationAcademy` binding.
     func loadCurrentAcademy() async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let db = Firestore.firestore()
-        let academyName = coachProfile.currentAcademy
-        guard !academyName.isEmpty else { return }
 
-        let snap = try? await db.collection("academies")
-            .whereField("name", isEqualTo: academyName)
-            .limit(to: 1).getDocuments()
+        let academyName = coachProfile.currentAcademy.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let doc = snap?.documents.first else { return }
-        let d = doc.data()
+        // Load ALL academy docs and find the best one by name match + most categories.
+        // This handles ghost docs (created with coach UID, no name/categories) vs real docs.
+        let allSnap = try? await db.collection("academies").getDocuments()
+        let allDocs = allSnap?.documents ?? []
+
+        // Collect all candidates: docs where name matches OR coach is in categories
+        var candidateDocs: [(doc: DocumentSnapshot, catCount: Int, coachIsHere: Bool)] = []
+        for doc in allDocs {
+            let docName = (doc.data()["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let nameMatch = !academyName.isEmpty && docName.lowercased() == academyName.lowercased()
+            let catsSnap = try? await db.collection("academies").document(doc.documentID)
+                .collection("categories").getDocuments()
+            let catDocs = catsSnap?.documents ?? []
+            let catCount = catDocs.count
+            let isCoachHere = catDocs.contains { catDoc in
+                let coaches = catDoc.data()["coaches"] as? [String] ?? []
+                return coaches.contains(uid)
+            }
+            if nameMatch || isCoachHere {
+                candidateDocs.append((doc: doc, catCount: catCount, coachIsHere: isCoachHere))
+            }
+        }
+
+        // Pick the best doc: prefer one where coach is in categories AND has most cats
+        let best = candidateDocs
+            .sorted { a, b in
+                if a.coachIsHere != b.coachIsHere { return a.coachIsHere }
+                return a.catCount > b.catCount
+            }
+            .first
+
+        var foundDoc: DocumentSnapshot? = best?.doc
+
+        // Fallback: check stored academyId if nothing found yet
+        if foundDoc == nil {
+            let userDoc = try? await db.collection("users").document(uid).getDocument()
+            let storedId = userDoc?.data()?["academyId"] as? String ?? ""
+            if !storedId.isEmpty,
+               let candidate = try? await db.collection("academies").document(storedId).getDocument(),
+               candidate.exists {
+                foundDoc = candidate
+            }
+        }
+
+        // Step 4 (FALLBACK): No academy doc found anywhere.
+        // Try to get the real academyId from users doc to build a correct HaddafAcademy.
+        if foundDoc == nil {
+            let academyName = coachProfile.currentAcademy.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !academyName.isEmpty else { return }
+
+            // Use the academyId from users doc if available — gives us correct doc ID
+            let userDoc = try? await db.collection("users").document(uid).getDocument()
+            let storedAcademyId = userDoc?.data()?["academyId"] as? String ?? ""
+            let fallbackId = storedAcademyId.isEmpty ? uid : storedAcademyId
+
+            // Try to load categories from this ID
+            var fallbackCats: [String] = []
+            let fbCatsSnap = try? await db.collection("academies").document(fallbackId)
+                .collection("categories").getDocuments()
+            fallbackCats = (fbCatsSnap?.documents ?? []).map { $0.documentID }.sorted()
+
+            let fallback = HaddafAcademy(
+                id: fallbackId,
+                name: academyName,
+                logoURL: nil,
+                city: "",
+                street: "",
+                categories: fallbackCats,
+                coachUIDs: [uid]
+            )
+            await MainActor.run { self.destinationAcademy = fallback }
+            return
+        }
+
+        guard let doc = foundDoc else { return }
+        var d = doc.data() ?? [:]
+
+        // If academy doc has no "name", write coach's currentAcademy into it
+        // This fixes old accounts where the doc was created without a name field.
+        let docName = d["name"] as? String ?? ""
+        let resolvedName = docName.isEmpty ? coachProfile.currentAcademy : docName
+        if docName.isEmpty && !coachProfile.currentAcademy.isEmpty {
+            try? await db.collection("academies").document(doc.documentID)
+                .setData(["name": coachProfile.currentAcademy], merge: true)
+        }
+
         let catsSnap = try? await db.collection("academies").document(doc.documentID)
             .collection("categories").getDocuments()
         var cats: [String] = []
@@ -2099,14 +2215,14 @@ extension CurrentAcademyView {
         }
         var academy = HaddafAcademy(
             id: doc.documentID,
-            name: d["name"] as? String ?? academyName,
+            name: resolvedName,
             logoURL: d["logoURL"] as? String,
             city: d["city"] as? String ?? "",
             street: d["street"] as? String ?? ""
         )
         academy.categories = cats.sorted()
         academy.coachUIDs = Array(coachSet)
-        await MainActor.run { self.loadedAcademy = academy }
+        await MainActor.run { self.destinationAcademy = academy }
     }
 }
 
