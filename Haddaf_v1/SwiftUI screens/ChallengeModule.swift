@@ -1135,6 +1135,43 @@ private struct NoMatchingResultsView: View {
 
 
 // =======================================================
+// MARK: - Submission Filter (All / Mine)
+// =======================================================
+
+private enum SubmissionFilter: String, CaseIterable, Identifiable {
+    case all  = "All Submissions"
+    case mine = "My Submission"
+    var id: String { rawValue }
+}
+
+private struct SubmissionFilterPills: View {
+    @Binding var selected: SubmissionFilter
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(SubmissionFilter.allCases) { option in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { selected = option }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(selected == option ? .white : BrandColors.darkTeal)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule()
+                                .fill(selected == option ? BrandColors.darkTeal : BrandColors.darkTeal.opacity(0.10))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 22)
+    }
+}
+
+// =======================================================
 // MARK: - New Challenge Page
 // =======================================================
 
@@ -1156,6 +1193,8 @@ struct NewChallengePage: View {
 
     @State private var showSimpleAlert = false
     @State private var simpleAlertMessage = ""
+
+    @State private var submissionFilter: SubmissionFilter = .all
 
     var body: some View {
         ZStack {
@@ -1192,6 +1231,9 @@ struct NewChallengePage: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 4)
 
+                    SubmissionFilterPills(selected: $submissionFilter)
+                        .padding(.top, 2)
+
                     if let err = uploader.errorText {
                         Text(err)
                             .foregroundColor(.red)
@@ -1208,15 +1250,22 @@ struct NewChallengePage: View {
                             .padding(.horizontal, 18)
                     } else {
                         let pinnedAll = pinnedOrderedPosts(top3: subService.top3, all: subService.submissions)
+                        let currentUid = Auth.auth().currentUser?.uid
+                        let filtered: [ChallengeSubmission] = {
+                            switch submissionFilter {
+                            case .all:  return pinnedAll
+                            case .mine: return pinnedAll.filter { $0.uid == currentUid }
+                            }
+                        }()
 
-                        if pinnedAll.isEmpty {
-                            Text("No posts yet.")
+                        if filtered.isEmpty {
+                            Text(submissionFilter == .mine ? "You haven't submitted yet." : "No submissions yet.")
                                 .foregroundColor(.secondary)
                                 .font(.system(size: 14, design: .rounded))
                                 .padding(.top, 8)
                         } else {
                             VStack(spacing: 12) {
-                                ForEach(pinnedAll) { sub in
+                                ForEach(filtered) { sub in
                                     SubmissionCard(
                                         challengeId: challenge.id,
                                         submission: sub,
@@ -1368,6 +1417,7 @@ struct PastChallengePage: View {
                                     pinnedRank: index + 1,
                                     isPlayer: roleResolver.isPlayer,
                                     isCoach: roleResolver.isCoach,
+                                    isChallengePast: true,
                                     onActionNotAllowed: { msg in
                                         presentActionPopup(msg)
                                     }
@@ -1630,6 +1680,7 @@ private struct SubmissionCard: View {
 
     let isPlayer: Bool
     let isCoach: Bool
+    var isChallengePast: Bool = false
 
     let onActionNotAllowed: (String) -> Void
 
@@ -1742,7 +1793,7 @@ private struct SubmissionCard: View {
                 VideoSheet(urlString: submission.videoURL)
             }
 
-            if !canEvaluate || isEvaluated {
+            if isChallengePast || !canEvaluate || isEvaluated {
                 HStack(spacing: 8) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 16, weight: .bold))

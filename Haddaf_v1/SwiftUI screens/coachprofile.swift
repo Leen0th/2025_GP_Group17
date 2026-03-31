@@ -1687,6 +1687,28 @@ struct CurrentAcademyView: View {
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(.primary)
                             .lineLimit(2)
+                        if let city = destinationAcademy?.city, !city.isEmpty {
+                            HStack(spacing: 3) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accent.opacity(0.6))
+                                Text(city)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if let street = destinationAcademy?.street, !street.isEmpty {
+                            HStack(spacing: 3) {
+                                Image(systemName: "road.lanes")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accent.opacity(0.4))
+                                Text(street)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.secondary.opacity(0.8))
+                                    .lineLimit(1)
+                            }
+                        }
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
@@ -2086,12 +2108,21 @@ extension CurrentAcademyView {
             let coaches = catDoc.data()["coaches"] as? [String] ?? []
             coaches.forEach { coachSet.insert($0) }
         }
+        let firestoreCity   = d["city"]   as? String ?? ""
+        let firestoreStreet = d["street"] as? String ?? ""
+        let localMatch = SAUDI_ACADEMIES.first {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == resolvedName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        let resolvedCity   = firestoreCity.isEmpty   ? (localMatch?.city   ?? "") : firestoreCity
+        let resolvedStreet = firestoreStreet.isEmpty ? (localMatch?.street ?? "") : firestoreStreet
+
         var academy = HaddafAcademy(
             id: doc.documentID,
             name: resolvedName,
             logoURL: d["logoURL"] as? String,
-            city: d["city"] as? String ?? "",
-            street: d["street"] as? String ?? ""
+            city: resolvedCity,
+            street: resolvedStreet
         )
         academy.categories = cats.sorted()
         academy.coachUIDs = Array(coachSet)

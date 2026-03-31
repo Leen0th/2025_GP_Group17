@@ -50,12 +50,24 @@ class HaddafAcademyViewModel: ObservableObject {
                 var list: [HaddafAcademy] = []
                 for doc in docs {
                     let d = doc.data()
+                    let firestoreCity   = d["city"]   as? String ?? ""
+                    let firestoreStreet = d["street"] as? String ?? ""
+                    let docName         = d["name"]   as? String ?? ""
+
+                    // Fallback: if city/street are missing in Firestore, look up from local SAUDI_ACADEMIES
+                    let localMatch = SAUDI_ACADEMIES.first {
+                        $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        == docName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    }
+                    let resolvedCity   = firestoreCity.isEmpty   ? (localMatch?.city   ?? "") : firestoreCity
+                    let resolvedStreet = firestoreStreet.isEmpty ? (localMatch?.street ?? "") : firestoreStreet
+
                     var academy = HaddafAcademy(
                         id: doc.documentID,
-                        name: d["name"] as? String ?? "",
+                        name: docName,
                         logoURL: d["logoURL"] as? String,
-                        city: d["city"] as? String ?? "",
-                        street: d["street"] as? String ?? ""
+                        city: resolvedCity,
+                        street: resolvedStreet
                     )
                     // Load categories
                     let catsSnap = try? await self.db.collection("academies").document(doc.documentID)
@@ -140,6 +152,9 @@ struct AcademyView: View {
     @State private var selectedTab: AcademyTab = .saudiAcademies
     @State private var myAcademyName = ""
     @State private var myAcademyId = ""   // match by ID — more reliable than name
+    @State private var selectedCity: String = ""
+    @State private var selectedStreet: String = ""
+    @State private var showFilterSheet = false
     private let accent = BrandColors.darkTeal
 
     enum AcademyTab: String, CaseIterable {
@@ -147,10 +162,24 @@ struct AcademyView: View {
         case matchOpps      = "Match Opportunities"
     }
 
+    private var availableCities: [String] {
+        Array(Set(vm.academies.map { $0.city }.filter { !$0.isEmpty })).sorted()
+    }
+
+    private func availableStreets(for city: String) -> [String] {
+        let list = city.isEmpty ? vm.academies : vm.academies.filter { $0.city == city }
+        return Array(Set(list.map { $0.street }.filter { !$0.isEmpty })).sorted()
+    }
+
+    private var isFiltered: Bool { !selectedCity.isEmpty || !selectedStreet.isEmpty }
+
     private var filtered: [HaddafAcademy] {
+        var list = vm.academies
         let s = searchText.trimmingCharacters(in: .whitespaces)
-        if s.isEmpty { return vm.academies }
-        return vm.academies.filter { $0.name.localizedCaseInsensitiveContains(s) }
+        if !s.isEmpty { list = list.filter { $0.name.localizedCaseInsensitiveContains(s) } }
+        if !selectedCity.isEmpty { list = list.filter { $0.city == selectedCity } }
+        if !selectedStreet.isEmpty { list = list.filter { $0.street == selectedStreet } }
+        return list
     }
 
     var body: some View {
@@ -179,6 +208,16 @@ struct AcademyView: View {
                 Task { await loadMyAcademy() }
             }
             .onDisappear { vm.stopListening() }
+            .sheet(isPresented: $showFilterSheet) {
+                AcademyFilterSheet(
+                    cities: availableCities,
+                    allAcademies: vm.academies,
+                    selectedCity: $selectedCity,
+                    selectedStreet: $selectedStreet
+                )
+                .presentationDetents([.medium, .large])
+                .presentationCornerRadius(28)
+            }
         }
     }
 
@@ -194,25 +233,39 @@ struct AcademyView: View {
                 }
                 Spacer()
             } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundColor(accent)
-                    TextField("Search academy...", text: $searchText)
-                        .font(.system(size: 16, design: .rounded)).tint(accent)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled(true)
+                HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundColor(accent)
+                        TextField("Search academy...", text: $searchText)
+                            .font(.system(size: 16, design: .rounded)).tint(accent)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled(true)
+                    }
+                    .padding(.vertical, 12).padding(.horizontal)
+                    .background(BrandColors.background).clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
+
+                    Button { showFilterSheet = true } label: {
+                        Image(systemName: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(accent)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.vertical, 12).padding(.horizontal)
-                .background(BrandColors.background).clipShape(Capsule())
-                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
                 .padding(.horizontal).padding(.bottom, 10)
 
+                if filtered.isEmpty && (isFiltered || !searchText.trimmingCharacters(in: .whitespaces).isEmpty) {
+                    Spacer()
+                    EmptyStateView(
+                        imageName: "doc.text.magnifyingglass",
+                        message: "No Matching Results\nTry adjusting your search or filter settings."
+                    )
+                    Spacer()
+                } else {
                 ScrollView {
                     VStack(spacing: 14) {
-                        // Player's own academy — full width highlighted card (players only, not coaches)
-                        // Use session role to check if user is a coach — more reliable than coachUIDs
                         let isCoachRole = session.role == "coach"
                         let myAcademy: HaddafAcademy? = isCoachRole ? nil : filtered.first(where: { isPlayerInAcademy($0) })
-                        if !searchText.isEmpty || myAcademy == nil {
-                            // Normal grid when searching or no personal academy
+                        if !searchText.isEmpty || isFiltered || myAcademy == nil {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                                 ForEach(filtered) { academy in
                                     NavigationLink(destination: AcademyDetailView(academy: academy)) {
@@ -221,7 +274,6 @@ struct AcademyView: View {
                                 }
                             }
                         } else {
-                            // My academy full-width on top
                             if let mine = myAcademy {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("My Academy")
@@ -258,6 +310,7 @@ struct AcademyView: View {
                     }
                     .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 100)
                 }
+                } // end else
             }
         }
     }
@@ -359,6 +412,14 @@ struct AcademyGridCard: View {
                         .font(.system(size: 10)).foregroundColor(accent.opacity(0.6))
                     Text(academy.city)
                         .font(.system(size: 11, design: .rounded)).foregroundColor(.secondary).lineLimit(1)
+                }
+            }
+            if !academy.street.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "road.lanes")
+                        .font(.system(size: 10)).foregroundColor(accent.opacity(0.4))
+                    Text(academy.street)
+                        .font(.system(size: 11, design: .rounded)).foregroundColor(.secondary.opacity(0.8)).lineLimit(1)
                 }
             }
         }
@@ -1545,6 +1606,127 @@ struct AcademySetupFlow: View {
         )
 
         await MainActor.run { isSaving = false; onDone(createdAcademy) }
+    }
+}
+
+// MARK: - Academy Filter Sheet
+
+struct AcademyFilterSheet: View {
+    let cities: [String]
+    let allAcademies: [HaddafAcademy]
+    @Binding var selectedCity: String
+    @Binding var selectedStreet: String
+    @Environment(\.dismiss) private var dismiss
+
+    enum Page { case main, city, street }
+
+    @State private var page: Page = .main
+    @State private var draftCity: String = ""
+    @State private var draftStreet: String = ""
+
+    private let accent = BrandColors.darkTeal
+
+    var body: some View {
+        Group {
+            switch page {
+            case .main:   mainPage
+            case .city:   pickerPage(title: "City",   items: SAUDI_ACADEMY_CITIES,    selected: draftCity)   { v in draftCity = v; draftStreet = ""; page = .main }
+            case .street: pickerPage(title: "Street", items: streetsForCity(draftCity), selected: draftStreet) { v in draftStreet = v; page = .main }
+            }
+        }
+        .onAppear {
+            draftCity   = selectedCity
+            draftStreet = selectedStreet
+        }
+    }
+
+    // MARK: - Main page
+    private var mainPage: some View {
+        NavigationStack {
+            Form {
+                Section("City") {
+                    Button { page = .city } label: {
+                        HStack {
+                            Text("City").foregroundColor(.primary)
+                            Spacer()
+                            Text(draftCity.isEmpty ? "Any" : draftCity).foregroundColor(.secondary)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundColor(.secondary.opacity(0.4))
+                        }
+                    }
+                }
+                Section("Street") {
+                    Button { if !draftCity.isEmpty { page = .street } } label: {
+                        HStack {
+                            Text("Street").foregroundColor(draftCity.isEmpty ? .secondary : .primary)
+                            Spacer()
+                            Text(draftStreet.isEmpty ? "Any" : draftStreet).foregroundColor(.secondary)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundColor(.secondary.opacity(draftCity.isEmpty ? 0.15 : 0.4))
+                        }
+                    }
+                    .disabled(draftCity.isEmpty)
+                }
+                Section {
+                    Button("Apply Filters") {
+                        selectedCity   = draftCity
+                        selectedStreet = draftStreet
+                        dismiss()
+                    }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(accent)
+                    .frame(maxWidth: .infinity)
+
+                    Button("Reset All", role: .destructive) {
+                        draftCity = ""; draftStreet = ""
+                        selectedCity = ""; selectedStreet = ""
+                        dismiss()
+                    }
+                    .font(.system(size: 17, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    // MARK: - Generic picker page
+    private func pickerPage(title: String, items: [String], selected: String, onSelect: @escaping (String) -> Void) -> some View {
+        NavigationStack {
+            List {
+                // "Any" row
+                Button {
+                    onSelect("")
+                } label: {
+                    HStack {
+                        Text("Any").foregroundColor(.primary)
+                        Spacer()
+                        if selected.isEmpty { Image(systemName: "checkmark").foregroundColor(accent) }
+                    }
+                }
+                ForEach(items, id: \.self) { item in
+                    Button {
+                        onSelect(item)
+                    } label: {
+                        HStack {
+                            Text(item).foregroundColor(.primary)
+                            Spacer()
+                            if selected == item { Image(systemName: "checkmark").foregroundColor(accent) }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { page = .main } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(accent)
+                    }
+                }
+            }
+        }
     }
 }
 
