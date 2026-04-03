@@ -367,9 +367,6 @@ struct AdminReportedContentView: View {
 
     @State private var selectedTab: ReportTab = .pending
     @State private var searchText = ""
-    @State private var navigateToPost: DocumentReference? = nil
-    @State private var navigateToUID: String? = nil
-    @State private var navigateToCoachUID: String? = nil
     @State private var selectedGroup: ContentReportGroup? = nil
 
     var body: some View {
@@ -384,46 +381,10 @@ struct AdminReportedContentView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            // Navigate to report detail page (replaces sheet)
+            // Navigate to report detail page
             .navigationDestination(item: $selectedGroup) { group in
-                GroupDetailPage(
-                    group: group, vm: vm,
-                    onViewPost: { ref in navigateToPost = ref },
-                    onViewProfile: { uid in
-                        Task {
-                            let doc = try? await Firestore.firestore()
-                                .collection("users").document(uid).getDocument()
-                            let data = doc?.data()
-                            // Check both "role" and "userType" in case your schema uses either
-                            let role = (data?["role"] as? String)
-                                    ?? (data?["userType"] as? String)
-                                    ?? "player"
-                            if role == "coach" { navigateToCoachUID = uid } else { navigateToUID = uid }
-                        }
-                    }
-                )
-                .environmentObject(session)
-            }
-            .navigationDestination(isPresented: Binding(
-                get: { navigateToPost != nil }, set: { if !$0 { navigateToPost = nil } }
-            )) {
-                if let ref = navigateToPost {
-                    ReportedPostView(postRef: ref).environmentObject(session)
-                }
-            }
-            .navigationDestination(isPresented: Binding(
-                get: { navigateToUID != nil }, set: { if !$0 { navigateToUID = nil } }
-            )) {
-                if let uid = navigateToUID {
-                    PlayerProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
-                }
-            }
-            .navigationDestination(isPresented: Binding(
-                get: { navigateToCoachUID != nil }, set: { if !$0 { navigateToCoachUID = nil } }
-            )) {
-                if let uid = navigateToCoachUID {
-                    CoachProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
-                }
+                GroupDetailPage(group: group, vm: vm)
+                    .environmentObject(session)
             }
             .alert("Action Failed", isPresented: Binding(
                 get: { vm.actionError != nil }, set: { if !$0 { vm.actionError = nil } }
@@ -574,9 +535,21 @@ struct ContentGroupCard: View {
     let group: ContentReportGroup
     private let primary = BrandColors.darkTeal
 
+    private var previewLabel: String {
+        switch group.itemType {
+        case "Discovery Post", "Challenge Post": return "Caption"
+        case "Comment":                          return "Comment"
+        case "Account":                          return "Username"
+        default:                                 return "Content"
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(previewLabel.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
                 Text(group.contentPreview.isEmpty ? "(No preview available)" : group.contentPreview)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundColor(primary).lineLimit(2)
@@ -619,8 +592,11 @@ struct GroupDetailPage: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var session: AppSession
 
-    var onViewPost: (DocumentReference) -> Void
-    var onViewProfile: (String) -> Void
+    // Local navigation state — stays inside this view's level in the parent NavigationStack
+    @State private var navigateToPost: DocumentReference? = nil
+    @State private var navigateToParentPost: DocumentReference? = nil
+    @State private var navigateToUID: String? = nil
+    @State private var navigateToCoachUID: String? = nil
 
     // Report filter
     @State private var selectedReasonFilter: String = "all"
@@ -660,6 +636,42 @@ struct GroupDetailPage: View {
         }
         .navigationTitle(pageTitle)
         .navigationBarTitleDisplayMode(.inline)
+        // Navigate to a reported post (Discovery / Challenge)
+        .navigationDestination(isPresented: Binding(
+            get: { navigateToPost != nil },
+            set: { if !$0 { navigateToPost = nil } }
+        )) {
+            if let ref = navigateToPost {
+                ReportedPostView(postRef: ref).environmentObject(session)
+            }
+        }
+        // Navigate to the parent post where a comment lives
+        .navigationDestination(isPresented: Binding(
+            get: { navigateToParentPost != nil },
+            set: { if !$0 { navigateToParentPost = nil } }
+        )) {
+            if let ref = navigateToParentPost {
+                ReportedPostView(postRef: ref).environmentObject(session)
+            }
+        }
+        // Navigate to a player profile
+        .navigationDestination(isPresented: Binding(
+            get: { navigateToUID != nil },
+            set: { if !$0 { navigateToUID = nil } }
+        )) {
+            if let uid = navigateToUID {
+                PlayerProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
+            }
+        }
+        // Navigate to a coach profile
+        .navigationDestination(isPresented: Binding(
+            get: { navigateToCoachUID != nil },
+            set: { if !$0 { navigateToCoachUID = nil } }
+        )) {
+            if let uid = navigateToCoachUID {
+                CoachProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
+            }
+        }
         .sheet(isPresented: $showDeleteReason) {
             DeleteReasonSheet(
                 itemType: group.itemType,
@@ -787,7 +799,7 @@ struct GroupDetailPage: View {
                     }
                     .buttonStyle(.plain)
                 } else if let ref = group.reportedItemRef, !group.wasDeleted {
-                    Button { onViewPost(ref) } label: {
+                    Button { navigateToPost = ref } label: {
                         HStack {
                             Image(systemName: "play.rectangle.fill")
                             Text("View Post").font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -800,7 +812,17 @@ struct GroupDetailPage: View {
                     .buttonStyle(.plain)
                 }
             } else if group.itemType == "Account", let ref = group.reportedItemRef {
-                Button { onViewProfile(ref.documentID) } label: {
+                Button {
+                    Task {
+                        let doc = try? await Firestore.firestore()
+                            .collection("users").document(ref.documentID).getDocument()
+                        let role = (doc?.data()?["role"] as? String)
+                                ?? (doc?.data()?["userType"] as? String)
+                                ?? "player"
+                        if role == "coach" { navigateToCoachUID = ref.documentID }
+                        else { navigateToUID = ref.documentID }
+                    }
+                } label: {
                     HStack {
                         Image(systemName: "person.fill")
                         Text("View Account").font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -814,15 +836,45 @@ struct GroupDetailPage: View {
             }
 
             if group.itemType == "Comment" {
+                // View commenter's profile
                 if let uid = commenterUID, !commenterName.isEmpty {
                     Button {
-                        onViewProfile(uid)
+                        Task {
+                            let doc = try? await Firestore.firestore()
+                                .collection("users").document(uid).getDocument()
+                            let role = (doc?.data()?["role"] as? String)
+                                    ?? (doc?.data()?["userType"] as? String)
+                                    ?? "player"
+                            if role == "coach" { navigateToCoachUID = uid }
+                            else { navigateToUID = uid }
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "person.fill")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Comment by").font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
                                 Text(commenterName).font(.system(size: 15, weight: .semibold, design: .rounded))
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.secondary)
+                        }
+                        .foregroundColor(primary).padding(14)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(primary.opacity(0.07)))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // View the parent post where this comment lives
+                if let ref = group.reportedItemRef,
+                   let parentRef = ref.parent.parent {
+                    Button { navigateToParentPost = parentRef } label: {
+                        HStack {
+                            Image(systemName: "play.rectangle.fill")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("View Original Post")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                Text("See comment in context")
+                                    .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundColor(.secondary)
@@ -917,11 +969,14 @@ struct GroupDetailPage: View {
     }
 
     private func reportRow(_ report: ReportedItem) -> some View {
+        let isOther = report.reasonTitle == "Other"
         let isExpanded = expandedReportID == report.id
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    expandedReportID = isExpanded ? nil : report.id
+                if isOther {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expandedReportID = isExpanded ? nil : report.id
+                    }
                 }
             } label: {
                 HStack(spacing: 12) {
@@ -932,14 +987,16 @@ struct GroupDetailPage: View {
                     if let ts = report.timestamp {
                         Text(ts.relativeString).font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
                     }
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                    if isOther {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                    }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
+            if isOther && isExpanded {
                 VStack(alignment: .leading, spacing: 6) {
                     Divider().padding(.horizontal, 14)
                     Text(report.reasonDescription)

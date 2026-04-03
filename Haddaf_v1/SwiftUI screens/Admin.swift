@@ -318,13 +318,13 @@ struct AdminCoachesApprovalView: View {
                                         pendingTypeFilter = "verification"
                                         pendingStatusFilter = "all"
                                     } label: {
-                                        Label("Coach Verification", systemImage: pendingTypeFilter == "verification" ? "checkmark" : "")
+                                        Label("New Request", systemImage: pendingTypeFilter == "verification" ? "checkmark" : "")
                                     }
                                     Button {
                                         pendingTypeFilter = "join_academy"
                                         pendingStatusFilter = "all"
                                     } label: {
-                                        Label("Join Academy", systemImage: pendingTypeFilter == "join_academy" ? "checkmark" : "")
+                                        Label("New Request", systemImage: pendingTypeFilter == "join_academy" ? "checkmark" : "")
                                     }
                                     Button {
                                         pendingTypeFilter = "change_academy"
@@ -542,8 +542,8 @@ struct AdminCoachesApprovalView: View {
         case .pending:
             if pendingStatusFilter == "new" { return "There are no new requests." }
             if pendingStatusFilter == "returned" { return "There are no returned requests." }
-            if pendingTypeFilter == "verification" { return "There are no coach verification requests." }
-            if pendingTypeFilter == "join_academy" { return "There are no join academy requests." }
+            if pendingTypeFilter == "verification" { return "There are no new requests." }
+            if pendingTypeFilter == "join_academy" { return "There are no new requests." }
             if pendingTypeFilter == "change_academy" { return "There are no academy change requests." }
             return "There are no coach requests yet."
         case .reviewed:
@@ -648,16 +648,8 @@ struct AdminCoachesApprovalView: View {
                                 .padding(.vertical, 4)
                                 .background(BrandColors.gold.opacity(0.13))
                                 .clipShape(Capsule())
-                        } else if item.requestType == "join_academy" {
-                            Text("Join Academy")
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
-                                .foregroundColor(BrandColors.actionGreen)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(BrandColors.actionGreen.opacity(0.13))
-                                .clipShape(Capsule())
                         } else {
-                            Text("Coach Verification")
+                            Text("New Request")
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundColor(BrandColors.darkTeal)
                                 .padding(.horizontal, 10)
@@ -1085,19 +1077,28 @@ struct CoachRequestDetailView: View {
                     NavigationLink {
                         CoachProfileContentView(userID: request.uid, isAdminViewing: true)
                     } label: {
-                        HStack {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 38))
+                                .foregroundColor(primary.opacity(0.8))
+
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(request.fullName)
-                                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                                     .foregroundColor(primary)
-                                
+
                                 Text(request.email)
-                                    .font(.system(size: 15, design: .rounded))
+                                    .font(.system(size: 13, design: .rounded))
                                     .foregroundColor(.secondary)
+
+                                Label("View Profile", systemImage: "arrow.up.right")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundColor(primary)
+                                    .padding(.top, 2)
                             }
-                            
+
                             Spacer()
-                            
+
                             Image(systemName: "chevron.right")
                                 .foregroundColor(.secondary)
                         }
