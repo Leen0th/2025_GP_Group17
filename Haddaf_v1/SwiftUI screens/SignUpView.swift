@@ -1443,8 +1443,10 @@ struct SignUpView: View {
                 .alert("Verification Help", isPresented: $showVerificationInfo) {
                     Button("OK", role: .cancel) { }
                 } message: {
-                    Text("Upload an official document that proves you are a coach, such as a coaching license, federation certificate, or club issued credential.")
-                    + Text("\n\nAccepted formats: PDF or image. Maximum file size: 10 MB.")
+                    Text("Upload a document to verify your coaching status.\n\n")
+                    + Text("If you are part of an academy, please upload a document that proves you work with the academy.\n\n")
+                    + Text("If you are not part of an academy, please upload any document that proves you are a coach, such as a coaching license, certificate, or club credential.\n\n")
+                    + Text("Accepted formats: PDF or image. Maximum file size: 10 MB.")
                 }
 
                 // The Upload Button

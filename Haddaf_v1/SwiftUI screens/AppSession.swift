@@ -19,6 +19,8 @@ final class AppSession: ObservableObject {
     @Published var rejectionReason: String? = nil
     @Published var rejectionCategory: String? = nil
     
+    @Published var academyId: String? = nil
+
     @Published var isActive: Bool = true
     @Published var deactivationReason: String? = nil
     
@@ -42,6 +44,7 @@ final class AppSession: ObservableObject {
                     self.role = nil
                     self.coachStatus = nil
                     self.isVerifiedCoach = false
+                    self.academyId = nil
                     self.userListener?.remove()
                     self.userListener = nil
                 }
@@ -61,6 +64,7 @@ final class AppSession: ObservableObject {
                 let category = data["rejectionCategory"] as? String
                 let active = data["isActive"] as? Bool ?? true
                 let deactivation = data["deactivationReason"] as? String
+                let aId = data["academyId"] as? String
 
                 DispatchQueue.main.async {
                     self.role = r
@@ -70,6 +74,9 @@ final class AppSession: ObservableObject {
                     self.isActive = active
                     self.deactivationReason = deactivation
                     self.isVerifiedCoach = (r == "coach" && status == "approved")
+                    // academyId يتحدث فوراً لما الكوتش يغادر الأكاديمية (leaveAcademy تمسحه)
+                    // AcademyDetailView.isCoach يعتمد عليه لمنع الوصول بعد المغادرة
+                    self.academyId = (aId?.isEmpty == false) ? aId : nil
                 }
             }
     }
@@ -87,6 +94,7 @@ final class AppSession: ObservableObject {
         self.isGuest = false
         self.isActive = true
         self.deactivationReason = nil
+        self.academyId = nil
         
         // سجل خروج من Firebase
         try? Auth.auth().signOut()

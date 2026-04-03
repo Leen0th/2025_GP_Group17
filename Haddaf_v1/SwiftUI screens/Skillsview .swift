@@ -109,14 +109,17 @@ class SkillsViewModel: ObservableObject {
 // MARK: - Main Skills Tab View
 
 struct SkillsTabView: View {
+
     let profileUserID: String
     let isCurrentUser: Bool
 
     @EnvironmentObject var session: AppSession
     @StateObject private var vm: SkillsViewModel
     @State private var showSetSkillsSheet = false
-    // Delete confirmation state
-    @State private var skillToDelete: PlayerSkill? = nil
+
+    // ⭐ NEW
+    @State private var showDeletePopup = false
+    @State private var selectedSkill: PlayerSkill? = nil
 
     init(profileUserID: String, isCurrentUser: Bool) {
         self.profileUserID = profileUserID
@@ -126,6 +129,7 @@ struct SkillsTabView: View {
 
     var body: some View {
         ZStack {
+
             VStack(spacing: 0) {
                 if vm.isLoading {
                     ProgressView()
@@ -138,27 +142,66 @@ struct SkillsTabView: View {
                 }
             }
 
-            // Delete confirmation overlay — shown on top of everything
-            if let skill = skillToDelete {
-                StyledConfirmationOverlay(
-                    isPresented: Binding(
-                        get: { skillToDelete != nil },
-                        set: { if !$0 { skillToDelete = nil } }
-                    ),
-                    title: "Delete \(skill.name) Skill?",
-                    message: "Your \(skill.name) skill will be permanently deleted. You can add it again anytime.",
-                    confirmButtonTitle: "Delete",
-                    onConfirm: {
-                        Task { await vm.removeSkill(skill) }
+            // ⭐ DELETE POPUP (الحل النهائي)
+            if let skill = selectedSkill {
+                ZStack {
+                    // الخلفية
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    // البوب اب
+                    VStack {
+                        Spacer()
+
+                        VStack(spacing: 20) {
+
+                            Text("Delete \(skill.name) Skill?")
+                                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                .multilineTextAlignment(.center)
+
+                            Text("Your \(skill.name) skill will be permanently deleted. You can add it again anytime.")
+                                .font(.system(size: 14, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+
+                            HStack(spacing: 16) {
+
+                                Button("No") {
+                                    selectedSkill = nil
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(BrandColors.lightGray)
+                                .cornerRadius(12)
+
+                                Button("Yes") {
+                                    Task { await vm.removeSkill(skill) }
+                                    selectedSkill = nil
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.red)
+                                .cornerRadius(12)
+                            }
+                        }
+                        .padding(24)
+                        .frame(width: 320)
+                        .background(BrandColors.background)
+                        .cornerRadius(20)
+                        .shadow(radius: 12)
+
+                        Spacer()
                     }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .zIndex(10)
+                }
+                .zIndex(1000)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: skillToDelete?.id)
         .task { await vm.fetchSkills() }
         .onDisappear { vm.stopListening() }
+
+        // add skills sheet
         .sheet(isPresented: $showSetSkillsSheet) {
             SetSkillsSheet(existingSkills: vm.skills.map { $0.name }) { newNames in
                 Task { await vm.addSkills(newNames) }
@@ -170,6 +213,7 @@ struct SkillsTabView: View {
     private var emptyState: some View {
         VStack(spacing: 20) {
             Spacer().frame(height: 30)
+
             Circle()
                 .fill(BrandColors.darkTeal.opacity(0.1))
                 .frame(width: 80, height: 80)
@@ -178,9 +222,11 @@ struct SkillsTabView: View {
                         .font(.system(size: 36))
                         .foregroundColor(BrandColors.darkTeal.opacity(0.6))
                 )
+
             Text("No Skills Yet")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(BrandColors.darkGray)
+
             Text(isCurrentUser
                  ? "Add your football skills so coaches\ncan endorse you."
                  : "This player hasn't added any skills yet.")
@@ -188,7 +234,9 @@ struct SkillsTabView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 30)
+
             if isCurrentUser { addSkillButton }
+
             Spacer()
         }
         .padding()
@@ -205,11 +253,20 @@ struct SkillsTabView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 12)
             }
+
             VStack(spacing: 12) {
                 ForEach(vm.skills) { skill in
+
                     let deleteAction: (() -> Void)? = isCurrentUser
-                        ? { withAnimation { skillToDelete = skill } }
+                        ? {
+                            selectedSkill = skill
+
+                            DispatchQueue.main.async {
+                                showDeletePopup = true
+                            }
+                        }
                         : nil
+
                     SkillRowView(
                         skill: skill,
                         isCurrentUser: isCurrentUser,
@@ -284,11 +341,7 @@ struct SkillRowView: View {
                     Text(skill.name)
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(BrandColors.darkGray)
-                    if !skill.endorserIDs.isEmpty {
-                        Text("\(skill.endorserIDs.count) endorsement\(skill.endorserIDs.count == 1 ? "" : "s")")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(.secondary)
-                    }
+                    
                 }
                 Spacer()
 
@@ -385,7 +438,7 @@ struct SkillRowView: View {
     }
 
     private var endorserText: Text {
-        Text(endorserDescription)
+        Text("\(skill.endorserIDs.count) endorsements")
     }
 
     private var endorseButton: some View {
@@ -398,7 +451,7 @@ struct SkillRowView: View {
             HStack(spacing: 6) {
                 Image(systemName: hasEndorsed ? "checkmark.seal.fill" : "checkmark.seal")
                     .font(.system(size: 14, weight: .semibold))
-                Text(hasEndorsed ? "Endorsed" : "Endorse")
+                Text(hasEndorsed ? "Unendorse" : "Endorse")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
             }
             .foregroundColor(hasEndorsed ? .white : accent)
@@ -798,5 +851,16 @@ struct RoundedCornerShape: Shape {
 extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+extension View {
+    func centerInScreen() -> some View {
+        GeometryReader { geo in
+            self
+                .position(
+                    x: geo.size.width / 2,
+                    y: geo.size.height / 2
+                )
+        }
     }
 }

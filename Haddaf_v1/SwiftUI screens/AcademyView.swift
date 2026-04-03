@@ -224,35 +224,56 @@ struct AcademyView: View {
     private var academiesContent: some View {
         VStack(spacing: 0) {
             if vm.isLoading {
-                Spacer(); ProgressView().tint(accent); Spacer()
+                Spacer()
+                ProgressView().tint(accent)
+                Spacer()
+
             } else if vm.academies.isEmpty {
                 Spacer()
                 VStack(spacing: 14) {
-                    Image(systemName: "building.2").font(.system(size: 56)).foregroundColor(.secondary.opacity(0.35))
-                    Text("No academies yet").font(.system(size: 17, weight: .medium, design: .rounded)).foregroundColor(.secondary)
+                    Image(systemName: "building.2")
+                        .font(.system(size: 56))
+                        .foregroundColor(.secondary.opacity(0.35))
+
+                    Text("No academies yet")
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
                 }
                 Spacer()
+
             } else {
+
+                // 🔍 Search
                 HStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundColor(accent)
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(accent)
+
                         TextField("Search academy...", text: $searchText)
-                            .font(.system(size: 16, design: .rounded)).tint(accent)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled(true)
+                            .font(.system(size: 16, design: .rounded))
+                            .tint(accent)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
                     }
-                    .padding(.vertical, 12).padding(.horizontal)
-                    .background(BrandColors.background).clipShape(Capsule())
+                    .padding(.vertical, 12)
+                    .padding(.horizontal)
+                    .background(BrandColors.background)
+                    .clipShape(Capsule())
                     .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
 
                     Button { showFilterSheet = true } label: {
-                        Image(systemName: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: isFiltered
+                              ? "line.3.horizontal.decrease.circle.fill"
+                              : "line.3.horizontal.decrease.circle")
                             .font(.system(size: 24, weight: .medium))
                             .foregroundColor(accent)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal).padding(.bottom, 10)
+                .padding(.horizontal)
+                .padding(.bottom, 10)
 
+                // ❌ Empty state
                 if filtered.isEmpty && (isFiltered || !searchText.trimmingCharacters(in: .whitespaces).isEmpty) {
                     Spacer()
                     EmptyStateView(
@@ -260,57 +281,83 @@ struct AcademyView: View {
                         message: "No Matching Results\nTry adjusting your search or filter settings."
                     )
                     Spacer()
-                } else {
-                ScrollView {
-                    VStack(spacing: 14) {
-                        let isCoachRole = session.role == "coach"
-                        let myAcademy: HaddafAcademy? = isCoachRole ? nil : filtered.first(where: { isPlayerInAcademy($0) })
-                        if !searchText.isEmpty || isFiltered || myAcademy == nil {
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                                ForEach(filtered) { academy in
-                                    NavigationLink(destination: AcademyDetailView(academy: academy)) {
-                                        AcademyGridCard(academy: academy)
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                        } else {
-                            if let mine = myAcademy {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("My Academy")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                        .foregroundColor(accent).padding(.horizontal, 16)
-                                    NavigationLink(destination: AcademyDetailView(academy: mine)) {
-                                        AcademyListCard(academy: mine)
-                                            .padding(.horizontal, 16)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 18)
-                                                    .stroke(accent.opacity(0.4), lineWidth: 1.5)
-                                                    .padding(.horizontal, 16)
-                                            )
-                                    }.buttonStyle(.plain)
-                                }.padding(.bottom, 4)
 
-                                let others = filtered.filter { $0.id != mine.id }
-                                if !others.isEmpty {
-                                    Text("All Academies")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                        .foregroundColor(accent)
-                                        .padding(.horizontal, 16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                                        ForEach(others) { academy in
-                                            NavigationLink(destination: AcademyDetailView(academy: academy)) {
-                                                AcademyGridCard(academy: academy)
-                                            }.buttonStyle(.plain)
+                } else {
+
+                    ScrollView {
+                        VStack(spacing: 14) {
+
+                            let isCoachRole = session.role == "coach"
+                            let myAcademy: HaddafAcademy? =
+                                isCoachRole ? nil : filtered.first(where: { isPlayerInAcademy($0) })
+
+                            // 🔥 لو فيه بحث → grid عادي
+                            if !searchText.isEmpty || isFiltered || myAcademy == nil {
+
+                                LazyVGrid(
+                                    columns: [GridItem(.flexible()), GridItem(.flexible())],
+                                    spacing: 14
+                                ) {
+                                    ForEach(filtered) { academy in
+                                        NavigationLink(destination: AcademyDetailView(academy: academy)) {
+                                            AcademyGridCard(academy: academy)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+
+                            } else {
+
+                                // 🔵 My Academy
+                                if let mine = myAcademy {
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("My Academy")
+                                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                            .foregroundColor(accent)
+                                            .padding(.horizontal, 16)
+
+                                        NavigationLink(destination: AcademyDetailView(academy: mine)) {
+                                            AcademyGridCard(academy: mine)
+                                                .frame(width: (UIScreen.main.bounds.width - 16*3) / 2)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .frame(maxWidth: .infinity, alignment: .leading) // 🔥 هذا الحل الحقيقي
+
+                                    }
+                                    .padding(.bottom, 4)
+
+                                    // 🔵 Others
+                                    let others = filtered.filter { $0.id != mine.id }
+
+                                    if !others.isEmpty {
+
+                                        Text("All Academies")
+                                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                            .foregroundColor(accent)
+                                            .padding(.horizontal, 16)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        LazyVGrid(
+                                            columns: [GridItem(.flexible()), GridItem(.flexible())],
+                                            spacing: 14
+                                        ) {
+                                            ForEach(others) { academy in
+                                                NavigationLink(destination: AcademyDetailView(academy: academy)) {
+                                                    AcademyGridCard(academy: academy)
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 100)
                     }
-                    .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 100)
                 }
-                } // end else
             }
         }
     }
@@ -462,6 +509,13 @@ struct AcademyListCard: View {
 // MARK: - Academy Detail View
 
 struct AcademyDetailView: View {
+    
+    func formatCategory(_ cat: String) -> String {
+        guard let age = Int(cat.dropFirst()) else { return cat }
+        let minAge = age - 1
+        let maxAge = age
+        return "U\(age) (\(minAge)-\(maxAge) years old)"
+    }
     let academy: HaddafAcademy
     @StateObject private var vm = AcademyDetailViewModel()
     @EnvironmentObject var session: AppSession
@@ -475,13 +529,20 @@ struct AcademyDetailView: View {
 
     private var isCoach: Bool {
         let uid = session.user?.uid ?? ""
-        // 1. Check coachUIDs loaded from Firestore categories
+        // 1. Check coachUIDs loaded from Firestore categories (most reliable)
         if academy.coachUIDs.contains(uid) { return true }
-        // 2. vm.coaches list (loaded async)
+        // 2. vm.coaches list (loaded async from Firestore)
         if vm.coaches.contains(where: { $0.0 == uid }) { return true }
-        // 3. Fallback: session role is coach AND this academy matches their currentAcademy
-        // This handles the case where the coach's UID is not yet in coachUIDs
-        if session.role == "coach" { return true }
+        // 3. Fallback: coach's stored academyId must match THIS academy's id.
+        //    This covers the brief window before vm.coaches loads asynchronously,
+        //    but ONLY for the academy the coach actually belongs to.
+        //    A coach who left (academyId cleared in leaveAcademy()) will NOT match.
+        if session.role == "coach",
+           let sessionAcademyId = session.academyId,
+           !sessionAcademyId.isEmpty,
+           sessionAcademyId == academy.id {
+            return true
+        }
         return false
     }
 
@@ -576,7 +637,7 @@ struct AcademyDetailView: View {
                                     coachUID: session.user?.uid ?? ""
                                 )) {
                                     HStack {
-                                        Text(cat).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white)
+                                        Text(formatCategory(cat)).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white)
                                             .padding(.horizontal, 14).padding(.vertical, 6).background(accent).clipShape(Capsule())
                                         Spacer()
                                         let count = vm.acceptedPlayerCounts[cat] ?? 0
@@ -677,6 +738,10 @@ class AcademyDetailViewModel: ObservableObject {
 // MARK: - Add Category View
 
 struct AddCategoryView: View {
+    func formatCategory(_ cat: String) -> String {
+        guard let age = Int(cat.dropFirst()) else { return cat }
+        return "U\(age) (\(age-1)-\(age) years old)"
+    }
     let academyId: String
     let existingCategories: [String]
     let coachUID: String
@@ -717,7 +782,7 @@ struct AddCategoryView: View {
                                 else { selectedCategories.append(cat) }
                             } label: {
                                 HStack {
-                                    Text(cat).font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(sel ? .white : accent)
+                                    Text(formatCategory(cat)).font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(sel ? .white : accent)
                                     Spacer()
                                     Image(systemName: sel ? "checkmark.circle.fill" : "circle").foregroundColor(sel ? .white : .secondary)
                                 }
@@ -1109,41 +1174,76 @@ struct InvitePlayerSheet: View {
                             else {
                                 ForEach(results) { p in
                                     let sel = selected.contains(p.id)
+
                                     HStack(spacing: 12) {
-                                        AsyncImage(url: URL(string: p.profilePicURL ?? "")) { phase in
-                                            if case .success(let img) = phase {
-                                                img.resizable().scaledToFill().frame(width: 44, height: 44).clipShape(Circle())
-                                            } else {
-                                                Circle().fill(accent.opacity(0.1)).frame(width: 44, height: 44)
-                                                    .overlay(Image(systemName: "person.fill").foregroundColor(accent))
+
+                                        // 🔥 الضغط هنا يفتح البروفايل
+                                        NavigationLink(destination: PlayerProfileContentView(userID: p.id)) {
+                                            HStack(spacing: 12) {
+                                                AsyncImage(url: URL(string: p.profilePicURL ?? "")) { phase in
+                                                    if case .success(let img) = phase {
+                                                        img.resizable()
+                                                            .scaledToFill()
+                                                            .frame(width: 44, height: 44)
+                                                            .clipShape(Circle())
+                                                    } else {
+                                                        Circle()
+                                                            .fill(accent.opacity(0.1))
+                                                            .frame(width: 44, height: 44)
+                                                            .overlay(
+                                                                Image(systemName: "person.fill")
+                                                                    .foregroundColor(accent)
+                                                            )
+                                                    }
+                                                }
+
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(p.name)
+                                                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+
+                                                    if let pos = p.position, !pos.isEmpty {
+                                                        Text(pos)
+                                                            .font(.system(size: 12, design: .rounded))
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                }
                                             }
                                         }
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(p.name).font(.system(size: 15, weight: .semibold, design: .rounded))
-                                            if let pos = p.position, !pos.isEmpty {
-                                                Text(pos).font(.system(size: 12, design: .rounded)).foregroundColor(.secondary)
-                                            }
-                                        }
+                                        .buttonStyle(.plain)
+
                                         Spacer()
+
+                                        // 🔘 زر الإضافة
                                         Button {
                                             if existingPlayerUIDs.contains(p.id) {
                                                 duplicatePlayerName = p.name
                                                 showAlreadyExistsAlert = true
-                                            } else if sel { selected.remove(p.id) }
-                                            else { selected.insert(p.id) }
+                                            } else if sel {
+                                                selected.remove(p.id)
+                                            } else {
+                                                selected.insert(p.id)
+                                            }
                                         } label: {
-                                            Image(systemName: existingPlayerUIDs.contains(p.id) ? "checkmark.circle.fill" :
-                                                    (sel ? "checkmark.circle.fill" : "plus.circle"))
-                                                .font(.system(size: 26))
-                                                .foregroundColor(existingPlayerUIDs.contains(p.id) ? .secondary :
-                                                                    (sel ? BrandColors.actionGreen : accent))
-                                        }.buttonStyle(.plain)
+                                            Image(systemName:
+                                                    existingPlayerUIDs.contains(p.id)
+                                                  ? "checkmark.circle.fill"
+                                                  : (sel ? "checkmark.circle.fill" : "plus.circle")
+                                            )
+                                            .font(.system(size: 26))
+                                            .foregroundColor(
+                                                existingPlayerUIDs.contains(p.id)
+                                                ? .secondary
+                                                : (sel ? BrandColors.actionGreen : accent)
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                     .padding(12)
-                                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background)
-                                        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
-                                        .overlay(RoundedRectangle(cornerRadius: 14)
-                                            .stroke(sel ? BrandColors.actionGreen.opacity(0.4) : .clear, lineWidth: 1.5)))
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(BrandColors.background)
+                                            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                                    )
                                     .padding(.horizontal, 18)
                                 }
                                 if results.isEmpty && !searchText.isEmpty {
@@ -1182,20 +1282,85 @@ struct InvitePlayerSheet: View {
     }
 
     private func search(_ q: String) async {
-        guard !q.trimmingCharacters(in: .whitespaces).isEmpty else { results = []; return }
-        isSearching = true
-        let snap = try? await db.collection("users").whereField("role", isEqualTo: "player").limit(to: 30).getDocuments()
-        let ql = q.lowercased()
-        let list = (snap?.documents ?? []).compactMap { doc -> AcademyPlayerItem? in
-            let d = doc.data()
-            let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
-            guard name.lowercased().contains(ql) else { return nil }
-            return AcademyPlayerItem(id: doc.documentID, name: name, profilePicURL: d["profilePic"] as? String,
-                                     position: d["position"] as? String, status: "pending", coachUID: coachUID)
-        }
-        await MainActor.run { results = list; isSearching = false }
-    }
+        let query = q.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { results = []; return }
 
+        isSearching = true
+
+        let snap = try? await db.collection("users")
+            .whereField("role", isEqualTo: "player")
+            .limit(to: 50)
+            .getDocuments()
+
+        var list: [AcademyPlayerItem] = []
+
+        for doc in snap?.documents ?? [] {
+            let d = doc.data()
+
+            let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")"
+            let email = (d["email"] as? String ?? "").lowercased()
+            let nameLower = name.lowercased()
+
+            let matchesName =
+                nameLower.contains(query) ||
+                levenshtein(nameLower, query) <= 2
+
+            let matchesEmail = email.contains(query)
+
+            if matchesName || matchesEmail {
+                list.append(
+                    AcademyPlayerItem(
+                        id: doc.documentID,
+                        name: name,
+                        profilePicURL: d["profilePic"] as? String,
+                        position: d["position"] as? String,
+                        status: "pending",
+                        coachUID: coachUID
+                    )
+                )
+            }
+        }
+
+        // 🔥 هنا تحطين الترتيب
+        list.sort {
+            levenshtein($0.name.lowercased(), query)
+            <
+            levenshtein($1.name.lowercased(), query)
+        }
+
+        await MainActor.run {
+            results = list
+            isSearching = false
+        }
+    }
+    func levenshtein(_ a: String, _ b: String) -> Int {
+        let a = Array(a)
+        let b = Array(b)
+
+        var dist = Array(
+            repeating: Array(repeating: 0, count: b.count + 1),
+            count: a.count + 1
+        )
+
+        for i in 0...a.count { dist[i][0] = i }
+        for j in 0...b.count { dist[0][j] = j }
+
+        for i in 1...a.count {
+            for j in 1...b.count {
+                if a[i - 1] == b[j - 1] {
+                    dist[i][j] = dist[i - 1][j - 1]
+                } else {
+                    dist[i][j] = min(
+                        dist[i - 1][j] + 1,
+                        dist[i][j - 1] + 1,
+                        dist[i - 1][j - 1] + 1
+                    )
+                }
+            }
+        }
+
+        return dist[a.count][b.count]
+    }
     private func sendInvitations() async {
         isSaving = true
 
@@ -1435,7 +1600,7 @@ struct AcademySetupFlow: View {
 
             HStack {
                 Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                TextField("Search players...", text: $searchText)
+                TextField("Search player name or email", text: $searchText)
                     .textInputAutocapitalization(.never).autocorrectionDisabled(true)
                     .onChange(of: searchText) { _, v in Task { await search(v) } }
             }
