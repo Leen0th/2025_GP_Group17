@@ -592,11 +592,30 @@ struct GroupDetailPage: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var session: AppSession
 
-    // Local navigation state — stays inside this view's level in the parent NavigationStack
-    @State private var navigateToPost: DocumentReference? = nil
-    @State private var navigateToParentPost: DocumentReference? = nil
-    @State private var navigateToUID: String? = nil
-    @State private var navigateToCoachUID: String? = nil
+    // Typed navigation target — eliminates blank-page flash from isPresented pattern
+    enum NavTarget: Hashable {
+        case post(DocumentReference)
+        case playerProfile(String)
+        case coachProfile(String)
+
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .post(let ref):           hasher.combine(0); hasher.combine(ref.path)
+            case .playerProfile(let uid):  hasher.combine(1); hasher.combine(uid)
+            case .coachProfile(let uid):   hasher.combine(2); hasher.combine(uid)
+            }
+        }
+        static func == (lhs: NavTarget, rhs: NavTarget) -> Bool {
+            switch (lhs, rhs) {
+            case (.post(let a), .post(let b)):                     return a.path == b.path
+            case (.playerProfile(let a), .playerProfile(let b)):   return a == b
+            case (.coachProfile(let a), .coachProfile(let b)):     return a == b
+            default:                                               return false
+            }
+        }
+    }
+
+    @State private var navTarget: NavTarget? = nil
 
     // Report filter
     @State private var selectedReasonFilter: String = "all"
@@ -636,39 +655,14 @@ struct GroupDetailPage: View {
         }
         .navigationTitle(pageTitle)
         .navigationBarTitleDisplayMode(.inline)
-        // Navigate to a reported post (Discovery / Challenge)
-        .navigationDestination(isPresented: Binding(
-            get: { navigateToPost != nil },
-            set: { if !$0 { navigateToPost = nil } }
-        )) {
-            if let ref = navigateToPost {
+        // Single destination handler — no empty-page flash
+        .navigationDestination(item: $navTarget) { target in
+            switch target {
+            case .post(let ref):
                 ReportedPostView(postRef: ref).environmentObject(session)
-            }
-        }
-        // Navigate to the parent post where a comment lives
-        .navigationDestination(isPresented: Binding(
-            get: { navigateToParentPost != nil },
-            set: { if !$0 { navigateToParentPost = nil } }
-        )) {
-            if let ref = navigateToParentPost {
-                ReportedPostView(postRef: ref).environmentObject(session)
-            }
-        }
-        // Navigate to a player profile
-        .navigationDestination(isPresented: Binding(
-            get: { navigateToUID != nil },
-            set: { if !$0 { navigateToUID = nil } }
-        )) {
-            if let uid = navigateToUID {
+            case .playerProfile(let uid):
                 PlayerProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
-            }
-        }
-        // Navigate to a coach profile
-        .navigationDestination(isPresented: Binding(
-            get: { navigateToCoachUID != nil },
-            set: { if !$0 { navigateToCoachUID = nil } }
-        )) {
-            if let uid = navigateToCoachUID {
+            case .coachProfile(let uid):
                 CoachProfileContentView(userID: uid, isAdminViewing: true).environmentObject(session)
             }
         }
@@ -799,7 +793,7 @@ struct GroupDetailPage: View {
                     }
                     .buttonStyle(.plain)
                 } else if let ref = group.reportedItemRef, !group.wasDeleted {
-                    Button { navigateToPost = ref } label: {
+                    Button { navTarget = .post(ref) } label: {
                         HStack {
                             Image(systemName: "play.rectangle.fill")
                             Text("View Post").font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -819,8 +813,8 @@ struct GroupDetailPage: View {
                         let role = (doc?.data()?["role"] as? String)
                                 ?? (doc?.data()?["userType"] as? String)
                                 ?? "player"
-                        if role == "coach" { navigateToCoachUID = ref.documentID }
-                        else { navigateToUID = ref.documentID }
+                        if role == "coach" { navTarget = .coachProfile(ref.documentID) }
+                        else { navTarget = .playerProfile(ref.documentID) }
                     }
                 } label: {
                     HStack {
@@ -845,8 +839,8 @@ struct GroupDetailPage: View {
                             let role = (doc?.data()?["role"] as? String)
                                     ?? (doc?.data()?["userType"] as? String)
                                     ?? "player"
-                            if role == "coach" { navigateToCoachUID = uid }
-                            else { navigateToUID = uid }
+                            if role == "coach" { navTarget = .coachProfile(uid) }
+                            else { navTarget = .playerProfile(uid) }
                         }
                     } label: {
                         HStack {
@@ -867,7 +861,7 @@ struct GroupDetailPage: View {
                 // View the parent post where this comment lives
                 if let ref = group.reportedItemRef,
                    let parentRef = ref.parent.parent {
-                    Button { navigateToParentPost = parentRef } label: {
+                    Button { navTarget = .post(parentRef) } label: {
                         HStack {
                             Image(systemName: "play.rectangle.fill")
                             VStack(alignment: .leading, spacing: 2) {

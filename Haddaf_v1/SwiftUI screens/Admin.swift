@@ -234,8 +234,7 @@ struct AdminCoachesApprovalView: View {
     @State private var expandedCommentIDs: Set<String> = [] // Track which history items have expanded comments
     @State private var selectedTab: RequestTab = .pending // Tab selection
     @State private var statusFilter: String = "all" // "all", "approved", "rejected"
-    @State private var pendingStatusFilter: String = "all" // "all", "new", "returned"
-    @State private var pendingTypeFilter: String = "all"   // "all", "verification", "join_academy", "change_academy"
+    @State private var pendingTypeFilter: String = "all"   // "all", "new_request", "returned", "change_academy", "new_coach"
     @State private var reviewed: [CoachRequestItem] = [] // For approved/rejected requests
 
     enum RequestTab: String, CaseIterable {
@@ -297,43 +296,32 @@ struct AdminCoachesApprovalView: View {
                             } else if selectedTab == .pending {
                                 Menu {
                                     Button {
-                                        pendingStatusFilter = "all"
                                         pendingTypeFilter = "all"
                                     } label: {
-                                        Label("All", systemImage: (pendingStatusFilter == "all" && pendingTypeFilter == "all") ? "checkmark" : "")
-                                    }
-                                    Button {
-                                        pendingStatusFilter = "new"
-                                        pendingTypeFilter = "all"
-                                    } label: {
-                                        Label("New Only", systemImage: pendingStatusFilter == "new" ? "checkmark" : "")
-                                    }
-                                    Button {
-                                        pendingStatusFilter = "returned"
-                                        pendingTypeFilter = "all"
-                                    } label: {
-                                        Label("Returned Only", systemImage: pendingStatusFilter == "returned" ? "checkmark" : "")
-                                    }
-                                    Button {
-                                        pendingTypeFilter = "verification"
-                                        pendingStatusFilter = "all"
-                                    } label: {
-                                        Label("New Request", systemImage: pendingTypeFilter == "verification" ? "checkmark" : "")
-                                    }
-                                    Button {
-                                        pendingTypeFilter = "join_academy"
-                                        pendingStatusFilter = "all"
-                                    } label: {
-                                        Label("New Request", systemImage: pendingTypeFilter == "join_academy" ? "checkmark" : "")
+                                        Label("All", systemImage: pendingTypeFilter == "all" ? "checkmark" : "")
                                     }
                                     Button {
                                         pendingTypeFilter = "change_academy"
-                                        pendingStatusFilter = "all"
                                     } label: {
-                                        Label("Academy Change", systemImage: pendingTypeFilter == "change_academy" ? "checkmark" : "")
+                                        Label("Change Academy", systemImage: pendingTypeFilter == "change_academy" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingTypeFilter = "new_coach"
+                                    } label: {
+                                        Label("New Coach", systemImage: pendingTypeFilter == "new_coach" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingTypeFilter = "new_request"
+                                    } label: {
+                                        Label("New Requests", systemImage: pendingTypeFilter == "new_request" ? "checkmark" : "")
+                                    }
+                                    Button {
+                                        pendingTypeFilter = "returned"
+                                    } label: {
+                                        Label("Returned Requests", systemImage: pendingTypeFilter == "returned" ? "checkmark" : "")
                                     }
                                 } label: {
-                                    let isFiltered = pendingStatusFilter != "all" || pendingTypeFilter != "all"
+                                    let isFiltered = pendingTypeFilter != "all"
                                     Image(systemName: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                                         .font(.system(size: 22))
                                         .foregroundColor(isFiltered ? BrandColors.darkTeal : .secondary)
@@ -452,44 +440,36 @@ struct AdminCoachesApprovalView: View {
     private var filteredAndSortedPending: [CoachRequestItem] {
         let s = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        // Filter by status (new/returned)
-        var statusFiltered: [CoachRequestItem]
-        if pendingStatusFilter == "new" {
-            statusFiltered = pending.filter { item in
+        var filtered: [CoachRequestItem]
+        switch pendingTypeFilter {
+        case "change_academy":
+            // Only change_academy requests
+            filtered = pending.filter { $0.requestType == "change_academy" }
+        case "new_coach":
+            // initial (all first-time signups, with or without academy) + join_academy (approved coach joining for first time)
+            filtered = pending.filter { $0.requestType == "initial" || $0.requestType == "join_academy" }
+        case "new_request":
+            // Any type with no coach response or document reupload (fresh, not yet returned)
+            filtered = pending.filter { item in
                 !item.timeline.contains { $0.type == .coachResponse || $0.type == .documentReuploaded }
             }
-        } else if pendingStatusFilter == "returned" {
-            statusFiltered = pending.filter { item in
+        case "returned":
+            // Any type that has been sent back
+            filtered = pending.filter { item in
                 item.timeline.contains { $0.type == .coachResponse || $0.type == .documentReuploaded }
             }
-        } else {
-            statusFiltered = pending
+        default: // "all"
+            filtered = pending
         }
 
-        // Filter by request type
-        if pendingTypeFilter == "verification" {
-            statusFiltered = statusFiltered.filter { $0.requestType == "initial" }
-        } else if pendingTypeFilter == "join_academy" {
-            statusFiltered = statusFiltered.filter { $0.requestType == "join_academy" }
-        } else if pendingTypeFilter == "change_academy" {
-            statusFiltered = statusFiltered.filter { $0.requestType == "change_academy" }
-        }
-        
-        // Filter by search
-        let filtered: [CoachRequestItem]
-        if s.isEmpty {
-            filtered = statusFiltered
-        } else {
-            filtered = statusFiltered.filter {
+        if !s.isEmpty {
+            filtered = filtered.filter {
                 $0.fullName.lowercased().contains(s) || $0.email.lowercased().contains(s)
             }
         }
-        
-        // Sort
+
         return filtered.sorted { item1, item2 in
-            guard let date1 = item1.submittedAt, let date2 = item2.submittedAt else {
-                return false
-            }
+            guard let date1 = item1.submittedAt, let date2 = item2.submittedAt else { return false }
             return sortByNew ? (date1 > date2) : (date1 < date2)
         }
     }
@@ -540,11 +520,10 @@ struct AdminCoachesApprovalView: View {
         
         switch selectedTab {
         case .pending:
-            if pendingStatusFilter == "new" { return "There are no new requests." }
-            if pendingStatusFilter == "returned" { return "There are no returned requests." }
-            if pendingTypeFilter == "verification" { return "There are no new requests." }
-            if pendingTypeFilter == "join_academy" { return "There are no new requests." }
             if pendingTypeFilter == "change_academy" { return "There are no academy change requests." }
+            if pendingTypeFilter == "new_coach" { return "There are no new coach requests." }
+            if pendingTypeFilter == "new_request" { return "There are no new requests." }
+            if pendingTypeFilter == "returned" { return "There are no returned requests." }
             return "There are no coach requests yet."
         case .reviewed:
             if statusFilter == "approved" {
@@ -639,7 +618,7 @@ struct AdminCoachesApprovalView: View {
 
                     // Right column: badge top, status indicator below
                     VStack(alignment: .trailing, spacing: 6) {
-                        // Type badge
+                        // Type badge: only 2 variants
                         if item.requestType == "change_academy" {
                             Text("Academy Change")
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -649,7 +628,8 @@ struct AdminCoachesApprovalView: View {
                                 .background(BrandColors.gold.opacity(0.13))
                                 .clipShape(Capsule())
                         } else {
-                            Text("New Request")
+                            // initial + join_academy = New Coach
+                            Text("New Coach")
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundColor(BrandColors.darkTeal)
                                 .padding(.horizontal, 10)
@@ -1077,32 +1057,69 @@ struct CoachRequestDetailView: View {
                     NavigationLink {
                         CoachProfileContentView(userID: request.uid, isAdminViewing: true)
                     } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 38))
-                                .foregroundColor(primary.opacity(0.8))
-
-                            VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "person.fill")
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(request.fullName)
-                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                    .foregroundColor(primary)
-
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 Text(request.email)
-                                    .font(.system(size: 13, design: .rounded))
+                                    .font(.system(size: 12, design: .rounded))
                                     .foregroundColor(.secondary)
-
-                                Label("View Profile", systemImage: "arrow.up.right")
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                    .foregroundColor(primary)
-                                    .padding(.top, 2)
                             }
-
                             Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right").foregroundColor(.secondary)
                         }
-                        .padding(16)
+                        .foregroundColor(primary)
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(primary.opacity(0.07)))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                    
+                    // Request type section — shown for all request types
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Request Type")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(primary)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                let (badgeLabel, badgeColor, icon): (String, Color, String) = {
+                                    switch request.requestType {
+                                    case "change_academy":
+                                        return ("Change Academy", BrandColors.gold, "arrow.left.arrow.right")
+                                    case "join_academy":
+                                        return ("Join Academy", BrandColors.actionGreen, "building.2.fill")
+                                    default: // "initial"
+                                        return ("Coach Verification", BrandColors.darkTeal, "checkmark.seal.fill")
+                                    }
+                                }()
+                                Label(badgeLabel, systemImage: icon)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(badgeColor)
+                                    .padding(.horizontal, 12).padding(.vertical, 5)
+                                    .background(badgeColor.opacity(0.12))
+                                    .clipShape(Capsule())
+                                Spacer()
+                            }
+                            if !request.requestedAcademy.isEmpty {
+                                Divider()
+                                HStack(spacing: 8) {
+                                    Image(systemName: "building.2.fill")
+                                        .foregroundColor(primary.opacity(0.7))
+                                        .font(.system(size: 14))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Requested Academy")
+                                            .font(.system(size: 11, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                        Text(request.requestedAcademy)
+                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.primary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
                         .background(
                             RoundedRectangle(cornerRadius: 14)
                                 .fill(BrandColors.background)
@@ -1110,62 +1127,6 @@ struct CoachRequestDetailView: View {
                         )
                     }
                     .padding(.horizontal)
-                    
-                    // Academy Request section — only for academy-related requests
-                    if request.requestType == "change_academy" || request.requestType == "join_academy" {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Academy Request")
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundColor(primary)
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 8) {
-                                    let (badgeLabel, badgeColor, icon): (String, Color, String) = {
-                                        switch request.requestType {
-                                        case "change_academy":
-                                            return ("Academy Change", BrandColors.gold, "arrow.left.arrow.right")
-                                        case "join_academy":
-                                            return ("Join Academy", BrandColors.actionGreen, "building.2.fill")
-                                        default:
-                                            return ("", .clear, "")
-                                        }
-                                    }()
-                                    if !badgeLabel.isEmpty {
-                                        Label(badgeLabel, systemImage: icon)
-                                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                                            .foregroundColor(badgeColor)
-                                            .padding(.horizontal, 12).padding(.vertical, 5)
-                                            .background(badgeColor.opacity(0.12))
-                                            .clipShape(Capsule())
-                                    }
-                                    Spacer()
-                                }
-                                if !request.requestedAcademy.isEmpty {
-                                    Divider()
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "building.2.fill")
-                                            .foregroundColor(primary.opacity(0.7))
-                                            .font(.system(size: 14))
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Requested Academy")
-                                                .font(.system(size: 11, design: .rounded))
-                                                .foregroundColor(.secondary)
-                                            Text(request.requestedAcademy)
-                                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                .foregroundColor(.primary)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(BrandColors.background)
-                                    .shadow(color: .black.opacity(0.05), radius: 4)
-                            )
-                        }
-                        .padding(.horizontal)
-                    }
 
                     // Request Timeline
                     VStack(alignment: .leading, spacing: 8) {

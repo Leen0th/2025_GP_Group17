@@ -179,6 +179,7 @@ struct PostDetailView: View {
                             }
                         }
                     },
+                    isAdminViewing: isAdminViewing,
                     showAuthSheet: $showAuthSheet
                 )
                 .environmentObject(session)
@@ -505,8 +506,28 @@ struct PostDetailView: View {
             
             Spacer()
             
-            // Only show like and comment buttons if not admin
-            if !isAdminViewing {
+            if isAdminViewing {
+                // Admin: read-only like count (unfilled heart) + tappable comment count
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart")
+                        Text(formatNumber(post.likeCount))
+                    }
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+
+                    Button {
+                        showCommentsSheet = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "message")
+                            Text("\(post.commentCount)")
+                        }
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(BrandColors.darkGray)
+                    }
+                }
+            } else {
                 // --- Like Button Action ---
                 Button {
                     if session.isGuest {
@@ -519,17 +540,15 @@ struct PostDetailView: View {
                         Task { await toggleLike() }
                     }
                 } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
-                    Text(formatNumber(post.likeCount))
+                    HStack(spacing: 4) {
+                        Image(systemName: post.isLikedByUser ? "heart.fill" : "heart")
+                        Text(formatNumber(post.likeCount))
+                    }
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
                 }
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(post.isLikedByUser ? .red : BrandColors.darkGray)
-            }
-            //.disabled(session.role == "coach" && !session.isVerifiedCoach)
-            //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
-            
-            // --- Comment Button Action ---
+
+                // --- Comment Button Action ---
                 Button {
                     if session.isGuest {
                         showAuthSheet = true
@@ -541,16 +560,14 @@ struct PostDetailView: View {
                         showCommentsSheet = true
                     }
                 } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "message")
-                    Text("\(post.commentCount)")
+                    HStack(spacing: 4) {
+                        Image(systemName: "message")
+                        Text("\(post.commentCount)")
+                    }
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
                 }
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(BrandColors.darkGray)
-            }
-            //.disabled(session.role == "coach" && !session.isVerifiedCoach)
-            //.opacity((session.role == "coach" && !session.isVerifiedCoach) ? 0.5 : 1.0)
-                    } // End of if !isAdminViewing
+            } // End of admin/user branch
                 }
                 .foregroundColor(.primary)
             }
@@ -784,6 +801,7 @@ struct PostDetailView: View {
 struct CommentsView: View {
     let postId: String
     var onProfileTapped: (String) -> Void
+    var isAdminViewing: Bool = false
     
     @StateObject private var viewModel = CommentsViewModel()
     @Environment(\.dismiss) private var dismiss
@@ -917,7 +935,8 @@ struct CommentsView: View {
                 }
             }
             
-            // --- Comment Input Area ---
+            // --- Comment Input Area (hidden for admin) ---
+            if !isAdminViewing {
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(spacing: 12) {
                     ZStack {
@@ -957,6 +976,7 @@ struct CommentsView: View {
             .opacity(session.isGuest ? 0.7 : 1.0)
             .padding()
             .background(BrandColors.background)
+            } // end if !isAdminViewing
         }
         // --- Custom overlay for delete confirmation ---
         .overlay(
