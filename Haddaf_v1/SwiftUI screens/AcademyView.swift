@@ -501,8 +501,8 @@ struct AcademyListCard: View {
             Image(systemName: "chevron.right").foregroundColor(accent.opacity(0.4))
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 18).fill(BrandColors.background)
-            .shadow(color: .black.opacity(0.07), radius: 8, y: 3))
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
     }
 }
 

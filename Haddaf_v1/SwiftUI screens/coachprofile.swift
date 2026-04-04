@@ -1631,30 +1631,72 @@ struct CurrentAcademyView: View {
     // Current academy exists but a *change* request is pending
     private var pendingChangeRow: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle().fill(BrandColors.gold.opacity(0.12)).frame(width: 48, height: 48)
-                    Image(systemName: "clock.badge.exclamationmark")
-                        .font(.system(size: 20))
-                        .foregroundColor(BrandColors.gold)
+            // ── Current academy row — still tappable (coach is still a member) ──
+            Button {
+                Task {
+                    await loadCurrentAcademy()
+                    await MainActor.run { navigateToAcademyDetail = true }
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    // Show the requested new academy name
-                    Text(coachProfile.pendingAcademy)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock.badge.exclamationmark")
-                            .font(.system(size: 11))
-                            .foregroundColor(BrandColors.gold)
-                        Text("Change request pending approval")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(BrandColors.gold)
+            } label: {
+                HStack(spacing: 12) {
+                    if let logoURL = destinationAcademy?.logoURL, !logoURL.isEmpty {
+                        AcademyLogoView(logoURL: logoURL, size: 48)
+                    } else {
+                        ZStack {
+                            Circle().fill(accent.opacity(0.1)).frame(width: 48, height: 48)
+                            Image(systemName: "building.2.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(accent)
+                        }
                     }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(coachProfile.currentAcademy)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                        if let city = destinationAcademy?.city, !city.isEmpty {
+                            HStack(spacing: 3) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accent.opacity(0.6))
+                                Text(city)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(accent.opacity(0.4))
+                }
+            }
+            .buttonStyle(.plain)
+
+            // ── Pending change banner ──
+            HStack(spacing: 6) {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 12))
+                    .foregroundColor(BrandColors.gold)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Change request pending approval")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(BrandColors.gold)
+                    Text("Requested: \(coachProfile.pendingAcademy)")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(BrandColors.gold.opacity(0.8))
+                        .lineLimit(1)
                 }
                 Spacer()
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(BrandColors.gold.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(BrandColors.gold.opacity(0.25), lineWidth: 1))
+            )
             // No Change/Leave buttons while a change request is pending
         }
     }
@@ -1721,7 +1763,7 @@ struct CurrentAcademyView: View {
             if isCurrentUser {
                 HStack(spacing: 10) {
                     Button { showChangeAcademySheet = true } label: {
-                        Text("Change")
+                        Text("Change Academy")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -1732,7 +1774,7 @@ struct CurrentAcademyView: View {
                     .buttonStyle(.plain)
 
                     Button { showLeaveConfirm = true } label: {
-                        Text("Leave")
+                        Text("Leave Academy")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(.red)
                             .frame(maxWidth: .infinity)
@@ -1798,13 +1840,31 @@ struct CurrentAcademyView: View {
             let reqRef = db.collection("coachRequests").document()
             try await reqRef.setData(requestData)
 
-            // Mark pending on user doc
+            // Remove coach from current academy immediately
+            let userDoc = try? await db.collection("users").document(uid).getDocument()
+            let currentAcademyId = userDoc?.data()?["academyId"] as? String ?? ""
+            if !currentAcademyId.isEmpty {
+                let catsSnap = try? await db.collection("academies").document(currentAcademyId)
+                    .collection("categories").getDocuments()
+                for catDoc in catsSnap?.documents ?? [] {
+                    try? await db.collection("academies").document(currentAcademyId)
+                        .collection("categories").document(catDoc.documentID)
+                        .updateData(["coaches": FieldValue.arrayRemove([uid])])
+                }
+            }
+
+            // Clear current academy + mark pending on user doc
             try await db.collection("users").document(uid).updateData([
+                "currentAcademy": FieldValue.delete(),
+                "academyId": FieldValue.delete(),
+                "isInAcademy": false,
                 "pendingAcademy": newAcademy
             ])
 
             await MainActor.run {
+                coachProfile.currentAcademy = ""
                 coachProfile.pendingAcademy = newAcademy
+                destinationAcademy = nil
                 isProcessing = false
             }
         } catch {
