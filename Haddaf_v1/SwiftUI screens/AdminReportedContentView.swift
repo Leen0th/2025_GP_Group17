@@ -537,17 +537,18 @@ struct ContentGroupCard: View {
 
     private var previewLabel: String {
         switch group.itemType {
-        case "Discovery Post", "Challenge Post": return "Caption"
-        case "Comment":                          return "Comment"
-        case "Account":                          return "Username"
-        default:                                 return "Content"
+        case "Discovery Post":  return "Discovery Post Caption"
+        case "Challenge Post":  return "Challenge Post Caption"
+        case "Comment":         return "Comment Caption"
+        case "Account":         return "Account Username"
+        default:                return group.itemType
         }
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(previewLabel.uppercased())
+                Text(previewLabel)
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
                 Text(group.contentPreview.isEmpty ? "(No preview available)" : group.contentPreview)
