@@ -37,7 +37,7 @@ import AVKit
     }
 }
 */
-struct LineupBuilderView: View {
+/*struct LineupBuilderView: View {
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
@@ -53,7 +53,7 @@ struct LineupBuilderView: View {
         }
     }
 }
-
+*/
 
 // MARK: - Video Upload View (Validation Added)
 struct VideoUploadView: View {
