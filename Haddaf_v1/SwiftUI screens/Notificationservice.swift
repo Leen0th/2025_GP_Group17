@@ -241,4 +241,81 @@ class NotificationService: ObservableObject {
             }
         } catch { print("Error: \(error)") }
     }
+    static func sendMatchJoinRequestedNotification(
+        organizerId: String,
+        senderId: String,
+        senderName: String,
+        matchId: String,
+        locationName: String,
+        position: String,
+        requestId: String
+    ) async {
+        let notif = HaddafNotification(
+            userId: organizerId,
+            type: .matchJoinRequested,
+            title: "⚽ New Match Request",
+            message: "\(senderName) requested to join your match at \(locationName) as \(position).",
+            invitationId: requestId,
+            matchId: matchId,
+            requestedPosition: position,
+            senderId: senderId,
+            senderName: senderName
+        )
+        try? await Firestore.firestore().collection("notifications").document(notif.id).setData(notif.asDictionary)
+    }
+
+    static func sendMatchJoinApprovedNotification(
+        userId: String,
+        organizerName: String,
+        matchId: String,
+        locationName: String,
+        position: String
+    ) async {
+        let notif = HaddafNotification(
+            userId: userId,
+            type: .matchJoinApproved,
+            title: "✅ Match Request Approved",
+            message: "\(organizerName) approved your request for the match at \(locationName) as \(position).",
+            matchId: matchId,
+            requestedPosition: position,
+            senderName: organizerName
+        )
+        try? await Firestore.firestore().collection("notifications").document(notif.id).setData(notif.asDictionary)
+    }
+
+    static func sendMatchJoinRejectedNotification(
+        userId: String,
+        organizerName: String,
+        matchId: String,
+        locationName: String,
+        position: String
+    ) async {
+        let notif = HaddafNotification(
+            userId: userId,
+            type: .matchJoinRejected,
+            title: "❌ Match Request Rejected",
+            message: "\(organizerName) rejected your request for the match at \(locationName) as \(position).",
+            matchId: matchId,
+            requestedPosition: position,
+            senderName: organizerName
+        )
+        try? await Firestore.firestore().collection("notifications").document(notif.id).setData(notif.asDictionary)
+    }
+
+    static func sendUpcomingMatchReminderNotification(
+        userId: String,
+        matchId: String,
+        locationName: String,
+        date: Date
+    ) async {
+        let titleDate = date.formatted(date: .abbreviated, time: .shortened)
+        let notif = HaddafNotification(
+            userId: userId,
+            type: .upcomingMatchReminder,
+            title: "⏰ Upcoming Match Reminder",
+            message: "Reminder: your match at \(locationName) is on \(titleDate).",
+            matchId: matchId
+        )
+        try? await Firestore.firestore().collection("notifications").document(notif.id).setData(notif.asDictionary)
+    }
 }

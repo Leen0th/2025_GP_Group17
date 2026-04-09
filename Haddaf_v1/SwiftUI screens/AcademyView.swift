@@ -155,6 +155,8 @@ struct AcademyView: View {
     @State private var selectedCity: String = ""
     @State private var selectedStreet: String = ""
     @State private var showFilterSheet = false
+    @StateObject private var matchVM = MatchOpportunitiesViewModel()
+    @State private var showCreateMatchSheet = false
     private let accent = BrandColors.darkTeal
 
     enum AcademyTab: String, CaseIterable {
@@ -206,8 +208,14 @@ struct AcademyView: View {
             .onAppear {
                 vm.startListening()
                 Task { await loadMyAcademy() }
+                if let uid = session.user?.uid {
+                    matchVM.startListening(currentUserId: uid)
+                }
             }
-            .onDisappear { vm.stopListening() }
+            .onDisappear {
+                vm.stopListening()
+                matchVM.stopListening()
+            }
             .sheet(isPresented: $showFilterSheet) {
                 AcademyFilterSheet(
                     cities: availableCities,
@@ -415,15 +423,69 @@ struct AcademyView: View {
     }
 
     private var matchOppsContent: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: 16) {
-                Image(systemName: "calendar.badge.clock").font(.system(size: 52)).foregroundColor(accent.opacity(0.35))
-                Text("Coming Soon").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundColor(accent)
-                Text("Match Opportunities will be available in the next sprint.")
-                    .font(.system(size: 15, design: .rounded)).foregroundColor(.secondary).multilineTextAlignment(.center)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(accent)
+
+                    TextField("Search by location...", text: $matchVM.searchLocation)
+                        .font(.system(size: 16, design: .rounded))
+                        .tint(accent)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal)
+                .background(BrandColors.background)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
+
+                Button { showCreateMatchSheet = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(accent)
+                }
+                .buttonStyle(.plain)
             }
-            Spacer()
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+
+            ScrollView {
+                VStack(spacing: 14) {
+                    if matchVM.isLoading {
+                        ProgressView().tint(accent).padding(.top, 40)
+                    } else if matchVM.filteredMatches.isEmpty {
+                        EmptyStateView(
+                            imageName: "calendar.badge.clock",
+                            message: "No match opportunities yet"
+                        )
+                        .padding(.top, 50)
+                    } else {
+                        ForEach(matchVM.filteredMatches) { match in
+                            MatchOpportunityCard(
+                                match: match,
+                                currentUserId: session.user?.uid ?? "",
+                                myRequest: matchVM.requestState(for: match.id),
+                                pendingCount: matchVM.pendingRequests(for: match.id).count,
+                                onRefresh: {
+                                    if let uid = session.user?.uid {
+                                        matchVM.startListening(currentUserId: uid)
+                                    }
+                                }
+                            )
+                            .environmentObject(session)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 100)
+            }
+        }
+        .sheet(isPresented: $showCreateMatchSheet) {
+            CreateMatchOpportunitySheet()
+                .environmentObject(session)
+                .presentationDetents([.large])
+                .presentationCornerRadius(28)
+                .presentationBackground(BrandColors.background)
         }
     }
 

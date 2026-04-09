@@ -199,27 +199,85 @@ struct NotificationCard: View {
 
     private var iconName: String {
         switch notification.type {
-        case .adminMonthlyReminder: return "calendar.badge.plus"
-        case .playerChallengeSubmitted: return "checkmark.circle.fill"
-        case .challengeEnded: return "trophy.fill"
-        case .newChallengeAvailable: return "star.circle.fill"
-        case .academyInvitation: return "building.2.fill"
-        case .invitationAccepted: return "person.badge.checkmark.fill"
-        case .invitationDeclined: return "person.badge.minus"
-        case .removedFromTeam: return "xmark.circle.fill"
-        case .goalAchieved: return "target"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .contentDeleted: return "trash.fill"
+
+        case .adminMonthlyReminder:
+            return "calendar.badge.plus"
+
+        case .playerChallengeSubmitted:
+            return "checkmark.circle.fill"
+
+        case .challengeEnded:
+            return "trophy.fill"
+
+        case .newChallengeAvailable:
+            return "star.circle.fill"
+
+        case .academyInvitation:
+            return "building.2.fill"
+
+        case .invitationAccepted:
+            return "person.badge.checkmark.fill"
+
+        case .invitationDeclined:
+            return "person.badge.minus"
+
+        case .removedFromTeam:
+            return "xmark.circle.fill"
+
+        case .goalAchieved:
+            return "target"
+
+        case .warning:
+            return "exclamationmark.triangle.fill"
+
+        case .contentDeleted:
+            return "trash.fill"
+
+        case .matchJoinRequested:
+            return "person.crop.circle.badge.plus"
+
+        case .matchJoinApproved:
+            return "checkmark.seal.fill"
+
+        case .matchJoinRejected:
+            return "xmark.seal.fill"
+
+        // 🔥🔥🔥 اللي ناقصين
+        case .matchCancelled:
+            return "xmark.octagon.fill"
+
+        case .upcomingMatchReminder:
+            return "clock.badge.checkmark.fill"
         }
     }
 
     private var iconColor: Color {
         switch notification.type {
-        case .invitationAccepted: return .green
-        case .invitationDeclined, .removedFromTeam: return .red
-        case .warning: return .orange
-        case .contentDeleted: return .red
-        default: return BrandColors.darkTeal
+
+        case .invitationAccepted:
+            return .green
+
+        case .invitationDeclined,
+             .removedFromTeam,
+             .matchJoinRejected,
+             .matchCancelled:
+            return .red
+
+        case .warning:
+            return .orange
+
+        case .contentDeleted:
+            return .red
+
+        case .matchJoinApproved:
+            return .green
+
+        case .matchJoinRequested,
+             .upcomingMatchReminder:
+            return BrandColors.darkTeal
+
+        default:
+            return BrandColors.darkTeal
         }
     }
 
