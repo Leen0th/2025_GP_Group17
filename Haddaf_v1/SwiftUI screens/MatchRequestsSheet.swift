@@ -3,6 +3,8 @@ import FirebaseFirestore
 
 struct MatchRequestsSheet: View {
     let match: MatchOpportunity
+    var onProfileTap: ((String) -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm = MatchRequestsSheetViewModel()
     private let accent = BrandColors.darkTeal
@@ -32,35 +34,48 @@ struct MatchRequestsSheet: View {
                                     }
 
                                     ForEach(vm.approvedRequests) { request in
-                                        HStack(spacing: 12) {
-                                            Circle()
-                                                .fill(Color.green.opacity(0.12))
+                                        NavigationLink(destination:
+                                            PlayerProfileContentView(userID: request.playerId)
+                                                .navigationBarBackButtonHidden(false)
+                                        ) {
+                                            HStack(spacing: 12) {
+                                                AsyncImage(url: URL(string: request.playerProfilePic ?? "")) { image in
+                                                    image.resizable().scaledToFill()
+                                                } placeholder: {
+                                                    Circle()
+                                                        .fill(Color.gray.opacity(0.2))
+                                                        .overlay(
+                                                            Image(systemName: "person.fill")
+                                                                .foregroundColor(.gray)
+                                                        )
+                                                }
                                                 .frame(width: 40, height: 40)
-                                                .overlay(
-                                                    Image(systemName: "person.fill")
-                                                        .foregroundColor(.green)
-                                                )
+                                                .clipShape(Circle())
 
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(request.playerName)
-                                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                Text(request.requestedPosition.capitalized)
-                                                    .font(.system(size: 11, design: .rounded))
-                                                    .foregroundColor(.secondary)
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    Text(request.playerName)
+                                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                        .foregroundColor(.primary)
+
+                                                    Text(request.requestedPosition.capitalized)
+                                                        .font(.system(size: 11, design: .rounded))
+                                                        .foregroundColor(.secondary)
+                                                }
+
+                                                Spacer()
+
+                                                Text("Accepted")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .foregroundColor(.green)
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 5)
+                                                    .background(Color.green.opacity(0.08))
+                                                    .clipShape(Capsule())
                                             }
-
-                                            Spacer()
-
-                                            Text("Accepted")
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundColor(.green)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 4)
-                                                .background(Color.green.opacity(0.1))
-                                                .clipShape(Capsule())
+                                            .padding(12)
+                                            .background(RoundedRectangle(cornerRadius: 14).fill(.white))
                                         }
-                                        .padding(12)
-                                        .background(RoundedRectangle(cornerRadius: 14).fill(.white))
+                                        .buttonStyle(.plain)
                                     }
                                 }
                             }
@@ -78,33 +93,41 @@ struct MatchRequestsSheet: View {
 
                                     ForEach(vm.pendingRequests) { request in
                                         VStack(spacing: 10) {
-                                            HStack(spacing: 12) {
-                                                Circle()
-                                                    .fill(accent.opacity(0.12))
-                                                    .frame(width: 40, height: 40)
-                                                    .overlay(
-                                                        Image(systemName: "person.fill")
-                                                            .foregroundColor(accent)
-                                                    )
+                                            NavigationLink(destination:
+                                                PlayerProfileContentView(userID: request.playerId)
+                                                    .navigationBarBackButtonHidden(false)
+                                            ) {
+                                                HStack(spacing: 12) {
+                                                    Circle()
+                                                        .fill(accent.opacity(0.12))
+                                                        .frame(width: 40, height: 40)
+                                                        .overlay(
+                                                            Image(systemName: "person.fill")
+                                                                .foregroundColor(accent)
+                                                        )
 
-                                                VStack(alignment: .leading, spacing: 3) {
-                                                    Text(request.playerName)
-                                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                    Text(request.requestedPosition.capitalized)
-                                                        .font(.system(size: 11, design: .rounded))
-                                                        .foregroundColor(.secondary)
+                                                    VStack(alignment: .leading, spacing: 3) {
+                                                        Text(request.playerName)
+                                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                            .foregroundColor(.primary)
+
+                                                        Text(request.requestedPosition.capitalized)
+                                                            .font(.system(size: 11, design: .rounded))
+                                                            .foregroundColor(.secondary)
+                                                    }
+
+                                                    Spacer()
+
+                                                    Text("Pending")
+                                                        .font(.system(size: 11, weight: .medium))
+                                                        .foregroundColor(.orange)
+                                                        .padding(.horizontal, 10)
+                                                        .padding(.vertical, 4)
+                                                        .background(Color.orange.opacity(0.1))
+                                                        .clipShape(Capsule())
                                                 }
-
-                                                Spacer()
-
-                                                Text("Pending")
-                                                    .font(.system(size: 11, weight: .medium))
-                                                    .foregroundColor(.orange)
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 4)
-                                                    .background(Color.orange.opacity(0.1))
-                                                    .clipShape(Capsule())
                                             }
+                                            .buttonStyle(.plain)
 
                                             HStack(spacing: 10) {
                                                 Button("Reject") {
@@ -171,7 +194,6 @@ final class MatchRequestsSheetViewModel: ObservableObject {
     @Published var isLoading = true
     @Published var processingId: String? = nil
 
-    /// Backward compat
     var requests: [MatchJoinRequest] { pendingRequests }
 
     private var listener: ListenerRegistration?
@@ -181,7 +203,6 @@ final class MatchRequestsSheetViewModel: ObservableObject {
         isLoading = true
         listener?.remove()
 
-        // Real-time listener for both pending + approved
         listener = Firestore.firestore()
             .collection("match_requests")
             .whereField("matchId", isEqualTo: matchId)
@@ -202,7 +223,6 @@ final class MatchRequestsSheetViewModel: ObservableObject {
         processingId = request.id
         try? await MatchService.shared.approveRequest(request, match: match)
         processingId = nil
-        // Listener updates lists automatically
     }
 
     func reject(_ request: MatchJoinRequest, match: MatchOpportunity) async {

@@ -157,6 +157,8 @@ struct AcademyView: View {
     @State private var showFilterSheet = false
     @StateObject private var matchVM = MatchOpportunitiesViewModel()
     @State private var showCreateMatchSheet = false
+    @State private var selectedMatchFilter: MatchFilter = .all
+    @State private var showMatchFilterSheet = false
     private let accent = BrandColors.darkTeal
 
     enum AcademyTab: String, CaseIterable {
@@ -422,45 +424,105 @@ struct AcademyView: View {
         return false
     }
 
+    private var isMatchFiltered: Bool {
+        matchVM.selectedPositionFilter != nil || matchVM.selectedDate != nil || selectedMatchFilter != .all
+    }
+
+    private var matchFilteredMatches: [MatchOpportunity] {
+        let uid = session.user?.uid ?? ""
+        var base = matchVM.filteredMatches
+        switch selectedMatchFilter {
+        case .all:       break
+        case .open:      base = base.filter { !$0.isClosed }
+        case .closed:    base = base.filter {  $0.isClosed }
+        case .myMatches: base = base.filter {  $0.createdBy == uid }
+        case .joined:    base = base.filter { matchVM.myRequests[$0.id]?.status == .approved }
+        }
+        return base
+    }
+
     private var matchOppsContent: some View {
         VStack(spacing: 0) {
+
+            // ── Search + Filter ──────────────────────────────
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(accent)
+                        .foregroundColor(.gray)
+                        .font(.system(size: 14))
 
-                    TextField("Search by location...", text: $matchVM.searchLocation)
-                        .font(.system(size: 16, design: .rounded))
+                    TextField("Search by organizer or location...", text: $matchVM.searchLocation)
+                        .font(.system(size: 14))
                         .tint(accent)
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal)
-                .background(BrandColors.background)
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
 
-                Button { showCreateMatchSheet = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 28))
+                    if !matchVM.searchLocation.isEmpty {
+                        Button { matchVM.searchLocation = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray.opacity(0.6))
+                                .font(.system(size: 14))
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                )
+
+                Button { showMatchFilterSheet = true } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 26))
                         .foregroundColor(accent)
+                        .symbolVariant(isMatchFiltered ? .fill : .none)
                 }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
 
+
+
+            // ── List ─────────────────────────────────────────
             ScrollView {
-                VStack(spacing: 14) {
+                LazyVStack(spacing: 0) {
+
+                    // ── Add Match Button (أول عنصر في القائمة) ──
+                    Button { showCreateMatchSheet = true } label: {
+                        HStack(spacing: 10) {
+                            Text("Add Match")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color.white)
+                                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18)
+                                        .stroke(accent.opacity(0.12), lineWidth: 1)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
                     if matchVM.isLoading {
                         ProgressView().tint(accent).padding(.top, 40)
-                    } else if matchVM.filteredMatches.isEmpty {
+                    } else if matchFilteredMatches.isEmpty {
                         EmptyStateView(
                             imageName: "calendar.badge.clock",
                             message: "No match opportunities yet"
                         )
                         .padding(.top, 50)
                     } else {
-                        ForEach(matchVM.filteredMatches) { match in
+                        ForEach(matchFilteredMatches) { match in
                             MatchOpportunityCard(
                                 match: match,
                                 currentUserId: session.user?.uid ?? "",
@@ -475,9 +537,10 @@ struct AcademyView: View {
                             .environmentObject(session)
                         }
                     }
+
+                    Color.clear.frame(height: 100)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 100)
+                .padding(.top, 4)
             }
         }
         .sheet(isPresented: $showCreateMatchSheet) {
@@ -486,6 +549,16 @@ struct AcademyView: View {
                 .presentationDetents([.large])
                 .presentationCornerRadius(28)
                 .presentationBackground(BrandColors.background)
+        }
+        .sheet(isPresented: $showMatchFilterSheet) {
+            MatchFilterSheet(
+                selectedPosition: $matchVM.selectedPositionFilter,
+                selectedDate: $matchVM.selectedDate,
+                selectedMatchFilter: $selectedMatchFilter,
+                accent: accent
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -1833,6 +1906,185 @@ struct AcademySetupFlow: View {
         )
 
         await MainActor.run { isSaving = false; onDone(createdAcademy) }
+    }
+}
+
+// MARK: - Match Filter Enum
+
+enum MatchFilter: String, CaseIterable, Identifiable {
+    case all        = "All"
+    case open       = "Open"
+    case closed     = "Closed"
+    case myMatches  = "My Matches"
+    case joined     = "Joined"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .all:       return "square.grid.2x2"
+        case .open:      return "checkmark.circle"
+        case .closed:    return "xmark.circle"
+        case .myMatches: return "person.crop.circle"
+        case .joined:    return "figure.run"
+        }
+    }
+}
+
+// MARK: - Match Filter Sheet
+
+struct MatchFilterSheet: View {
+    @Binding var selectedPosition: MatchPosition?
+    @Binding var selectedDate: Date?
+    @Binding var selectedMatchFilter: MatchFilter
+    let accent: Color
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showDatePicker = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 24) {
+
+                // ── STATUS ────────────────────────────────────
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Status")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(MatchFilter.allCases) { filter in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        selectedMatchFilter = filter
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: filter.icon).font(.system(size: 11))
+                                        Text(filter.rawValue)
+                                            .font(.system(size: 13, weight: selectedMatchFilter == filter ? .semibold : .regular))
+                                    }
+                                    .foregroundColor(selectedMatchFilter == filter ? .white : .secondary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(Capsule().fill(selectedMatchFilter == filter ? accent : Color.white))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Position")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            positionChip(label: "Any", isSelected: selectedPosition == nil) {
+                                selectedPosition = nil
+                            }
+                            ForEach(MatchPosition.allCases) { pos in
+                                positionChip(label: pos.title, isSelected: selectedPosition == pos) {
+                                    selectedPosition = pos
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Date")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    HStack {
+                        if let date = selectedDate {
+                            Text(date.formatted(date: .abbreviated, time: .omitted))
+                                .font(.system(size: 14))
+                            Spacer()
+                            Button {
+                                selectedDate = nil
+                                showDatePicker = false
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray.opacity(0.6))
+                            }
+                        } else {
+                            Button { showDatePicker.toggle() } label: {
+                                Label("Select date", systemImage: "calendar")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(accent)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+
+                    if showDatePicker {
+                        DatePicker(
+                            "",
+                            selection: Binding(
+                                get: { selectedDate ?? Date() },
+                                set: { selectedDate = $0; showDatePicker = false }
+                            ),
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.graphical)
+                        .tint(accent)
+                    }
+                }
+
+                Spacer()
+
+                if selectedPosition != nil || selectedDate != nil || selectedMatchFilter != .all {
+                    Button {
+                        selectedPosition = nil
+                        selectedDate = nil
+                        selectedMatchFilter = .all
+                        showDatePicker = false
+                    } label: {
+                        Text("Reset Filters")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.red.opacity(0.07))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(accent)
+                }
+            }
+        }
+    }
+
+    private func positionChip(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .secondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(isSelected ? accent : Color.white))
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import Firebase
-import GooglePlaces // ✨ أضيفي هذا
+import GooglePlaces
+import GoogleMaps
 
 @main
 struct Haddaf_v1App: App {
@@ -25,6 +26,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         // 🔥 هنا تحطين المفتاح
         GMSPlacesClient.provideAPIKey("AIzaSyB3s4XEm1y_Hn6Nf6WmwR6VXXXxf-qZyvQ")
+        GMSServices.provideAPIKey("AIzaSyB3s4XEm1y_Hn6Nf6WmwR6VXXXxf-qZyvQ")
 
         return true
     }

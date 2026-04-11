@@ -36,6 +36,10 @@ final class MatchOpportunitiesViewModel: ObservableObject {
                     return
                 }
                 self.matches = snap?.documents.compactMap { MatchOpportunity.from(doc: $0) } ?? []
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.objectWillChange.send()
+                }
             }
 
         // ── My requests (as player) ───────────────────────────────
@@ -54,6 +58,10 @@ final class MatchOpportunitiesViewModel: ObservableObject {
                     }
                 }
                 self.myRequests = dict
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.objectWillChange.send()
+                }
             }
 
         // ── Incoming PENDING requests (as organizer — for badge) ──
@@ -64,6 +72,10 @@ final class MatchOpportunitiesViewModel: ObservableObject {
                 guard let self else { return }
                 let items = snap?.documents.compactMap { MatchJoinRequest.from(doc: $0) } ?? []
                 self.incomingRequests = Dictionary(grouping: items, by: { $0.matchId })
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.objectWillChange.send()
+                }
             }
 
         // ── Incoming APPROVED requests (as organizer — for accepted list) ──
@@ -74,6 +86,10 @@ final class MatchOpportunitiesViewModel: ObservableObject {
                 guard let self else { return }
                 let items = snap?.documents.compactMap { MatchJoinRequest.from(doc: $0) } ?? []
                 self.approvedRequests = Dictionary(grouping: items, by: { $0.matchId })
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.objectWillChange.send()
+                }
             }
     }
 
@@ -104,6 +120,7 @@ final class MatchOpportunitiesViewModel: ObservableObject {
             result = result.filter {
                 $0.locationName.localizedCaseInsensitiveContains(trimmedLocation)
                 || $0.locationAddress.localizedCaseInsensitiveContains(trimmedLocation)
+                || $0.createdByName.localizedCaseInsensitiveContains(trimmedLocation)
             }
         }
 

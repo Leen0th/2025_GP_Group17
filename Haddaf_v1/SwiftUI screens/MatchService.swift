@@ -114,7 +114,7 @@ final class MatchService {
         match: MatchOpportunity
     ) async throws {
 
-        let matchRef = db.collection("matches").document(match.id)
+        let matchRef   = db.collection("matches").document(match.id)
         let requestRef = db.collection("match_requests").document(request.id)
 
         try await db.runTransaction { (transaction, errorPointer) -> Any? in
@@ -127,24 +127,33 @@ final class MatchService {
                 return nil
             }
 
-            guard var openPositions = snap.data()?["openPositions"] as? [String: Int],
-                  var acceptedCounts = snap.data()?["acceptedCounts"] as? [String: Int]
+            guard var openPositions  = snap.data()?["openPositions"]  as? [String: Int],
+                  var acceptedCounts = snap.data()?["acceptedCounts"] as? [String: Int],
+                  var totalPositions = snap.data()?["totalPositions"] as? [String: Int]
             else { return nil }
 
             let position = request.requestedPosition
 
-            openPositions[position] = (openPositions[position] ?? 0) + 1
+            // ✅ أرجع الـ slot للبوزشن اللي كان فيها اللاعب
+            openPositions[position]  = (openPositions[position]  ?? 0) + 1
             acceptedCounts[position] = max((acceptedCounts[position] ?? 1) - 1, 0)
 
+            // ✅ تحقق إذا في slots مفتوحة الحين → الماتش يرجع open
+            let hasOpenSlots = openPositions.values.contains { $0 > 0 }
+
             transaction.updateData([
-                "openPositions": openPositions,
+                "openPositions":  openPositions,
                 "acceptedCounts": acceptedCounts,
+                // ✅ احذف الـ playerId من المشاركين
                 "participantIds": FieldValue.arrayRemove([request.playerId]),
-                "status": MatchStatus.open.rawValue
+                // ✅ الماتش يرجع open لأن في slot فاضية الحين
+                "status": hasOpenSlots ? MatchStatus.open.rawValue : MatchStatus.closed.rawValue,
+                "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: matchRef)
 
             transaction.updateData([
-                "status": MatchRequestStatus.cancelled.rawValue
+                "status":    MatchRequestStatus.cancelled.rawValue,
+                "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: requestRef)
 
             return nil
