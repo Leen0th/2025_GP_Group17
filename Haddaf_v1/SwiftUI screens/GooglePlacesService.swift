@@ -1,6 +1,6 @@
 import Foundation
 import GooglePlaces
-
+import GoogleMaps  
 @MainActor
 final class GooglePlacesService: NSObject, ObservableObject {
     static let shared = GooglePlacesService()
@@ -8,7 +8,7 @@ final class GooglePlacesService: NSObject, ObservableObject {
     @Published var suggestions: [MatchPlace] = []
     @Published var isLoading = false
 
-    private var placesClient = GMSPlacesClient.shared()
+    private let placesClient = GMSPlacesClient.shared()
     private var currentToken: GMSAutocompleteSessionToken?
 
     func startSession() {
@@ -21,19 +21,23 @@ final class GooglePlacesService: NSObject, ObservableObject {
         currentToken = nil
     }
 
-    // 🔍 SEARCH (FIXED)
     func search(query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
         guard !trimmed.isEmpty else {
             suggestions = []
+            isLoading = false
             return
         }
 
-        if currentToken == nil { startSession() }
+        if currentToken == nil {
+            startSession()
+        }
+
         isLoading = true
 
         let filter = GMSAutocompleteFilter()
-        filter.types = ["establishment", "geocode"]
+        filter.types = []   // 🔥 مهم
         filter.country = "SA"
 
         placesClient.findAutocompletePredictions(
@@ -42,61 +46,74 @@ final class GooglePlacesService: NSObject, ObservableObject {
             sessionToken: currentToken
         ) { [weak self] results, error in
             guard let self else { return }
-            self.isLoading = false
 
-            guard let results else {
-                self.suggestions = []
-                return
-            }
+            Task { @MainActor in
+                self.isLoading = false
 
-            // 🔥 نحفظ placeID عشان نجيب الإحداثيات
-            self.suggestions = results.map {
-                MatchPlace(
-                    name: $0.attributedPrimaryText.string,
-                    address: $0.attributedFullText.string,
-                    latitude: nil,
-                    longitude: nil
-                )
-            }
-        }
-    }
-
-    // 📍 GET COORDINATES (IMPORTANT)
-    func resolveCoordinates(for placeName: String) async -> MatchPlace {
-        await withCheckedContinuation { continuation in
-
-            placesClient.findAutocompletePredictions(
-                fromQuery: placeName,
-                filter: nil,
-                sessionToken: currentToken
-            ) { [weak self] results, _ in
-
-                guard let self,
-                      let placeID = results?.first?.placeID else {
-
-                    continuation.resume(returning:
-                        MatchPlace(name: placeName, address: placeName, latitude: nil, longitude: nil)
-                    )
+                guard error == nil, let results else {
+                    self.suggestions = []
                     return
                 }
 
-                let fields: GMSPlaceField = [.name, .formattedAddress, .coordinate]
-
-                self.placesClient.fetchPlace(
-                    fromPlaceID: placeID,
-                    placeFields: fields,
-                    sessionToken: self.currentToken
-                ) { place, _ in
-
-                    let resolved = MatchPlace(
-                        name: place?.name ?? placeName,
-                        address: place?.formattedAddress ?? placeName,
-                        latitude: place?.coordinate.latitude,
-                        longitude: place?.coordinate.longitude
+                self.suggestions = results.map { prediction in
+                    MatchPlace(
+                        name: prediction.attributedPrimaryText.string,
+                        address: prediction.attributedFullText.string,
+                        latitude: nil,
+                        longitude: nil,
+                        placeID: prediction.placeID
                     )
-
-                    continuation.resume(returning: resolved)
                 }
+            }
+        }
+    }
+    
+
+    func resolveCoordinates(for place: MatchPlace) async -> MatchPlace {
+        await withCheckedContinuation { continuation in
+            guard let placeID = place.placeID else {
+                continuation.resume(returning: place)
+                return
+            }
+
+            let fields: GMSPlaceField = [.name, .formattedAddress, .coordinate]
+
+            placesClient.fetchPlace(
+                fromPlaceID: placeID,
+                placeFields: fields,
+                sessionToken: currentToken
+            ) { fetchedPlace, error in
+                let resolved = MatchPlace(
+                    name: place.name, // نحافظ على النص اللي اختاره المستخدم
+                    address: fetchedPlace?.formattedAddress ?? place.address,
+                    latitude: fetchedPlace?.coordinate.latitude,
+                    longitude: fetchedPlace?.coordinate.longitude,
+                    placeID: placeID
+                )
+
+                continuation.resume(returning: resolved)
+            }
+        }
+    }
+    func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> MatchPlace {
+
+        await withCheckedContinuation { continuation in
+
+            let geocoder = GMSGeocoder()
+
+            geocoder.reverseGeocodeCoordinate(coordinate) { response, _ in
+
+                let first = response?.firstResult()
+
+                let place = MatchPlace(
+                    name: first?.lines?.first ?? "Selected Location",
+                    address: first?.lines?.joined(separator: ", ") ?? "Custom location",
+                    latitude: coordinate.latitude,
+                    longitude: coordinate.longitude,
+                    placeID: nil
+                )
+
+                continuation.resume(returning: place)
             }
         }
     }

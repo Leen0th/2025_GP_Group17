@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseFirestore
 import MapKit
+import GoogleMaps
 
 struct CreateMatchOpportunitySheet: View {
     @EnvironmentObject var session: AppSession
@@ -10,11 +11,6 @@ struct CreateMatchOpportunitySheet: View {
     @State private var locationSearch = ""
     @State private var selectedPlace: MatchPlace? = nil
     @StateObject private var places = GooglePlacesService.shared
-
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 24.7136, longitude: 46.6753),
-        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-    )
 
     @State private var attackerCount = 0
     @State private var midfielderCount = 0
@@ -34,7 +30,6 @@ struct CreateMatchOpportunitySheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
 
-                    // DATE
                     Text("Date and time")
                         .font(.system(size: 14, weight: .semibold))
 
@@ -43,26 +38,32 @@ struct CreateMatchOpportunitySheet: View {
                         .padding(12)
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
 
-                    // LOCATION
                     Text("Location")
                         .font(.system(size: 14, weight: .semibold))
 
                     ZStack(alignment: .top) {
 
-                        Map(
-                            coordinateRegion: $region,
-                            annotationItems: selectedPlace != nil ? [selectedPlace!] : []
-                        ) { place in
-                            MapMarker(
-                                coordinate: CLLocationCoordinate2D(
-                                    latitude: place.latitude ?? region.center.latitude,
-                                    longitude: place.longitude ?? region.center.longitude
-                                )
-                            )
+                        // ✅ Map
+                        let lat = selectedPlace?.latitude ?? 24.7136
+                        let lng = selectedPlace?.longitude ?? 46.6753
+
+                        GoogleMapView(
+                            latitude: lat,
+                            longitude: lng
+                        ) { coordinate in
+
+                            // 🔥 Reverse Geocode (اسم المكان الحقيقي)
+                            Task {
+                                let place = await places.reverseGeocode(coordinate: coordinate)
+
+                                selectedPlace = place
+                                locationSearch = place.name
+                            }
                         }
                         .frame(height: 200)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
+                        // 🔍 Search
                         VStack(spacing: 0) {
 
                             HStack {
@@ -84,23 +85,29 @@ struct CreateMatchOpportunitySheet: View {
                                 VStack(spacing: 0) {
                                     ForEach(places.suggestions, id: \.id) { place in
                                         Button {
-                                            selectedPlace = place
-                                            locationSearch = place.name
-                                            places.suggestions = []
+                                            Task {
+                                                let resolved = await places.resolveCoordinates(for: place)
 
-                                            if let lat = place.latitude,
-                                               let lng = place.longitude {
-                                                region = MKCoordinateRegion(
-                                                    center: CLLocationCoordinate2D(latitude: lat, longitude: lng),
-                                                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                                                )
+                                                selectedPlace = resolved
+                                                locationSearch = resolved.name
+                                                places.suggestions = []
                                             }
                                         } label: {
-                                            Text(place.name)
-                                                .font(.system(size: 13))
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 10)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            // 🔥 اسم + عنوان
+                                            VStack(alignment: .leading, spacing: 2) {
+
+                                                Text(place.name)
+                                                    .font(.system(size: 13, weight: .medium))
+
+                                                Text(place.address)
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.gray)
+                                                    .lineLimit(1)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 10)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                         }
 
                                         Divider()
@@ -114,7 +121,6 @@ struct CreateMatchOpportunitySheet: View {
                         .zIndex(1)
                     }
 
-                    // POSITIONS
                     Text("Open Positions")
                         .font(.system(size: 14, weight: .semibold))
 
@@ -124,14 +130,12 @@ struct CreateMatchOpportunitySheet: View {
                         StepperRow(title: "Defenders", count: $defenderCount)
                     }
 
-                    // ERROR
                     if let errorText {
                         Text(errorText)
                             .font(.system(size: 12))
                             .foregroundColor(.red)
                     }
 
-                    // POST BUTTON
                     Button {
                         Task { await saveMatch() }
                     } label: {
@@ -173,7 +177,14 @@ struct CreateMatchOpportunitySheet: View {
         isSaving = true
 
         let name = await fetchUserDisplayName(uid: uid)
-        let resolvedPlace = await places.resolveCoordinates(for: locationSearch)
+
+        let resolvedPlace = selectedPlace ?? MatchPlace(
+            name: locationSearch,
+            address: locationSearch,
+            latitude: nil,
+            longitude: nil,
+            placeID: nil
+        )
 
         try? await MatchService.shared.createMatch(
             organizerId: uid,
@@ -205,6 +216,7 @@ struct CreateMatchOpportunitySheet: View {
     }
 }
 
+// ✅ نفس لون زر POST
 struct StepperRow: View {
     let title: String
     @Binding var count: Int
@@ -212,31 +224,27 @@ struct StepperRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 14))
-
             Spacer()
 
             Button {
                 if count > 0 { count -= 1 }
             } label: {
                 Image(systemName: "minus.circle")
-                    .font(.system(size: 18))
-                    .foregroundColor(.gray)
+                    .foregroundColor(BrandColors.darkTeal)
             }
 
             Text("\(count)")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 28)
+                .frame(width: 30)
 
             Button {
                 count += 1
             } label: {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 18))
+                    .foregroundColor(BrandColors.darkTeal)
             }
-            .foregroundColor(BrandColors.darkTeal)
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .padding(10)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }

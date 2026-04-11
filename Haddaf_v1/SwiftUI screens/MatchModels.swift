@@ -146,10 +146,11 @@ struct MatchJoinRequest: Identifiable, Hashable {
     }
 }
 
-struct MatchPlace: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let address: String
-    let latitude: Double?
-    let longitude: Double?
+struct MatchPlace: Identifiable {
+    var id = UUID()
+    var name: String
+    var address: String
+    var latitude: Double?
+    var longitude: Double?
+    var placeID: String?   // 🔥 الجديد
 }
