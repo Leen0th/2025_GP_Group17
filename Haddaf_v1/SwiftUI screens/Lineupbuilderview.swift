@@ -202,37 +202,48 @@ class LineupBuilderViewModel: ObservableObject {
         var list: [LineupPlayer] = []
         for doc in playersSnap?.documents ?? [] {
             let uid = doc.documentID
+            
+            // Fetch user root document
             if let ud = try? await db.collection("users").document(uid).getDocument(),
                let d = ud.data() {
                 let firstName = d["firstName"] as? String ?? ""
                 let lastName  = d["lastName"] as? String ?? ""
                 let name = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
-                let pos  = d["position"] as? String
                 let pic  = d["profilePic"] as? String
-
-                // Calculate score from positionStats.
-                // The map keys match positionAtUpload values (e.g. "Attacker", "Midfielder").
-                // Priority: 1) player's current position key  2) highest-scoring position  3) weighted total
+                
+                // Fetch position from player/profile, not root
+                var pos: String? = nil
                 var avgScore = 0.0
-                if let statsMap = d["positionStats"] as? [String: [String: Any]] {
-                    // 1. Try the player's current position key directly
-                    if let pos = pos,
-                       let statData = statsMap[pos],
-                       let ts = statData["totalScore"] as? Double,
-                       let pc = statData["postCount"] as? Int,
-                       pc > 0 {
-                        avgScore = ts / Double(pc)
-                    } else {
-                        // 2. Fall back: find the position with the highest average score
-                        var best = 0.0
-                        for (_, statData) in statsMap {
-                            let ts = statData["totalScore"] as? Double ?? 0
-                            let pc = statData["postCount"] as? Int ?? 0
-                            guard pc > 0 else { continue }
-                            let avg = ts / Double(pc)
-                            if avg > best { best = avg }
+                
+                // Fetch the nested player profile document
+                if let profileDoc = try? await db.collection("users").document(uid)
+                    .collection("player").document("profile").getDocument(),
+                   let p = profileDoc.data() {
+                    
+                    // Get the player's position
+                    pos = p["position"] as? String
+                    
+                    // Calculate score from positionStats in the profile document
+                    if let statsMap = p["positionStats"] as? [String: [String: Any]] {
+                        // 1. Try the player's current position key directly
+                        if let currentPos = pos,
+                           let statData = statsMap[currentPos],
+                           let ts = statData["totalScore"] as? Double,
+                           let pc = statData["postCount"] as? Int,
+                           pc > 0 {
+                            avgScore = ts / Double(pc)
+                        } else {
+                            // 2. Fall back: find the position with the highest average score
+                            var best = 0.0
+                            for (_, statData) in statsMap {
+                                let ts = statData["totalScore"] as? Double ?? 0
+                                let pc = statData["postCount"] as? Int ?? 0
+                                guard pc > 0 else { continue }
+                                let avg = ts / Double(pc)
+                                if avg > best { best = avg }
+                            }
+                            avgScore = best
                         }
-                        avgScore = best
                     }
                 }
 
@@ -929,7 +940,7 @@ struct AssignedPlayerRow: View {
 
             // Score badge
             if player.score > 0 {
-                Text(String(format: "%.1f", player.score))
+                Text("\(Int(player.score))")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundColor(accent)
                     .padding(.horizontal, 8)
@@ -1138,9 +1149,9 @@ struct PlayerPickerRow: View {
                         }
 
                         if player.score > 0 {
-                            Text("Score: \(String(format: "%.1f", player.score))")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundColor(.secondary)
+                            //Text("Score: \(String(format: "%.1f", player.score))")
+                            //    .font(.system(size: 11, design: .rounded))
+                            //    .foregroundColor(.secondary)
                         } else {
                             Text("No score yet")
                                 .font(.system(size: 11, design: .rounded))
@@ -1152,7 +1163,7 @@ struct PlayerPickerRow: View {
 
                     // ── Score number ──
                     if player.score > 0 {
-                        Text(String(format: "%.1f", player.score))
+                        Text("\(Int(player.score))")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(isAlreadyAssigned ? .secondary : accent)
                             .frame(width: 44)
@@ -1165,27 +1176,6 @@ struct PlayerPickerRow: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-
-                // ── Score bar ──
-                if player.score > 0 && !isAlreadyAssigned {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.gray.opacity(0.1))
-                                .frame(height: 3)
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(LinearGradient(
-                                    colors: [accent.opacity(0.45), accent],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                ))
-                                .frame(width: geo.size.width * min(player.score / 10.0, 1.0), height: 3)
-                        }
-                    }
-                    .frame(height: 3)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 10)
-                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)

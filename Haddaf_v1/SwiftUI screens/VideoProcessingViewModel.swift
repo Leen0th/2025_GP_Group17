@@ -418,7 +418,7 @@ class VideoProcessingViewModel: ObservableObject {
                 "positionStats.\(positionAtUpload).postCount": FieldValue.increment(Int64(1))
             ]
             // This creates the 'positionStats' map if it doesn't exist yet.
-            batch.setData(updates, forDocument: profileRef, merge: true)
+            batch.updateData(updates, forDocument: profileRef)
         }
         
         // Commit the batch

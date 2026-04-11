@@ -300,6 +300,30 @@ struct PostDetailView: View {
             // Delete the post document from the `videoPosts` collection.
             let db = Firestore.firestore()
             try await db.collection("videoPosts").document(postId).delete()
+            
+            // Decrement positionStats if post was public
+            if !post.isPrivate {
+                let position = post.positionAtUpload
+                let score = post.postScore
+                
+                // Only decrement if we have valid position and score data
+                if !position.isEmpty, score > 0 {
+                    let profileRef = db.collection("users").document(uid)
+                        .collection("player").document("profile")
+                    
+                    do {
+                        try await profileRef.updateData([
+                            "positionStats.\(position).totalScore": FieldValue.increment(-score),
+                            "positionStats.\(position).postCount": FieldValue.increment(Int64(-1))
+                        ])
+                        print("✅ Decremented positionStats for \(position): -\(score) points")
+                    } catch {
+                        print("⚠️ Warning: Could not decrement positionStats: \(error.localizedDescription)")
+                        // Don't fail the deletion if stats update fails
+                    }
+                }
+            }
+            
             // Notify the app that this post has been deleted.
             NotificationCenter.default.post(name: .postDeleted, object: nil, userInfo: ["postId": postId])
             dismiss()

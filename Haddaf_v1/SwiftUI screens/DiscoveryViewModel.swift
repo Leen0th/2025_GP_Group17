@@ -204,7 +204,20 @@ final class DiscoveryViewModel: ObservableObject {
                 ? (data["teamName"] as! String)
                 : "Unassigned" // ✅ reads real teamName from Firestore
             profile.rank = "0" // Default value
-            profile.score = (p["cumulativeScore"] as? String) ?? "0"
+            
+            // Calculate score from positionStats map for current position (FIXED)
+            let currentPos = (p["position"] as? String) ?? ""
+            if let statsMap = p["positionStats"] as? [String: [String: Any]],
+               !currentPos.isEmpty,
+               let statData = statsMap[currentPos],
+               let totalScore = statData["totalScore"] as? Double,
+               let postCount = statData["postCount"] as? Int,
+               postCount > 0 {
+                let average = totalScore / Double(postCount)
+                profile.score = String(format: "%.0f", average)
+            } else {
+                profile.score = "0"
+            }
 
             // Saves the newly fetched profile to the cache on the main thread
             await MainActor.run {
