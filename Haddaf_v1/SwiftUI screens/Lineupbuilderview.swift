@@ -36,6 +36,25 @@ struct AssignedSlot: Identifiable {
     var assignedPlayer: LineupPlayer? = nil
 }
 
+// MARK: - Saved Lineup Models
+
+struct SavedSlotEntry: Identifiable {
+    let id: String          // slotId
+    let label: String       // e.g. "GK", "CB"
+    let playerId: String
+    let playerName: String
+}
+
+struct SavedLineup: Identifiable {
+    let id: String
+    let title: String
+    let formationId: String
+    let formationLabel: String
+    let note: String
+    let date: Date
+    let assignedPlayers: [SavedSlotEntry]
+}
+
 // MARK: - Formations catalogue
 
 extension Formation {
@@ -123,6 +142,31 @@ extension Formation {
     ]
 }
 
+// MARK: - Position abbreviation → full name helper
+
+func positionFullName(_ abbr: String) -> String {
+    // Strip suffix like "-2" from duplicate slot ids (e.g. "CB-2" → "CB")
+    let base = abbr.components(separatedBy: "-").first ?? abbr
+    let map: [String: String] = [
+        "GK":  "Goalkeeper",
+        "CB":  "Centre-Back",
+        "RB":  "Right-Back",
+        "LB":  "Left-Back",
+        "RWB": "Right Wing-Back",
+        "LWB": "Left Wing-Back",
+        "CDM": "Defensive Midfielder",
+        "CM":  "Central Midfielder",
+        "CAM": "Attacking Midfielder",
+        "RM":  "Right Midfielder",
+        "LM":  "Left Midfielder",
+        "RW":  "Right Winger",
+        "LW":  "Left Winger",
+        "ST":  "Striker",
+        "CF":  "Centre-Forward"
+    ]
+    return map[base] ?? abbr
+}
+
 // MARK: - ViewModel
 
 class LineupBuilderViewModel: ObservableObject {
@@ -132,6 +176,11 @@ class LineupBuilderViewModel: ObservableObject {
     @Published var isLoadingCategories = true
     @Published var isLoadingPlayers = false
 
+    // Saved lineups
+    @Published var savedLineups: [SavedLineup] = []
+    @Published var isLoadingSavedLineups = false
+    @Published var isSavingLineup = false
+
     private let db = Firestore.firestore()
     private var academyId: String? = nil
 
@@ -139,11 +188,9 @@ class LineupBuilderViewModel: ObservableObject {
     func loadCoachCategories(coachUID: String, sessionAcademyId: String?) async {
         await MainActor.run { isLoadingCategories = true }
 
-        // Use session academyId if available, else query
         var resolvedAcademyId = sessionAcademyId
 
         if resolvedAcademyId == nil {
-            // Find the coach's academy by scanning academies
             if let snap = try? await db.collection("academies").getDocuments() {
                 for doc in snap.documents {
                     let catsSnap = try? await db.collection("academies").document(doc.documentID)
@@ -170,7 +217,6 @@ class LineupBuilderViewModel: ObservableObject {
 
         self.academyId = aId
 
-        // Fetch categories where this coach is listed
         var cats: [String] = []
         if let catsSnap = try? await db.collection("academies").document(aId)
             .collection("categories").getDocuments() {
@@ -202,30 +248,24 @@ class LineupBuilderViewModel: ObservableObject {
         var list: [LineupPlayer] = []
         for doc in playersSnap?.documents ?? [] {
             let uid = doc.documentID
-            
-            // Fetch user root document
+
             if let ud = try? await db.collection("users").document(uid).getDocument(),
                let d = ud.data() {
                 let firstName = d["firstName"] as? String ?? ""
-                let lastName  = d["lastName"] as? String ?? ""
-                let name = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+                let lastName  = d["lastName"]  as? String ?? ""
+                let name = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespacesAndNewlines)
                 let pic  = d["profilePic"] as? String
-                
-                // Fetch position from player/profile, not root
+
                 var pos: String? = nil
                 var avgScore = 0.0
-                
-                // Fetch the nested player profile document
+
                 if let profileDoc = try? await db.collection("users").document(uid)
                     .collection("player").document("profile").getDocument(),
                    let p = profileDoc.data() {
-                    
-                    // Get the player's position
+
                     pos = p["position"] as? String
-                    
-                    // Calculate score from positionStats in the profile document
+
                     if let statsMap = p["positionStats"] as? [String: [String: Any]] {
-                        // 1. Try the player's current position key directly
                         if let currentPos = pos,
                            let statData = statsMap[currentPos],
                            let ts = statData["totalScore"] as? Double,
@@ -233,7 +273,6 @@ class LineupBuilderViewModel: ObservableObject {
                            pc > 0 {
                             avgScore = ts / Double(pc)
                         } else {
-                            // 2. Fall back: find the position with the highest average score
                             var best = 0.0
                             for (_, statData) in statsMap {
                                 let ts = statData["totalScore"] as? Double ?? 0
@@ -251,12 +290,83 @@ class LineupBuilderViewModel: ObservableObject {
             }
         }
 
-        // Sort by score descending
         list.sort { $0.score > $1.score }
 
         await MainActor.run {
             self.players = list
             self.isLoadingPlayers = false
+        }
+    }
+
+    // MARK: Save a lineup to Firestore
+    func saveLineup(title: String, slots: [AssignedSlot], formationId: String, formationLabel: String, note: String) async {
+        guard let aId = academyId, let cat = selectedCategory else { return }
+        await MainActor.run { isSavingLineup = true }
+
+        let assignedSlots = slots.filter { $0.assignedPlayer != nil }
+        let entries: [[String: Any]] = assignedSlots.map { slot in
+            [
+                "slotId":     slot.id,
+                "slotLabel":  slot.label,
+                "playerId":   slot.assignedPlayer?.id   ?? "",
+                "playerName": slot.assignedPlayer?.name ?? ""
+            ]
+        }
+
+        let data: [String: Any] = [
+            "title":           title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                   ? "Untitled Lineup" : title,
+            "formationId":     formationId,
+            "formationLabel":  formationLabel,
+            "note":            note,
+            "date":            Timestamp(date: Date()),
+            "assignedPlayers": entries
+        ]
+
+        try? await db.collection("academies").document(aId)
+            .collection("categories").document(cat)
+            .collection("lineups").addDocument(data: data)
+
+        await loadSavedLineups()
+        await MainActor.run { isSavingLineup = false }
+    }
+
+    // MARK: Load saved lineups for current category (most recent first)
+    func loadSavedLineups() async {
+        guard let aId = academyId, let cat = selectedCategory else { return }
+        await MainActor.run { isLoadingSavedLineups = true }
+
+        let snap = try? await db.collection("academies").document(aId)
+            .collection("categories").document(cat)
+            .collection("lineups")
+            .order(by: "date", descending: true)
+            .getDocuments()
+
+        var lineups: [SavedLineup] = []
+        for doc in snap?.documents ?? [] {
+            let d = doc.data()
+            let entries = (d["assignedPlayers"] as? [[String: Any]] ?? []).map { e in
+                SavedSlotEntry(
+                    id:         e["slotId"]     as? String ?? "",
+                    label:      e["slotLabel"]  as? String ?? "",
+                    playerId:   e["playerId"]   as? String ?? "",
+                    playerName: e["playerName"] as? String ?? ""
+                )
+            }
+            lineups.append(SavedLineup(
+                id:             doc.documentID,
+                title:          d["title"]          as? String ?? "Untitled",
+                formationId:    d["formationId"]    as? String ?? "",
+                formationLabel: d["formationLabel"] as? String ?? "",
+                note:           d["note"]           as? String ?? "",
+                date:           (d["date"] as? Timestamp)?.dateValue() ?? Date(),
+                assignedPlayers: entries
+            ))
+        }
+
+        await MainActor.run {
+            self.savedLineups = lineups
+            self.isLoadingSavedLineups = false
         }
     }
 }
@@ -269,16 +379,33 @@ struct LineupBuilderView: View {
 
     // Formation
     @State private var selectedFormation: Formation? = nil
-    // Slots: keyed by index in formation.positions
+    // Slots keyed by index in formation.positions
     @State private var slots: [AssignedSlot] = []
     // Which slot is awaiting player pick
     @State private var selectedSlotIndex: Int? = nil
-    // Panel state
-    @State private var showPlayerPanel = false
-    @State private var showPositionGuide = false
 
-    private let accent = BrandColors.darkTeal
+    // Sheet flags
+    @State private var showPlayerPanel    = false
+    @State private var showPositionGuide  = false   // position abbreviation guide (ⓘ beside lineup header)
+    @State private var showFormationInfo  = false   // formation structure guide (ⓘ beside "Select a Formation")
+
+    // Lineup metadata the coach fills in
+    @State private var lineupTitle = ""
+    @State private var lineupNote  = ""
+
+    // Past lineups toggle
+    @State private var showPastLineups = true
+    @State private var showRosterPanel  = false
+
+    private let accent     = BrandColors.darkTeal
     private let pitchGreen = Color(hex: "#2D7A3A")
+
+    /// Save is available as long as a formation is selected, at least one player is placed, and a board name has been entered.
+    private var canSave: Bool {
+        selectedFormation != nil &&
+        slots.contains { $0.assignedPlayer != nil } &&
+        !lineupTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -295,7 +422,6 @@ struct LineupBuilderView: View {
                     builderContent
                 }
             }
-            .navigationTitle("Lineup Builder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // Back to category picker
@@ -308,11 +434,12 @@ struct LineupBuilderView: View {
                                 slots = []
                                 selectedSlotIndex = nil
                                 showPlayerPanel = false
+                                lineupTitle = ""
+                                lineupNote  = ""
                             }
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "chevron.left")
-                                Text("Categories")
                             }
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(accent)
@@ -320,37 +447,14 @@ struct LineupBuilderView: View {
                     }
                 }
 
-                // Reset lineup
-                if selectedFormation != nil {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        HStack(spacing: 14) {
-                            // Position guide button
-                            Button {
-                                showPositionGuide = true
-                            } label: {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(accent)
-                            }
-                            // Reset button
-                            Button {
-                                withAnimation {
-                                    resetSlots(for: selectedFormation!)
-                                }
-                            } label: {
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(accent)
-                            }
-                        }
-                    }
-                }
+
             }
         }
         .onAppear {
             guard let uid = session.user?.uid else { return }
             Task { await vm.loadCoachCategories(coachUID: uid, sessionAcademyId: session.academyId) }
         }
+        // Player picker sheet
         .sheet(isPresented: $showPlayerPanel) {
             if let idx = selectedSlotIndex {
                 PlayerPickerSheet(
@@ -367,9 +471,7 @@ struct LineupBuilderView: View {
                         selectedSlotIndex = nil
                     },
                     onClear: {
-                        withAnimation {
-                            slots[idx].assignedPlayer = nil
-                        }
+                        withAnimation { slots[idx].assignedPlayer = nil }
                         showPlayerPanel = false
                         selectedSlotIndex = nil
                     }
@@ -380,8 +482,17 @@ struct LineupBuilderView: View {
                 .presentationDragIndicator(.visible)
             }
         }
+        // Position abbreviation guide sheet
         .sheet(isPresented: $showPositionGuide) {
             PositionGuideSheet()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(BrandColors.background)
+                .presentationCornerRadius(28)
+                .presentationDragIndicator(.visible)
+        }
+        // Formation structure guide sheet
+        .sheet(isPresented: $showFormationInfo) {
+            FormationInfoSheet()
                 .presentationDetents([.medium, .large])
                 .presentationBackground(BrandColors.background)
                 .presentationCornerRadius(28)
@@ -417,15 +528,31 @@ struct LineupBuilderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Category Picker
+    // MARK: - Category Picker (with description)
     private var categoryPickerView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Select Category")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+            VStack(spacing: 8) {
+                // ── Centered title like Challenges ──
+                Text("Lineup Board")
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .foregroundColor(accent)
+                    .padding(.top, 10)
+
+                Text("Arrange your players on the board, create formations, and track which strategies work best!")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 16)
+
+                VStack(alignment: .leading, spacing: 8) {
+                Text("Select Category")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
                     .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.bottom, 4)
 
                 VStack(spacing: 12) {
                     ForEach(vm.coachCategories, id: \.self) { cat in
@@ -433,55 +560,77 @@ struct LineupBuilderView: View {
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                                 vm.selectedCategory = cat
                             }
-                            Task { await vm.loadPlayers(for: cat) }
+                            Task {
+                                await vm.loadPlayers(for: cat)
+                                await vm.loadSavedLineups()
+                            }
                         }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 120)
+                }
             }
         }
     }
 
-    // MARK: - Builder Content (Formation + Pitch)
+    // MARK: - Builder Content
     private var builderContent: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
-                // Category badge
-                HStack {
+
+                // ── Category tag ──
+                HStack(spacing: 6) {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 11, weight: .bold))
                     Text(vm.selectedCategory ?? "")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(accent)
-                        .clipShape(Capsule())
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                     Spacer()
                 }
+                .foregroundColor(accent)
                 .padding(.horizontal, 20)
-                .padding(.top, 16)
 
-                // Formation picker
+                // ── Formation picker with ⓘ info button ──
                 formationPickerSection
 
-                // Lineup header + hint — shown above pitch once a formation is chosen
                 if selectedFormation != nil {
+                    // ── Lineup name input ──
+                    lineupTitleSection
+                        .padding(.horizontal, 20)
+
+                    // ── Lineup header: player count + position-guide ⓘ + roster toggle ──
                     lineupHeaderSection
                         .padding(.horizontal, 20)
+
+                    // ── Roster panel (above pitch, revealed by ? tap) ──
+                    if showRosterPanel {
+                        assignedRosterSection
+                            .padding(.horizontal, 20)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
 
-                // Pitch
+                // ── Pitch ──
                 if let formation = selectedFormation {
                     pitchView(formation: formation)
                         .padding(.horizontal, 20)
 
-                    // Player roster summary (no header/hint here anymore)
-                    assignedRosterSection
+                    // ── Formation note ──
+                    lineupNoteSection
+                        .padding(.horizontal, 20)
+
+                    // ── Save button ──
+                    saveLineupButton
+                        .padding(.horizontal, 20)
+
+                    // ── Past lineups ──
+                    pastLineupsSection
                         .padding(.horizontal, 20)
                         .padding(.bottom, 120)
+
                 } else {
                     Spacer().frame(height: 60)
-                    Text("Select a formation above to start building")
+                    Text("Select a formation above to start building your lineup")
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -492,15 +641,132 @@ struct LineupBuilderView: View {
         }
     }
 
-    // MARK: - Lineup Header (above pitch)
+    // MARK: - Formation Picker
+    private var formationPickerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // ── "Select a Formation" label + ⓘ button (explains the formation structure) ──
+            HStack(spacing: 6) {
+                Text("Select a Formation")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Button {
+                    showFormationInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(accent.opacity(0.75))
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Formation.all) { formation in
+                        FormationCard(
+                            formation: formation,
+                            isSelected: selectedFormation?.id == formation.id,
+                            accent: accent
+                        ) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                selectedFormation = formation
+                                resetSlots(for: formation)
+                                lineupTitle = ""
+                                lineupNote  = ""
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    // MARK: - Lineup Title Input (Admin-style, char limit, sanitized)
+    private let titleLimit = 30
+    private var lineupTitleSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("Board Name")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                Text("*")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(.red)
+                Spacer()
+                Text("\(lineupTitle.count)/\(titleLimit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(lineupTitle.count >= titleLimit ? .orange : .secondary)
+            }
+
+            TextField("", text: $lineupTitle)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.sentences)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                .onChange(of: lineupTitle) { _, new in
+                    // Sanitize: allow letters, numbers, spaces, and basic punctuation only
+                    let allowed = CharacterSet.alphanumerics.union(.init(charactersIn: " -.,'"))
+                    let sanitized = new.unicodeScalars
+                        .filter { allowed.contains($0) }
+                        .map(String.init).joined()
+                    // Enforce char limit
+                    let clamped = sanitized.count > titleLimit
+                        ? String(sanitized.prefix(titleLimit)) : sanitized
+                    if clamped != new { lineupTitle = clamped }
+                }
+        }
+    }
+
+    // MARK: - Lineup Header (above pitch) — ⓘ + roster toggle (Past Lineups style)
     private var lineupHeaderSection: some View {
         let assigned = slots.filter { $0.assignedPlayer != nil }
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Lineup (\(assigned.count)/\(slots.count))")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(accent)
+                    .foregroundColor(.primary)
+
+                // ⓘ Position abbreviation guide
+                Button {
+                    showPositionGuide = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(accent.opacity(0.7))
+                }
+                Button {
+                    withAnimation { resetSlots(for: selectedFormation!) }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(accent)
+                }
+
                 Spacer()
+
+                // Players toggle — styled like Past Lineups header
+                if !assigned.isEmpty {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showRosterPanel.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("View Assigned Players")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
+                            Image(systemName: showRosterPanel ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 if assigned.count == slots.count && !slots.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
@@ -527,46 +793,95 @@ struct LineupBuilderView: View {
         }
     }
 
-    // MARK: - Formation Picker
-    private var formationPickerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Select a Formation")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
-                .padding(.horizontal, 20)
+    // MARK: - Formation Note (Admin-style, char limit, sanitized)
+    private let noteLimit = 300
+    private var lineupNoteSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Formation Notes")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                Spacer()
+                Text("\(lineupNote.count)/\(noteLimit)")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(lineupNote.count >= noteLimit ? .orange : .secondary)
+            }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Formation.all) { formation in
-                        FormationCard(
-                            formation: formation,
-                            isSelected: selectedFormation?.id == formation.id,
-                            accent: accent
-                        ) {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                selectedFormation = formation
-                                resetSlots(for: formation)
-                            }
-                        }
-                    }
+            ZStack(alignment: .topLeading) {
+                if lineupNote.isEmpty {
+                    Text("Write strategy insights, what worked, what to improve…")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .padding(.top, 10)
+                        .padding(.leading, 6)
                 }
-                .padding(.horizontal, 20)
+                TextEditor(text: $lineupNote)
+                    .font(.system(size: 14, design: .rounded))
+                    .scrollContentBackground(.hidden)
+                    .frame(height: 110)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background))
+                    .onChange(of: lineupNote) { _, new in
+                        // Sanitize: allow letters, numbers, spaces, and basic punctuation
+                        let allowed = CharacterSet.alphanumerics
+                            .union(.init(charactersIn: " -.,'!?():\n"))
+                        let sanitized = new.unicodeScalars
+                            .filter { allowed.contains($0) }
+                            .map(String.init).joined()
+                        let clamped = sanitized.count > noteLimit
+                            ? String(sanitized.prefix(noteLimit)) : sanitized
+                        if clamped != new { lineupNote = clamped }
+                    }
             }
         }
+    }
+
+    // MARK: - Save Lineup Button
+    private var saveLineupButton: some View {
+        Button {
+            Task {
+                await vm.saveLineup(
+                    title: lineupTitle,
+                    slots: slots,
+                    formationId:    selectedFormation?.id    ?? "",
+                    formationLabel: selectedFormation?.label ?? "",
+                    note: lineupNote
+                )
+                lineupTitle = ""
+                lineupNote  = ""
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if vm.isSavingLineup {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: "square.and.arrow.down.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Text(vm.isSavingLineup ? "Saving…" : "Save Lineup")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(canSave ? accent : Color.gray.opacity(0.35))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: canSave ? accent.opacity(0.3) : .clear, radius: 8, y: 3)
+        }
+        .disabled(!canSave || vm.isSavingLineup)
+        .animation(.easeInOut(duration: 0.2), value: canSave)
     }
 
     // MARK: - Pitch View
     private func pitchView(formation: Formation) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let h = w * 1.1   // compact pitch ratio
+            let h = w * 1.1
 
             ZStack {
-                // Pitch background
                 PitchBackground()
                     .frame(width: w, height: h)
 
-                // Position dots
                 ForEach(slots.indices, id: \.self) { idx in
                     let slot = slots[idx]
                     let x = slot.relX * w
@@ -593,7 +908,7 @@ struct LineupBuilderView: View {
 
     // MARK: - Assigned Roster Section
     private var assignedRosterSection: some View {
-        let assigned = slots.filter { $0.assignedPlayer != nil }
+        let assigned   = slots.filter { $0.assignedPlayer != nil }
         let unassigned = slots.filter { $0.assignedPlayer == nil }
         return VStack(alignment: .leading, spacing: 8) {
             if !assigned.isEmpty {
@@ -618,6 +933,73 @@ struct LineupBuilderView: View {
         }
     }
 
+    // MARK: - Past Lineups Section
+    private var pastLineupsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider().padding(.vertical, 4)
+
+            // Collapsible header
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showPastLineups.toggle()
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Past Lineups")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                        Text("Review and compare your previous formations")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    if !vm.savedLineups.isEmpty {
+                        Text("\(vm.savedLineups.count)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(width: 24, height: 24)
+                            .background(accent)
+                            .clipShape(Circle())
+                    }
+                    Image(systemName: showPastLineups ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 4)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if showPastLineups {
+                if vm.isLoadingSavedLineups {
+                    HStack { Spacer(); ProgressView().tint(accent); Spacer() }
+                        .padding(.vertical, 20)
+                } else if vm.savedLineups.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 30))
+                            .foregroundColor(accent.opacity(0.3))
+                        Text("No saved lineups yet.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.secondary)
+                        Text("Save your first lineup above to start tracking your strategies.")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(vm.savedLineups) { lineup in
+                            SavedLineupCard(lineup: lineup, accent: accent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
     private func resetSlots(for formation: Formation) {
         var labelCount: [String: Int] = [:]
@@ -633,14 +1015,13 @@ struct LineupBuilderView: View {
     }
 }
 
-// MARK: - Sub-views
+// MARK: - CategoryCard
 
 struct CategoryCard: View {
     let category: String
     let accent: Color
     let onTap: () -> Void
 
-    // Map common football categories to an icon
     private var icon: String {
         let c = category.lowercased()
         if c.contains("goalkeeper") || c.contains("gk") { return "figure.stand" }
@@ -687,6 +1068,8 @@ struct CategoryCard: View {
     }
 }
 
+// MARK: - FormationCard
+
 struct FormationCard: View {
     let formation: Formation
     let isSelected: Bool
@@ -720,6 +1103,8 @@ struct FormationCard: View {
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - MiniPitchPreview
 
 struct MiniPitchPreview: View {
     let formation: Formation
@@ -756,6 +1141,8 @@ struct MiniPitchPreview: View {
         }
     }
 }
+
+// MARK: - PitchBackground
 
 struct PitchBackground: View {
     var body: some View {
@@ -824,6 +1211,8 @@ struct PitchBackground: View {
     }
 }
 
+// MARK: - PositionDot
+
 struct PositionDot: View {
     let slot: AssignedSlot
     let isSelected: Bool
@@ -853,17 +1242,13 @@ struct PositionDot: View {
                             playerInitialsView(name: player.name)
                         }
                     }
-                    .overlay(
-                        Circle().stroke(Color.white, lineWidth: 2)
-                    )
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
                 } else {
                     // Empty slot
                     Circle()
                         .fill(Color.white.opacity(0.15))
                         .frame(width: dotSize, height: dotSize)
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.7), lineWidth: 1.5)
-                        )
+                        .overlay(Circle().stroke(Color.white.opacity(0.7), lineWidth: 1.5))
                         .overlay(
                             Image(systemName: "plus")
                                 .font(.system(size: 14, weight: .bold))
@@ -878,24 +1263,22 @@ struct PositionDot: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(
-                    Capsule().fill(slot.assignedPlayer != nil ? accent : Color.black.opacity(0.45))
-                )
+                .background(Capsule().fill(slot.assignedPlayer != nil ? accent : Color.black.opacity(0.45)))
         }
     }
 
     private func playerInitialsView(name: String) -> some View {
         let initials = name.split(separator: " ").prefix(2).compactMap { $0.first }.map { String($0) }.joined()
         return ZStack {
-            Circle()
-                .fill(accent)
-                .frame(width: dotSize, height: dotSize)
+            Circle().fill(accent).frame(width: dotSize, height: dotSize)
             Text(initials)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
         }
     }
 }
+
+// MARK: - AssignedPlayerRow
 
 struct AssignedPlayerRow: View {
     let slot: AssignedSlot
@@ -963,6 +1346,117 @@ struct AssignedPlayerRow: View {
     }
 }
 
+// MARK: - SavedLineupCard
+
+struct SavedLineupCard: View {
+    let lineup: SavedLineup
+    let accent: Color
+
+    @State private var isExpanded = false
+
+    private var formattedDate: String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: lineup.date)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Tappable header row
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(lineup.formationLabel)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(lineup.title)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        Text(formattedDate)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(14)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Divider().padding(.horizontal, 14)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    // Coach note
+                    if !lineup.note.isEmpty {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "quote.bubble.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(accent.opacity(0.6))
+                                .padding(.top, 2)
+                            Text(lineup.note)
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundColor(.primary.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    // Player grid
+                    if !lineup.assignedPlayers.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Players")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                                .tracking(0.6)
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
+                                ForEach(lineup.assignedPlayers) { entry in
+                                    HStack(spacing: 5) {
+                                        Text(entry.label)
+                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 3)
+                                            .background(accent.opacity(0.75))
+                                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                                        Text(entry.playerName)
+                                            .font(.system(size: 12, design: .rounded))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
+            }
+        }
+        .background(BrandColors.background)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+    }
+}
+
 // MARK: - Player Picker Sheet
 
 struct PlayerPickerSheet: View {
@@ -980,7 +1474,9 @@ struct PlayerPickerSheet: View {
     private var filteredPlayers: [LineupPlayer] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if q.isEmpty { return players }
-        return players.filter { $0.name.lowercased().contains(q) || ($0.position?.lowercased().contains(q) ?? false) }
+        return players.filter {
+            $0.name.lowercased().contains(q) || ($0.position?.lowercased().contains(q) ?? false)
+        }
     }
 
     var body: some View {
@@ -991,7 +1487,7 @@ struct PlayerPickerSheet: View {
                     Text("Choose Player")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
-                    Text("Filling: \(slotLabel)  ·  Sorted by score")
+                    Text("Filling: \(positionFullName(slotLabel))  ·  Sorted by score")
                         .font(.system(size: 12, design: .rounded))
                         .foregroundColor(.secondary)
                 }
@@ -1062,7 +1558,7 @@ struct PlayerPickerSheet: View {
                     LazyVStack(spacing: 8) {
                         ForEach(Array(filteredPlayers.enumerated()), id: \.element.id) { rank, player in
                             let isAssigned = assignedPlayerIds.contains(player.id) && currentAssigned?.id != player.id
-                            let isCurrent = currentAssigned?.id == player.id
+                            let isCurrent  = currentAssigned?.id == player.id
 
                             PlayerPickerRow(
                                 rank: rank + 1,
@@ -1085,6 +1581,8 @@ struct PlayerPickerSheet: View {
     }
 }
 
+// MARK: - PlayerPickerRow
+
 struct PlayerPickerRow: View {
     let rank: Int
     let player: LineupPlayer
@@ -1096,87 +1594,83 @@ struct PlayerPickerRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
 
-                    // ── Rank badge ──
-                    ZStack {
-                        Circle()
-                            .fill(rank <= 3 ? accent.opacity(0.12) : Color.gray.opacity(0.08))
-                            .frame(width: 28, height: 28)
-                        Text("\(rank)")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundColor(rank <= 3 ? accent : .secondary)
-                    }
+                // Rank badge
+                ZStack {
+                    Circle()
+                        .fill(rank <= 3 ? accent.opacity(0.12) : Color.gray.opacity(0.08))
+                        .frame(width: 28, height: 28)
+                    Text("\(rank)")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(rank <= 3 ? accent : .secondary)
+                }
 
-                    // ── Avatar ──
-                    AsyncImage(url: URL(string: player.profilePicURL ?? "")) { phase in
-                        if case .success(let img) = phase {
-                            img.resizable().scaledToFill()
-                                .frame(width: 48, height: 48)
-                                .clipShape(Circle())
-                        } else {
-                            initialsCircle
-                        }
-                    }
-                    .overlay(Circle().stroke(isCurrent ? accent : Color.clear, lineWidth: 2))
-
-                    // ── Name + score subtitle ──
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(player.name)
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(isAlreadyAssigned ? .secondary : .primary)
-                                .lineLimit(1)
-                            if isCurrent {
-                                Text("Current")
-                                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(accent)
-                                    .clipShape(Capsule())
-                            }
-                            if isAlreadyAssigned {
-                                Text("Assigned")
-                                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Color.gray.opacity(0.12))
-                                    .clipShape(Capsule())
-                            }
-                        }
-
-                        if player.score > 0 {
-                            //Text("Score: \(String(format: "%.1f", player.score))")
-                            //    .font(.system(size: 11, design: .rounded))
-                            //    .foregroundColor(.secondary)
-                        } else {
-                            Text("No score yet")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundColor(.secondary.opacity(0.5))
-                        }
-                    }
-
-                    Spacer()
-
-                    // ── Score number ──
-                    if player.score > 0 {
-                        Text("\(Int(player.score))")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(isAlreadyAssigned ? .secondary : accent)
-                            .frame(width: 44)
+                // Avatar
+                AsyncImage(url: URL(string: player.profilePicURL ?? "")) { phase in
+                    if case .success(let img) = phase {
+                        img.resizable().scaledToFill()
+                            .frame(width: 48, height: 48)
+                            .clipShape(Circle())
                     } else {
-                        Text("—")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.secondary.opacity(0.3))
-                            .frame(width: 44)
+                        initialsCircle
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .overlay(Circle().stroke(isCurrent ? accent : Color.clear, lineWidth: 2))
+
+                // Name + position (full name shown beneath player name)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(player.name)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(isAlreadyAssigned ? .secondary : .primary)
+                            .lineLimit(1)
+                        if isCurrent {
+                            Text("Current")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(accent)
+                                .clipShape(Capsule())
+                        }
+                        if isAlreadyAssigned {
+                            Text("Assigned")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Color.gray.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    // Full position name shown here instead of abbreviation
+                    if let pos = player.position, !pos.isEmpty {
+                        Text(pos)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary)
+                    } else if player.score == 0 {
+                        Text("No score yet")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
+                }
+
+                Spacer()
+
+                // Score
+                if player.score > 0 {
+                    Text("\(Int(player.score))")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(isAlreadyAssigned ? .secondary : accent)
+                        .frame(width: 44)
+                } else {
+                    Text("—")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.3))
+                        .frame(width: 44)
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isCurrent ? accent.opacity(0.05) : BrandColors.background)
@@ -1202,6 +1696,156 @@ struct PlayerPickerRow: View {
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(accent)
         }
+    }
+}
+
+// MARK: - Formation Info Sheet (explains each formation's structure)
+
+struct FormationInfoSheet: View {
+    private let accent = BrandColors.darkTeal
+
+    private struct FormationInfo: Identifiable {
+        let id: String
+        let label: String
+        let tagline: String
+        let breakdown: [(count: Int, role: String)]
+        let strengths: String
+        let weaknesses: String
+    }
+
+    private let infos: [FormationInfo] = [
+        FormationInfo(
+            id: "4-4-2", label: "4-4-2",
+            tagline: "",
+            breakdown: [(1,"Goalkeeper"), (4,"Defenders"), (4,"Midfielders"), (2,"Strikers")],
+            strengths: "Two banks of four are compact and hard to break. Dual strikers maintain a constant threat up top.",
+            weaknesses: "Easily outnumbered by a three-man midfield. Wide mids cover massive ground both ways."
+        ),
+        FormationInfo(
+            id: "4-3-3", label: "4-3-3",
+            tagline: "",
+            breakdown: [(1,"Goalkeeper"), (4,"Defenders"), (3,"Midfielders"), (3,"Forwards")],
+            strengths: "Midfield overload against most defensive shapes. Three forwards enable a high press and constant wide threat.",
+            weaknesses: "Full-backs are exposed when wingers don't track back. High press breaks down fast without full squad discipline."
+        ),
+        FormationInfo(
+            id: "4-2-3-1", label: "4-2-3-1",
+            tagline: "",
+            breakdown: [(1,"Goalkeeper"), (4,"Defenders"), (2,"Def. Midfielders"), (3,"Att. Midfielders"), (1,"Striker")],
+            strengths: "Double pivot shields defence and allows full-backs to push up. The No.10 is a free creator between lines.",
+            weaknesses: "Lone striker gets isolated without close support. Nullifying the No.10 can shut down the whole attack."
+        ),
+        FormationInfo(
+            id: "3-5-2", label: "3-5-2",
+            tagline: "",
+            breakdown: [(1,"Goalkeeper"), (3,"Centre-Backs"), (2,"Wing-Backs"), (3,"Midfielders"), (2,"Strikers")],
+            strengths: "Dominates central midfield. Wing-backs add width without losing a centre-back.",
+            weaknesses: "Wide channels are exposed if wing-backs push high simultaneously."
+        ),
+        FormationInfo(
+            id: "5-3-2", label: "5-3-2",
+            tagline: "",
+            breakdown: [(1,"Goalkeeper"), (3,"Centre-Backs"), (2,"Wing-Backs"), (3,"Midfielders"), (2,"Strikers")],
+            strengths: "Five defenders make it extremely hard to break down. Wing-backs burst forward as quick counter outlets.",
+            weaknesses: "Gives up possession by design. Relies on clinical finishers — few chances are created."
+        ),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 4) {
+                Text("Formation Guide")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                Text("What each formation means on the pitch")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 14) {
+                    ForEach(infos) { info in
+                        formationCard(info)
+                    }
+                }
+                .padding(16)
+                .padding(.bottom, 30)
+            }
+        }
+    }
+
+    private func formationCard(_ info: FormationInfo) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Title row only — no tagline
+            HStack(spacing: 10) {
+                Text(info.label)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Spacer()
+            }
+
+            // Player count breakdown (e.g. 1 GK · 4 Defenders · …)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(info.breakdown.indices, id: \.self) { i in
+                        let item = info.breakdown[i]
+                        HStack(spacing: 3) {
+                            Text("\(item.count)")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(accent)
+                            Text(item.role)
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        if i < info.breakdown.count - 1 {
+                            Text("·")
+                                .foregroundColor(.secondary.opacity(0.4))
+                                .font(.system(size: 12))
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // Strengths & weaknesses
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 13))
+                        .padding(.top, 1)
+                    Text(info.strengths)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                        .padding(.top, 1)
+                    Text(info.weaknesses)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(14)
+        .background(BrandColors.background)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
     }
 }
 
@@ -1265,7 +1909,7 @@ struct PositionGuideSheet: View {
                 VStack(alignment: .leading, spacing: 24) {
                     ForEach(categories, id: \.self) { cat in
                         VStack(alignment: .leading, spacing: 8) {
-                            // Category header
+                            // Category label
                             HStack(spacing: 6) {
                                 Image(systemName: categoryIcon(cat))
                                     .font(.system(size: 12, weight: .bold))
@@ -1280,7 +1924,7 @@ struct PositionGuideSheet: View {
                             VStack(spacing: 6) {
                                 ForEach(entries.filter { $0.category == cat }) { entry in
                                     HStack(alignment: .top, spacing: 12) {
-                                        // Abbreviation badge
+                                        // Abbreviation badge beside the full name
                                         Text(entry.abbr)
                                             .font(.system(size: 11, weight: .bold, design: .rounded))
                                             .foregroundColor(.white)
@@ -1314,11 +1958,11 @@ struct PositionGuideSheet: View {
 
     private func categoryIcon(_ cat: String) -> String {
         switch cat {
-        case "Goalkeeper": return "figure.stand"
-        case "Defenders":  return "shield.fill"
+        case "Goalkeeper":  return "figure.stand"
+        case "Defenders":   return "shield.fill"
         case "Midfielders": return "arrow.left.arrow.right"
-        case "Forwards":   return "bolt.fill"
-        default:           return "sportscourt"
+        case "Forwards":    return "bolt.fill"
+        default:            return "sportscourt"
         }
     }
 }
