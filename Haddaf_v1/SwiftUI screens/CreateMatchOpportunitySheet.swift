@@ -7,6 +7,7 @@ struct CreateMatchOpportunitySheet: View {
     @EnvironmentObject var session: AppSession
     @Environment(\.dismiss) private var dismiss
 
+    @State private var matchTitle = ""                        // ✅ جديد
     @State private var dateTime = Date().addingTimeInterval(3600)
     @State private var locationSearch = ""
     @State private var selectedPlace: MatchPlace? = nil
@@ -20,6 +21,7 @@ struct CreateMatchOpportunitySheet: View {
     @State private var errorText: String? = nil
 
     private let accent = BrandColors.darkTeal
+    private let titleLimit = 30                              // ✅ حد التايتل
 
     private var totalPositions: Int {
         attackerCount + midfielderCount + defenderCount
@@ -29,6 +31,26 @@ struct CreateMatchOpportunitySheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+
+                    // ✅ Match Title
+                    Text("Match Title")
+                        .font(.system(size: 14, weight: .semibold))
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        TextField("e.g. Friday Evening 5-a-side", text: $matchTitle)
+                            .font(.system(size: 14))
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+                            .onChange(of: matchTitle) { _, newValue in
+                                if newValue.count > titleLimit {
+                                    matchTitle = String(newValue.prefix(titleLimit))
+                                }
+                            }
+
+                        Text("\(matchTitle.count)/\(titleLimit)")
+                            .font(.system(size: 11))
+                            .foregroundColor(matchTitle.count >= titleLimit ? .red : .secondary)
+                    }
 
                     Text("Date and time")
                         .font(.system(size: 14, weight: .semibold))
@@ -51,11 +73,8 @@ struct CreateMatchOpportunitySheet: View {
                             latitude: lat,
                             longitude: lng
                         ) { coordinate in
-
-                            // 🔥 Reverse Geocode (اسم المكان الحقيقي)
                             Task {
                                 let place = await places.reverseGeocode(coordinate: coordinate)
-
                                 selectedPlace = place
                                 locationSearch = place.name
                             }
@@ -87,16 +106,12 @@ struct CreateMatchOpportunitySheet: View {
                                         Button {
                                             Task {
                                                 let resolved = await places.resolveCoordinates(for: place)
-
                                                 selectedPlace = resolved
                                                 locationSearch = resolved.name
                                                 places.suggestions = []
                                             }
                                         } label: {
-
-                                            // 🔥 اسم + عنوان
                                             VStack(alignment: .leading, spacing: 2) {
-
                                                 Text(place.name)
                                                     .font(.system(size: 13, weight: .medium))
 
@@ -149,10 +164,10 @@ struct CreateMatchOpportunitySheet: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(totalPositions == 0 ? Color.gray.opacity(0.4) : accent)
+                        .background(isPostDisabled ? Color.gray.opacity(0.4) : accent)
                         .clipShape(Capsule())
                     }
-                    .disabled(isSaving || totalPositions == 0 || locationSearch.isEmpty)
+                    .disabled(isSaving || isPostDisabled)
                 }
                 .padding(18)
                 .background(BrandColors.backgroundGradientEnd)
@@ -169,6 +184,11 @@ struct CreateMatchOpportunitySheet: View {
                 places.startSession()
             }
         }
+    }
+
+    // ✅ شرط تفعيل الزر
+    private var isPostDisabled: Bool {
+        totalPositions == 0 || locationSearch.isEmpty || matchTitle.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func saveMatch() async {
@@ -190,6 +210,7 @@ struct CreateMatchOpportunitySheet: View {
             organizerId: uid,
             organizerName: name,
             organizerRole: session.role ?? "player",
+            title: matchTitle.trimmingCharacters(in: .whitespaces),   // ✅ جديد
             dateTime: dateTime,
             place: resolvedPlace,
             positions: [
@@ -216,7 +237,7 @@ struct CreateMatchOpportunitySheet: View {
     }
 }
 
-// ✅ نفس لون زر POST
+// ✅ Stepper Row
 struct StepperRow: View {
     let title: String
     @Binding var count: Int

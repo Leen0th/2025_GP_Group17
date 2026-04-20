@@ -1915,7 +1915,7 @@ enum MatchFilter: String, CaseIterable, Identifiable {
     case all        = "All"
     case open       = "Open"
     case closed     = "Closed"
-    case myMatches  = "My Matches"
+    case myMatches  = "Organized"
     case joined     = "Joined"
 
     var id: String { rawValue }

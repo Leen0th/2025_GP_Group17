@@ -11,18 +11,15 @@ final class MatchService {
         organizerId: String,
         organizerName: String,
         organizerRole: String,
+        title: String,                 // ✅ جديد
         dateTime: Date,
         place: MatchPlace,
         positions: [String: Int]
     ) async throws {
         let cleaned = positions.filter { $0.value > 0 }
 
-        // Fetch organizer's academy info from Firestore
-        let userDoc = try? await db.collection("users").document(organizerId).getDocument()
-        //let academyId   = userDoc?.data()?["academyId"]       as? String
-        //let academyName = userDoc?.data()?["currentAcademy"]  as? String
-
         var data: [String: Any] = [
+            "title":            title,                         // ✅ جديد
             "createdBy":        organizerId,
             "createdByName":    organizerName,
             "createdByRole":    organizerRole,
@@ -40,8 +37,6 @@ final class MatchService {
 
         if let lat = place.latitude  { data["locationLat"] = lat }
         if let lng = place.longitude { data["locationLng"] = lng }
-        //if let aid = academyId,   !aid.isEmpty  { data["academyId"]   = aid }
-        //if let an  = academyName, !an.isEmpty   { data["academyName"] = an  }
 
         try await db.collection("matches").addDocument(data: data)
     }
@@ -107,7 +102,6 @@ final class MatchService {
             position:     request.requestedPosition
         )
     }
-    // ADD THIS FUNCTION ONLY
 
     func cancelApprovedRequest(
         request: MatchJoinRequest,
@@ -128,25 +122,20 @@ final class MatchService {
             }
 
             guard var openPositions  = snap.data()?["openPositions"]  as? [String: Int],
-                  var acceptedCounts = snap.data()?["acceptedCounts"] as? [String: Int],
-                  var totalPositions = snap.data()?["totalPositions"] as? [String: Int]
+                  var acceptedCounts = snap.data()?["acceptedCounts"] as? [String: Int]
             else { return nil }
 
             let position = request.requestedPosition
 
-            // ✅ أرجع الـ slot للبوزشن اللي كان فيها اللاعب
             openPositions[position]  = (openPositions[position]  ?? 0) + 1
             acceptedCounts[position] = max((acceptedCounts[position] ?? 1) - 1, 0)
 
-            // ✅ تحقق إذا في slots مفتوحة الحين → الماتش يرجع open
             let hasOpenSlots = openPositions.values.contains { $0 > 0 }
 
             transaction.updateData([
                 "openPositions":  openPositions,
                 "acceptedCounts": acceptedCounts,
-                // ✅ احذف الـ playerId من المشاركين
                 "participantIds": FieldValue.arrayRemove([request.playerId]),
-                // ✅ الماتش يرجع open لأن في slot فاضية الحين
                 "status": hasOpenSlots ? MatchStatus.open.rawValue : MatchStatus.closed.rawValue,
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: matchRef)
@@ -159,6 +148,7 @@ final class MatchService {
             return nil
         }
     }
+
     func approveRequest(_ request: MatchJoinRequest, match: MatchOpportunity) async throws {
         let matchRef   = db.collection("matches").document(match.id)
         let requestRef = db.collection("match_requests").document(request.id)

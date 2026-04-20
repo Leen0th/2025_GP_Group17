@@ -17,8 +17,6 @@ struct MatchOpportunityCard: View {
     @State private var showRequestsSheet = false
     @State private var showLeaveConfirm = false
     @State private var creatorProfilePicURL: String? = nil
-
-    // ✅ جديد: للـ navigation للبروفايل
     @State private var navigateToProfile: String? = nil
 
     private let accent = BrandColors.darkTeal
@@ -38,7 +36,6 @@ struct MatchOpportunityCard: View {
 
             // MARK: - Header
             HStack(spacing: 10) {
-                // ✅ صورة المنشئ — تفتح البروفايل
                 Button {
                     navigateToProfile = match.createdBy
                 } label: {
@@ -50,15 +47,25 @@ struct MatchOpportunityCard: View {
                 }
                 .buttonStyle(.plain)
 
-                // ✅ اسم المنشئ — أيضاً يفتح البروفايل
-                Button {
-                    navigateToProfile = match.createdBy
-                } label: {
-                    Text(match.createdByName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.black)
+                VStack(alignment: .leading, spacing: 2) {
+                    // ✅ اسم المنشئ
+                    Button {
+                        navigateToProfile = match.createdBy
+                    } label: {
+                        Text(match.createdByName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.black)
+                    }
+                    .buttonStyle(.plain)
+
+                    // ✅ التايتل — يظهر فقط لو مش فارغ
+                    if !match.title.isEmpty {
+                        Text(match.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(accent)
+                            .lineLimit(1)
+                    }
                 }
-                .buttonStyle(.plain)
 
                 Spacer()
 
@@ -116,9 +123,18 @@ struct MatchOpportunityCard: View {
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+
+                // ✅ سهم يوضح إن الكارد قابل للفتح/الغلق
+                HStack {
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color.gray.opacity(0.5))
+                }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.white)
         }
@@ -135,17 +151,14 @@ struct MatchOpportunityCard: View {
         .task {
             await loadCreatorProfilePic()
         }
-        // ✅ sheet الريكوستات — مع تمرير navigateToProfile
         .sheet(isPresented: $showRequestsSheet) {
             MatchRequestsSheet(match: match, onProfileTap: { userId in
                 showRequestsSheet = false
-                // بعد ما يُغلق الشيت، افتح البروفايل
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     navigateToProfile = userId
                 }
             })
         }
-        // ✅ NavigationLink مخفي للبروفايل
         .background(
             NavigationLink(
                 destination: Group {
@@ -171,11 +184,7 @@ struct MatchOpportunityCard: View {
             titleVisibility: .visible
         ) {
             Button("Leave Match", role: .destructive) {
-                guard let req = myRequest else {
-                    print("❌ myRequest is nil!")
-                    return
-                }
-                print("✅ Leaving with request: \(req.id), position: \(req.requestedPosition), status: \(req.status)")
+                guard let req = myRequest else { return }
                 Task {
                     isProcessing = true
                     do {
@@ -183,7 +192,6 @@ struct MatchOpportunityCard: View {
                             request: req,
                             match: match
                         )
-                        print("✅ cancelApprovedRequest succeeded")
                     } catch {
                         print("❌ cancelApprovedRequest failed: \(error)")
                     }
@@ -195,7 +203,6 @@ struct MatchOpportunityCard: View {
                     onRefresh()
                 }
             }
-
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to leave this match?")
@@ -236,21 +243,7 @@ struct MatchOpportunityCard: View {
                 .clipShape(Capsule())
 
         case .approved:
-            HStack {
-                Spacer()
-                Button {
-                    showLeaveConfirm = true
-                } label: {
-                    Text("Leave Match")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(Color.red.opacity(0.08))
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
+            EmptyView()
 
         default:
             EmptyView()
@@ -258,48 +251,56 @@ struct MatchOpportunityCard: View {
     }
 
     // MARK: - Positions Grid
+    // ✅ Format: open/total — e.g. 2/2 أو 0/3
     private var positionsGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible()), GridItem(.flexible())],
-            spacing: 8
-        ) {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
             ForEach(MatchPosition.allCases) { position in
-                let count = match.availableCount(for: position)
+                let open  = match.availableCount(for: position)
+                let total = match.totalCount(for: position)
 
-                Button {
-                    guard !isOrganizer, count > 0 else { return }
-                    selectedPosition = position
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(count) \(count == 1 ? position.title : position.pluralTitle)")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.black)
+                return AnyView(
+                    Button {
+                        guard !isOrganizer, open > 0 else { return }
+                        selectedPosition = position
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                // ✅ X/Y format
+                                Text("\(open)/\(total) \(position.pluralTitle)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(open > 0 ? accent : .secondary)
 
-                            Text(count > 0 ? "Available" : "Unavailable")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
+                                Text(open > 0 ? "Available" : "Unavailable")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(open > 0 ? accent : .secondary)
+                            }
+
+                            Spacer()
+
+                            if selectedPosition == position {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(accent)
+                                    .font(.system(size: 13))
+                            }
                         }
-
-                        Spacer()
-
-                        if selectedPosition == position {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(accent)
-                                .font(.system(size: 13))
-                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(selectedPosition == position
+                                      ? accent.opacity(0.07)
+                                      : Color.gray.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(selectedPosition == position ? accent.opacity(0.3) : Color.clear, lineWidth: 1)
+                        )
                     }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.05))
+                    .buttonStyle(.plain)
+                    .disabled(
+                        open <= 0 || isOrganizer
+                        || myRequest?.status == .pending
+                        || myRequest?.status == .approved
                     )
-                }
-                .buttonStyle(.plain)
-                .disabled(
-                    count <= 0 || isOrganizer
-                    || myRequest?.status == .pending
-                    || myRequest?.status == .approved
                 )
             }
         }
@@ -359,7 +360,18 @@ struct MatchOpportunityCard: View {
                 .buttonStyle(.plain)
 
             case .approved:
-                EmptyView()
+                Button {
+                    showLeaveConfirm = true
+                } label: {
+                    Label("Leave Match", systemImage: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.red.opacity(0.08))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
 
             case .rejected:
                 requestButton(title: "Request Again")
@@ -426,15 +438,11 @@ struct MatchOpportunityCard: View {
     private func openInMaps() {
         if let lat = match.locationLat, let lng = match.locationLng {
             let url = URL(string: "https://www.google.com/maps/search/?api=1&query=\(lat),\(lng)")
-            if let url {
-                UIApplication.shared.open(url)
-            }
+            if let url { UIApplication.shared.open(url) }
         } else {
             let query = match.locationName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             let url = URL(string: "https://www.google.com/maps/search/?api=1&query=\(query)")
-            if let url {
-                UIApplication.shared.open(url)
-            }
+            if let url { UIApplication.shared.open(url) }
         }
     }
 
@@ -448,7 +456,6 @@ struct MatchOpportunityCard: View {
             .collection("users")
             .document(uid)
             .getDocument()
-
         return doc?.data()?["profilePic"] as? String
     }
 
@@ -457,7 +464,6 @@ struct MatchOpportunityCard: View {
             .collection("users")
             .document(match.createdBy)
             .getDocument()
-
         await MainActor.run {
             creatorProfilePicURL = doc?.data()?["profilePic"] as? String
         }
@@ -478,16 +484,11 @@ private struct RemoteProfileImage: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-
+                        image.resizable().scaledToFill()
                     case .empty:
                         placeholder
-
                     case .failure:
                         placeholder
-
                     @unknown default:
                         placeholder
                     }

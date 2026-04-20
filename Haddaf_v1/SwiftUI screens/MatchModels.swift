@@ -40,6 +40,7 @@ enum MatchRequestStatus: String, Codable {
 
 struct MatchOpportunity: Identifiable, Hashable {
     let id: String
+    let title: String          // ✅ جديد
     let createdBy: String
     let createdByName: String
     let createdByRole: String
@@ -69,6 +70,10 @@ struct MatchOpportunity: Identifiable, Hashable {
         openPositions[position.rawValue] ?? 0
     }
 
+    func totalCount(for position: MatchPosition) -> Int {
+        totalPositions[position.rawValue] ?? 0
+    }
+
     static func from(doc: QueryDocumentSnapshot) -> MatchOpportunity? {
         let data = doc.data()
 
@@ -86,6 +91,7 @@ struct MatchOpportunity: Identifiable, Hashable {
 
         return MatchOpportunity(
             id: doc.documentID,
+            title: data["title"] as? String ?? "",   // ✅ جديد — fallback فارغ للماتشات القديمة
             createdBy: createdBy,
             createdByName: createdByName,
             createdByRole: createdByRole,
@@ -152,5 +158,5 @@ struct MatchPlace: Identifiable {
     var address: String
     var latitude: Double?
     var longitude: Double?
-    var placeID: String?   // 🔥 الجديد
+    var placeID: String?
 }
