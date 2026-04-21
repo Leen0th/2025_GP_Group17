@@ -201,7 +201,7 @@ struct CoachProfileContentView: View {
                     SettingsViewCoach(coachProfile: viewModel.coachProfile)
                 }
                 .navigationDestination(isPresented: $showNotificationsList) {
-                    NotificationsView()
+                    NotificationsView(isCoach: true)
                         .environmentObject(session)
                 }
                 // These two are lifted from CurrentAcademyView so they live
@@ -381,14 +381,10 @@ struct TopNavigationBarCoach: View {
                     }
                 }
             } else if isCurrentUser {
-                Button { showNotifications = true } label: {
-                    Image(systemName: "bell")
-                        .font(.title2)
-                        .foregroundColor(BrandColors.darkTeal)
-                        .padding(8)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                NotificationBellButton(
+                    showNotifications: $showNotifications,
+                    userId: Auth.auth().currentUser?.uid ?? ""
+                )
                 Button { goToSettings = true } label: {
                     Image(systemName: "gearshape")
                         .font(.title2)

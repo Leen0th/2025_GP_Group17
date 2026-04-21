@@ -10,7 +10,7 @@ class NotificationService: ObservableObject {
     @Published var unreadCount: Int = 0
     @Published var isLoading = false
 
-    private var listener: ListenerRegistration?
+    var listener: ListenerRegistration?
     private let db = Firestore.firestore()
 
     private init() {}

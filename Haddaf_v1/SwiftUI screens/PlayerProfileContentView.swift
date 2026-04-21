@@ -676,14 +676,10 @@ struct TopNavigationBar: View {
                 // It's the current user. Always show Settings/Notifications on right
                 
                 // "Notifications" button
-                Button { showNotifications = true } label: {
-                    Image(systemName: "bell")
-                        .font(.title2)
-                        .foregroundColor(BrandColors.darkTeal)
-                        .padding(8)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                NotificationBellButton(
+                    showNotifications: $showNotifications,
+                    userId: Auth.auth().currentUser?.uid ?? ""
+                )
 
                 // "Settings" button
                 Button { goToSettings = true } label: {

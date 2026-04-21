@@ -193,16 +193,79 @@ class ClientNotificationScheduler {
         }
     }
     
+    // MARK: - Check Upcoming Matches (Reminder 24h Before)
+    func checkUpcomingMatchReminders() async {
+        do {
+            let now = Date()
+            let in24h = Calendar.current.date(byAdding: .hour, value: 24, to: now) ?? now
+            let in23h = Calendar.current.date(byAdding: .hour, value: 23, to: now) ?? now
+
+            // Get matches that start within the next 23–24 hours
+            let matchesSnapshot = try await db.collection("matches")
+                .whereField("dateTime", isGreaterThan: Timestamp(date: in23h))
+                .whereField("dateTime", isLessThanOrEqualTo: Timestamp(date: in24h))
+                .whereField("status", isEqualTo: "open")
+                .getDocuments()
+
+            for matchDoc in matchesSnapshot.documents {
+                let matchId = matchDoc.documentID
+                let data = matchDoc.data()
+                let locationName = data["locationName"] as? String ?? "Unknown location"
+                let organizerId = data["createdBy"] as? String ?? ""
+                let participantIds = data["participantIds"] as? [String] ?? []
+                let dateTimestamp = data["dateTime"] as? Timestamp
+                let matchDate = dateTimestamp?.dateValue() ?? now
+
+                // Check if reminder already sent for this match
+                let existingNotifs = try await db.collection("notifications")
+                    .whereField("type", isEqualTo: "upcoming_match_reminder")
+                    .whereField("matchId", isEqualTo: matchId)
+                    .limit(to: 1)
+                    .getDocuments()
+
+                if !existingNotifs.documents.isEmpty {
+                    print("⏭️ Reminder already sent for match: \(matchId)")
+                    continue
+                }
+
+                // Collect all user IDs (organizer + participants)
+                var userIds = Set(participantIds)
+                if !organizerId.isEmpty { userIds.insert(organizerId) }
+
+                // Also check notif setting for upcoming match
+                for userId in userIds {
+                    // Check user preference
+                    let userDoc = try? await db.collection("users").document(userId).getDocument()
+                    let notifEnabled = userDoc?.data()?["notif_upcomingMatch"] as? Bool ?? true
+                    guard notifEnabled else { continue }
+
+                    await NotificationService.sendUpcomingMatchReminderNotification(
+                        userId: userId,
+                        matchId: matchId,
+                        locationName: locationName,
+                        date: matchDate
+                    )
+                }
+
+                print("✅ Sent upcoming match reminders for match: \(matchId) to \(userIds.count) users")
+            }
+        } catch {
+            print("❌ Error checking upcoming matches: \(error.localizedDescription)")
+        }
+    }
+
     func startPeriodicChecks() {
         Task {
             await checkAndSendMonthlyAdminReminder()
             await checkEndedChallenges()
+            await checkUpcomingMatchReminders()
         }
         
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task {
                 await self?.checkAndSendMonthlyAdminReminder()
                 await self?.checkEndedChallenges()
+                await self?.checkUpcomingMatchReminders()
             }
         }
         

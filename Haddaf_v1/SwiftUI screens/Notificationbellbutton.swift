@@ -1,9 +1,11 @@
 import SwiftUI
+import FirebaseAuth
 
 // MARK: - Notification Bell Button
 struct NotificationBellButton: View {
     @Binding var showNotifications: Bool
-    @StateObject private var notificationService = NotificationService.shared
+    let userId: String
+    @ObservedObject private var notificationService = NotificationService.shared
     
     private let accentColor = BrandColors.darkTeal
     
@@ -12,33 +14,33 @@ struct NotificationBellButton: View {
             showNotifications = true
         } label: {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "bell.fill")
+                Image(systemName: notificationService.unreadCount > 0 ? "bell.fill" : "bell")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(accentColor)
+                    .foregroundColor(notificationService.unreadCount > 0 ? accentColor : accentColor)
                 
-                // Unread badge
+                // Unread dot indicator
                 if notificationService.unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 18, height: 18)
-                        
-                        Text("\(min(notificationService.unreadCount, 9))")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    .offset(x: 8, y: -8)
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 10, height: 10)
+                        .offset(x: 6, y: -4)
                 }
             }
         }
         .buttonStyle(.plain)
+        .onAppear {
+            if notificationService.listener == nil {
+                notificationService.startListening(for: userId)
+            }
+        }
     }
 }
 
-// MARK: - Admin Notification Bell Button (with different styling)
+// MARK: - Admin Notification Bell Button
 struct AdminNotificationBellButton: View {
     @Binding var showNotifications: Bool
-    @StateObject private var notificationService = NotificationService.shared
+    let userId: String
+    @ObservedObject private var notificationService = NotificationService.shared
     
     private let accentColor = BrandColors.darkTeal
     
@@ -47,27 +49,24 @@ struct AdminNotificationBellButton: View {
             showNotifications = true
         } label: {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "bell.badge.fill")
+                Image(systemName: notificationService.unreadCount > 0 ? "bell.fill" : "bell")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(accentColor)
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(accentColor, Color.red)
                 
-                // Unread count badge
+                // Unread dot indicator
                 if notificationService.unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 20, height: 20)
-                        
-                        Text("\(min(notificationService.unreadCount, 9))")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    .offset(x: 10, y: -10)
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 10, height: 10)
+                        .offset(x: 6, y: -4)
                 }
             }
         }
         .buttonStyle(.plain)
+        .onAppear {
+            if notificationService.listener == nil {
+                notificationService.startListening(for: userId)
+            }
+        }
     }
 }

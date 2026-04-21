@@ -1243,7 +1243,24 @@ class CategoryPlayersViewModel: ObservableObject {
             .collection("categories").document(category)
             .collection("players").document(playerUID).delete()
 
-        if !isPending {
+        if isPending {
+            // Delete the player's academy_invitation notification
+            let notifSnap = try? await db.collection("notifications")
+                .whereField("userId", isEqualTo: playerUID)
+                .whereField("type", isEqualTo: "academy_invitation")
+                .getDocuments()
+            for doc in notifSnap?.documents ?? [] {
+                try? await doc.reference.delete()
+            }
+            // Also delete the invitation doc if exists
+            let invSnap = try? await db.collection("invitations")
+                .whereField("playerID", isEqualTo: playerUID)
+                .whereField("status", isEqualTo: "pending")
+                .getDocuments()
+            for doc in invSnap?.documents ?? [] {
+                try? await doc.reference.delete()
+            }
+        } else {
             // 2. Set currentAcademy to "Unassigned"
             // Only update fields the coach is allowed to write per Firestore rules:
             // ['teamId', 'teamName', 'academyName', 'currentAcademy']
