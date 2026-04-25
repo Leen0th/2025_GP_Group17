@@ -388,7 +388,9 @@ struct SetGoalSheet: View {
     private let primary = BrandColors.darkTeal
 
     private var canSave: Bool {
-        entries.values.contains(where: { $0.isSelected })
+        // At least one metric must be selected AND every selected metric must have target > 0
+        let selected = entries.values.filter { $0.isSelected }
+        return !selected.isEmpty && selected.allSatisfy { $0.target > 0 }
     }
 
     private var title: String {

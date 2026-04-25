@@ -47,6 +47,7 @@ struct SavedSlotEntry: Identifiable {
 
 struct SavedLineup: Identifiable {
     let id: String
+    let categoryId: String      // which category this lineup belongs to
     let title: String
     let formationId: String
     let formationLabel: String
@@ -176,10 +177,14 @@ class LineupBuilderViewModel: ObservableObject {
     @Published var isLoadingCategories = true
     @Published var isLoadingPlayers = false
 
-    // Saved lineups
+    // Saved lineups (per-category, used inside builder)
     @Published var savedLineups: [SavedLineup] = []
     @Published var isLoadingSavedLineups = false
     @Published var isSavingLineup = false
+
+    // All lineups across every category (used on the home page)
+    @Published var allSavedLineups: [SavedLineup] = []
+    @Published var isLoadingAllLineups = false
 
     private let db = Firestore.firestore()
     private var academyId: String? = nil
@@ -328,6 +333,7 @@ class LineupBuilderViewModel: ObservableObject {
             .collection("lineups").addDocument(data: data)
 
         await loadSavedLineups()
+        await loadAllSavedLineups()
         await MainActor.run { isSavingLineup = false }
     }
 
@@ -355,6 +361,7 @@ class LineupBuilderViewModel: ObservableObject {
             }
             lineups.append(SavedLineup(
                 id:             doc.documentID,
+                categoryId:     cat,
                 title:          d["title"]          as? String ?? "Untitled",
                 formationId:    d["formationId"]    as? String ?? "",
                 formationLabel: d["formationLabel"] as? String ?? "",
@@ -367,6 +374,64 @@ class LineupBuilderViewModel: ObservableObject {
         await MainActor.run {
             self.savedLineups = lineups
             self.isLoadingSavedLineups = false
+        }
+    }
+
+    // MARK: Load ALL saved lineups across every category the coach manages
+    func loadAllSavedLineups() async {
+        guard let aId = academyId else { return }
+        await MainActor.run { isLoadingAllLineups = true }
+
+        var all: [SavedLineup] = []
+        for cat in coachCategories {
+            let snap = try? await db.collection("academies").document(aId)
+                .collection("categories").document(cat)
+                .collection("lineups")
+                .order(by: "date", descending: true)
+                .getDocuments()
+
+            for doc in snap?.documents ?? [] {
+                let d = doc.data()
+                let entries = (d["assignedPlayers"] as? [[String: Any]] ?? []).map { e in
+                    SavedSlotEntry(
+                        id:         e["slotId"]     as? String ?? "",
+                        label:      e["slotLabel"]  as? String ?? "",
+                        playerId:   e["playerId"]   as? String ?? "",
+                        playerName: e["playerName"] as? String ?? ""
+                    )
+                }
+                all.append(SavedLineup(
+                    id:             doc.documentID,
+                    categoryId:     cat,
+                    title:          d["title"]          as? String ?? "Untitled",
+                    formationId:    d["formationId"]    as? String ?? "",
+                    formationLabel: d["formationLabel"] as? String ?? "",
+                    note:           d["note"]           as? String ?? "",
+                    date:           (d["date"] as? Timestamp)?.dateValue() ?? Date(),
+                    assignedPlayers: entries
+                ))
+            }
+        }
+
+        all.sort { $0.date > $1.date }
+
+        await MainActor.run {
+            self.allSavedLineups = all
+            self.isLoadingAllLineups = false
+        }
+    }
+
+    // MARK: Delete a saved lineup from Firestore
+    func deleteLineup(_ lineup: SavedLineup) async {
+        guard let aId = academyId else { return }
+        try? await db.collection("academies").document(aId)
+            .collection("categories").document(lineup.categoryId)
+            .collection("lineups").document(lineup.id)
+            .delete()
+
+        await MainActor.run {
+            allSavedLineups.removeAll { $0.id == lineup.id }
+            savedLineups.removeAll  { $0.id == lineup.id }
         }
     }
 }
@@ -388,6 +453,7 @@ struct LineupBuilderView: View {
     @State private var showPlayerPanel    = false
     @State private var showPositionGuide  = false   // position abbreviation guide (ⓘ beside lineup header)
     @State private var showFormationInfo  = false   // formation structure guide (ⓘ beside "Select a Formation")
+    @State private var showResetConfirmation = false // reset players confirmation
 
     // Lineup metadata the coach fills in
     @State private var lineupTitle = ""
@@ -396,6 +462,22 @@ struct LineupBuilderView: View {
     // Past lineups toggle
     @State private var showPastLineups = true
     @State private var showRosterPanel  = false
+
+    // Navigation: home → category picker → builder
+    @State private var isCreatingNewLineup = false
+
+    // Delete confirmation (managed at top level so overlay covers full screen)
+    @State private var lineupPendingDelete: SavedLineup? = nil
+
+    // Save lineup confirmation (same InfoOverlay pattern as EditProfileView)
+    @State private var showSaveOverlay    = false
+    @State private var saveOverlayIsError = false
+    @State private var saveOverlayMessage = ""
+
+    // Home page search & filter (same pattern as DiscoveryView)
+    @State private var homeSearchText      = ""
+    @State private var homeFilterFormation: String? = nil
+    @State private var showHomeFiltersSheet = false
 
     private let accent     = BrandColors.darkTeal
     private let pitchGreen = Color(hex: "#2D7A3A")
@@ -416,15 +498,63 @@ struct LineupBuilderView: View {
                     loadingView
                 } else if vm.coachCategories.isEmpty {
                     noCategoryView
+                } else if vm.selectedCategory == nil && !isCreatingNewLineup {
+                    lineupHomeView
                 } else if vm.selectedCategory == nil {
                     categoryPickerView
                 } else {
                     builderContent
                 }
+
+                // Reset players confirmation overlay
+                if showResetConfirmation {
+                    StyledConfirmationOverlay(
+                        isPresented: $showResetConfirmation,
+                        title: "Reset Players",
+                        message: "This will remove all assigned players from the pitch. Are you sure you want to proceed?",
+                        confirmButtonTitle: "Reset",
+                        onConfirm: {
+                            if let formation = selectedFormation {
+                                withAnimation { resetSlots(for: formation) }
+                            }
+                        }
+                    )
+                }
+
+                // Delete lineup confirmation overlay (full-screen, above everything)
+                if let lineup = lineupPendingDelete {
+                    StyledConfirmationOverlay(
+                        isPresented: Binding(
+                            get: { lineupPendingDelete != nil },
+                            set: { if !$0 { lineupPendingDelete = nil } }
+                        ),
+                        title: "Delete Lineup",
+                        message: "This lineup will be permanently deleted and cannot be recovered. Are you sure?",
+                        confirmButtonTitle: "Delete",
+                        onConfirm: { Task { await vm.deleteLineup(lineup) } }
+                    )
+                }
+
+                // Save lineup success / error overlay (InfoOverlay — same as EditProfileView)
+                if showSaveOverlay {
+                    InfoOverlay(
+                        primary: accent,
+                        title: saveOverlayMessage,
+                        isError: saveOverlayIsError,
+                        onOk: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                showSaveOverlay = false
+                            }
+                        }
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(3)
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showSaveOverlay)
             .toolbar {
-                // Back to category picker
+                // Back from builder → category picker
                 if vm.selectedCategory != nil {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button {
@@ -446,13 +576,30 @@ struct LineupBuilderView: View {
                         }
                     }
                 }
-
-
+                // Back from category picker → home
+                if vm.selectedCategory == nil && isCreatingNewLineup {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                isCreatingNewLineup = false
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(accent)
+                        }
+                    }
+                }
             }
         }
         .onAppear {
             guard let uid = session.user?.uid else { return }
-            Task { await vm.loadCoachCategories(coachUID: uid, sessionAcademyId: session.academyId) }
+            Task {
+                await vm.loadCoachCategories(coachUID: uid, sessionAcademyId: session.academyId)
+                await vm.loadAllSavedLineups()
+            }
         }
         // Player picker sheet
         .sheet(isPresented: $showPlayerPanel) {
@@ -526,6 +673,193 @@ struct LineupBuilderView: View {
                 .padding(.horizontal, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Home page search & filter helpers
+    private var isHomeFiltering: Bool {
+        !homeSearchText.isEmpty || homeFilterFormation != nil
+    }
+
+    private var filteredHomeLineups: [SavedLineup] {
+        vm.allSavedLineups.filter { lineup in
+            let nameMatch = homeSearchText.isEmpty ||
+                lineup.title.localizedCaseInsensitiveContains(homeSearchText)
+            let formationMatch = homeFilterFormation == nil ||
+                lineup.formationLabel == homeFilterFormation
+            return nameMatch && formationMatch
+        }
+    }
+
+    // MARK: - Lineup Home View (new main entry page)
+    private var lineupHomeView: some View {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                // ── Page header ──
+                VStack(spacing: 6) {
+                    Text("Lineup Board")
+                        .font(.system(size: 34, weight: .semibold, design: .rounded))
+                        .foregroundColor(accent)
+                        .padding(.top, 10)
+                    Text("All your saved formations in one place.")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .padding(.bottom, 16)
+
+                // ── Search bar + filter button (DiscoveryView style) ──
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(accent)
+                        TextField("Search lineups by name…", text: $homeSearchText)
+                            .font(.system(size: 16, design: .rounded))
+                            .tint(accent)
+                        if !homeSearchText.isEmpty {
+                            Button {
+                                homeSearchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 14)
+                    .background(BrandColors.background)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
+
+                    // Filter button — filled icon when a filter is active
+                    Button { showHomeFiltersSheet = true } label: {
+                        Image(systemName: isHomeFiltering
+                              ? "line.3.horizontal.decrease.circle.fill"
+                              : "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(accent)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .animation(.easeInOut(duration: 0.2), value: homeSearchText.isEmpty)
+
+                // ── Content ──
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        if vm.isLoadingAllLineups {
+                            VStack(spacing: 14) {
+                                ProgressView().tint(accent)
+                                Text("Loading lineups…")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 60)
+                        } else if vm.allSavedLineups.isEmpty {
+                            // Truly empty — no lineups saved yet
+                            VStack(spacing: 16) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 52))
+                                    .foregroundColor(accent.opacity(0.25))
+                                Text("No saved lineups yet")
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                Text("Tap \"Create New Lineup\" below to build and save your first formation.")
+                                    .font(.system(size: 14, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 60)
+                        } else if filteredHomeLineups.isEmpty {
+                            // Lineups exist but search/filter returned nothing
+                            VStack(spacing: 16) {
+                                Image(systemName: "sportscourt")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(accent.opacity(0.25))
+                                Text("No Lineups Found")
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                if let formation = homeFilterFormation, homeSearchText.isEmpty {
+                                    Text("You haven't saved any lineups using the \(formation) formation yet.")
+                                        .font(.system(size: 14, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
+                                } else {
+                                    Text("Try adjusting your search or filter settings.")
+                                        .font(.system(size: 14, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 60)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Saved Lineups")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .textCase(.uppercase)
+                                    .tracking(0.8)
+                                    .padding(.horizontal, 20)
+                                    .padding(.bottom, 4)
+
+                                VStack(spacing: 10) {
+                                    ForEach(filteredHomeLineups) { lineup in
+                                        SavedLineupCard(lineup: lineup, accent: accent) {
+                                            lineupPendingDelete = lineup
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+
+                        // Space so last card clears the pinned button + tab bar
+                        Spacer().frame(height: 180)
+                    }
+                }
+            }
+
+            // ── Create New Lineup button pinned above the tab bar ──
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [BrandColors.backgroundGradientEnd.opacity(0), BrandColors.backgroundGradientEnd],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 28)
+                .allowsHitTesting(false)
+
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        isCreatingNewLineup = true
+                    }
+                } label: {
+                    Text("Create New Lineup")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: accent.opacity(0.3), radius: 8, y: 3)
+                }
+                .padding(.horizontal, 20)
+                // 120 = custom tab bar frame height (see PlayerProfileView CustomTabBar)
+                .padding(.bottom, 120)
+                .background(BrandColors.backgroundGradientEnd)
+            }
+        }
+        .sheet(isPresented: $showHomeFiltersSheet) {
+            LineupFilterSheet(
+                selectedFormation: $homeFilterFormation,
+                accent: accent
+            )
+        }
     }
 
     // MARK: - Category Picker (with description)
@@ -621,10 +955,6 @@ struct LineupBuilderView: View {
 
                     // ── Save button ──
                     saveLineupButton
-                        .padding(.horizontal, 20)
-
-                    // ── Past lineups ──
-                    pastLineupsSection
                         .padding(.horizontal, 20)
                         .padding(.bottom, 120)
 
@@ -739,7 +1069,7 @@ struct LineupBuilderView: View {
                         .foregroundColor(accent.opacity(0.7))
                 }
                 Button {
-                    withAnimation { resetSlots(for: selectedFormation!) }
+                    showResetConfirmation = true
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 14, weight: .semibold))
@@ -849,14 +1179,17 @@ struct LineupBuilderView: View {
                 )
                 lineupTitle = ""
                 lineupNote  = ""
+                // Show save confirmation overlay (InfoOverlay pattern from EditProfileView)
+                saveOverlayMessage = "Lineup saved successfully!"
+                saveOverlayIsError = false
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    showSaveOverlay = true
+                }
             }
         } label: {
             HStack(spacing: 8) {
                 if vm.isSavingLineup {
                     ProgressView().tint(.white)
-                } else {
-                    Image(systemName: "square.and.arrow.down.fill")
-                        .font(.system(size: 14, weight: .semibold))
                 }
                 Text(vm.isSavingLineup ? "Saving…" : "Save Lineup")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -992,7 +1325,9 @@ struct LineupBuilderView: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach(vm.savedLineups) { lineup in
-                            SavedLineupCard(lineup: lineup, accent: accent)
+                            SavedLineupCard(lineup: lineup, accent: accent) {
+                                lineupPendingDelete = lineup
+                            }
                         }
                     }
                 }
@@ -1346,11 +1681,63 @@ struct AssignedPlayerRow: View {
     }
 }
 
+// MARK: - LineupFilterSheet
+// A filter sheet for the Lineup home page — styled consistently with FiltersSheetView in DiscoveryView
+
+struct LineupFilterSheet: View {
+    @Binding var selectedFormation: String?
+    let accent: Color
+    @Environment(\.dismiss) private var dismiss
+
+    // Always show all 5 formations regardless of what's saved
+    private let allFormations = ["4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "5-3-2"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                // MARK: Formation filter
+                Section("Formation") {
+                    Picker(selection: $selectedFormation, label: EmptyView()) {
+                        Text("All").tag(String?.none)
+                        ForEach(allFormations, id: \.self) { f in
+                            Text(f).tag(String?.some(f))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                // MARK: Clear all
+                if selectedFormation != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            selectedFormation = nil
+                        } label: {
+                            Label("Clear Filters", systemImage: "xmark.circle")
+                                .foregroundColor(.red)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filter Lineups")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(accent)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - SavedLineupCard
 
 struct SavedLineupCard: View {
     let lineup: SavedLineup
     let accent: Color
+    var onDelete: (() -> Void)? = nil
 
     @State private var isExpanded = false
 
@@ -1389,6 +1776,21 @@ struct SavedLineupCard: View {
                     }
 
                     Spacer()
+
+                    // Delete button (only shown when onDelete is provided)
+                    if onDelete != nil {
+                        Button {
+                            onDelete?()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.red.opacity(0.7))
+                                .padding(6)
+                                .background(Color.red.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
