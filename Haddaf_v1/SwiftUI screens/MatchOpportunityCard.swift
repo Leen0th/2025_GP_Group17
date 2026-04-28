@@ -16,6 +16,7 @@ struct MatchOpportunityCard: View {
     @State private var isProcessing = false
     @State private var showRequestsSheet = false
     @State private var showLeaveConfirm = false
+    @State private var showCancelMatchConfirm = false
     @State private var creatorProfilePicURL: String? = nil
     @State private var navigateToProfile: String? = nil
 
@@ -101,7 +102,7 @@ struct MatchOpportunityCard: View {
                 }
 
                 // Player status strip
-                if !isOrganizer {
+                if !isOrganizer && !session.isVerifiedCoach {
                     statusIndicator
                 }
 
@@ -117,7 +118,7 @@ struct MatchOpportunityCard: View {
 
                         if isOrganizer {
                             organizerActions
-                        } else {
+                        } else if !session.isVerifiedCoach {
                             playerActionArea
                         }
                     }
@@ -178,6 +179,22 @@ struct MatchOpportunityCard: View {
             }
             .hidden()
         )
+        .alert("Are you sure?", isPresented: $showCancelMatchConfirm) {
+            Button("Yes", role: .destructive) {
+                Task {
+                    isProcessing = true
+                    try? await MatchService.shared.cancelMatch(match)
+                    await MainActor.run {
+                        isProcessing = false
+                        isExpanded = false
+                    }
+                    onRefresh()
+                }
+            }
+            Button("No", role: .cancel) {}
+        } message: {
+            Text("This will cancel the match and notify all players.")
+        }
         .confirmationDialog(
             "Leave Match?",
             isPresented: $showLeaveConfirm,
@@ -251,57 +268,21 @@ struct MatchOpportunityCard: View {
     }
 
     // MARK: - Positions Grid
-    // ✅ Format: open/total — e.g. 2/2 أو 0/3
     private var positionsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
             ForEach(MatchPosition.allCases) { position in
-                let open  = match.availableCount(for: position)
-                let total = match.totalCount(for: position)
-
-                return AnyView(
-                    Button {
-                        guard !isOrganizer, open > 0 else { return }
-                        selectedPosition = position
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                // ✅ X/Y format
-                                Text("\(open)/\(total) \(position.pluralTitle)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(open > 0 ? accent : .secondary)
-
-                                Text(open > 0 ? "Available" : "Unavailable")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(open > 0 ? accent : .secondary)
-                            }
-
-                            Spacer()
-
-                            if selectedPosition == position {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(accent)
-                                    .font(.system(size: 13))
-                            }
-                        }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(selectedPosition == position
-                                      ? accent.opacity(0.07)
-                                      : Color.gray.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(selectedPosition == position ? accent.opacity(0.3) : Color.clear, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(
-                        open <= 0 || isOrganizer
-                        || myRequest?.status == .pending
-                        || myRequest?.status == .approved
-                    )
-                )
+                PositionCell(
+                    position: position,
+                    open: match.availableCount(for: position),
+                    total: match.totalCount(for: position),
+                    isSelected: selectedPosition == position,
+                    isOrganizer: isOrganizer,
+                    isPendingOrApproved: myRequest?.status == .pending || myRequest?.status == .approved,
+                    accent: accent
+                ) {
+                    guard !isOrganizer, match.availableCount(for: position) > 0 else { return }
+                    selectedPosition = position
+                }
             }
         }
     }
@@ -309,29 +290,48 @@ struct MatchOpportunityCard: View {
     // MARK: - Organizer Actions
     @ViewBuilder
     private var organizerActions: some View {
-        Button {
-            showRequestsSheet = true
-        } label: {
-            HStack {
-                Text("Manage Requests")
-                Spacer()
+        VStack(spacing: 8) {
+            Button {
+                showRequestsSheet = true
+            } label: {
+                HStack {
+                    Text("Manage Requests")
+                    Spacer()
 
-                if pendingCount > 0 {
-                    Text("\(pendingCount)")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(accent))
+                    if pendingCount > 0 {
+                        Text("\(pendingCount)")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(accent))
+                    }
                 }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(accent)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .background(accent.opacity(0.08))
+                .clipShape(Capsule())
             }
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundColor(accent)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .background(accent.opacity(0.08))
-            .clipShape(Capsule())
+            .buttonStyle(.plain)
+
+            if match.status != .cancelled {
+                Button {
+                    showCancelMatchConfirm = true
+                } label: {
+                    Label("Cancel Match", systemImage: "trash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                        .background(Color.red.opacity(0.08))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
+            }
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Player Actions
@@ -467,6 +467,59 @@ struct MatchOpportunityCard: View {
         await MainActor.run {
             creatorProfilePicURL = doc?.data()?["profilePic"] as? String
         }
+    }
+}
+
+// MARK: - Position Cell
+private struct PositionCell: View {
+    let position: MatchPosition
+    let open: Int
+    let total: Int
+    let isSelected: Bool
+    let isOrganizer: Bool
+    let isPendingOrApproved: Bool
+    let accent: Color
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(position.pluralTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(open > 0 ? accent : .secondary)
+
+                    if open > 0 {
+                        Text("Available: \(open)")
+                            .font(.system(size: 10))
+                            .foregroundColor(accent.opacity(0.8))
+                    } else {
+                        Text("Unavailable")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(accent)
+                        .font(.system(size: 13))
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? accent.opacity(0.07) : Color.gray.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isSelected ? accent.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(open <= 0 || isOrganizer || isPendingOrApproved)
     }
 }
 

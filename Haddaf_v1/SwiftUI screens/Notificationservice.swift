@@ -241,6 +241,25 @@ class NotificationService: ObservableObject {
             }
         } catch { print("Error: \(error)") }
     }
+    static func sendMatchCancelledNotification(
+        userId: String,
+        organizerName: String,
+        matchId: String,
+        locationName: String,
+        dateTime: Date
+    ) async {
+        let dateStr = dateTime.formatted(date: .abbreviated, time: .shortened)
+        let notif = HaddafNotification(
+            userId: userId,
+            type: .matchCancelled,
+            title: "❌ Match Cancelled",
+            message: "\(organizerName) cancelled the match at \(locationName) on \(dateStr).",
+            matchId: matchId,
+            senderName: organizerName
+        )
+        try? await Firestore.firestore().collection("notifications").document(notif.id).setData(notif.asDictionary)
+    }
+
     static func sendMatchJoinRequestedNotification(
         organizerId: String,
         senderId: String,
