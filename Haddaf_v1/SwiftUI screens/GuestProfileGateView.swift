@@ -3,10 +3,12 @@ import SwiftUI
 struct GuestProfileGateView: View {
     @EnvironmentObject var session: AppSession
     private let primary = BrandColors.darkTeal
-    
-    // ⬅️ State variables لإظهار الـ views في fullScreenCover
-    @State private var showSignIn = false
-    @State private var showSignUp = false
+
+    // ⬅️ Bindings owned by PlayerProfileView so the fullScreenCover
+    // stays alive even when this view leaves the hierarchy (e.g. when
+    // createUser() fires and session.isGuest flips to false mid-signup).
+    @Binding var showSignIn: Bool
+    @Binding var showSignUp: Bool
 
     var body: some View {
         VStack(spacing: 20) {
@@ -55,16 +57,6 @@ struct GuestProfileGateView: View {
             }
 
             Spacer()
-        }
-        .fullScreenCover(isPresented: $showSignIn) {
-            NavigationStack {
-                SignInView()
-            }
-        }
-        .fullScreenCover(isPresented: $showSignUp) {
-            NavigationStack {
-                SignUpView()
-            }
         }
     }
 }

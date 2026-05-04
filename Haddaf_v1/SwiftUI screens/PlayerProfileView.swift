@@ -17,6 +17,11 @@ struct PlayerProfileView: View {
     
     // Track if the view has already appeared
     @State private var hasAppeared = false
+
+    // ⬅️ Owned here (not in GuestProfileGateView) so the fullScreenCover
+    // survives when session.isGuest flips to false during the signup flow.
+    @State private var showGuestSignIn = false
+    @State private var showGuestSignUp = false
     
     var body: some View {
         // ⬇️ تحقق إذا المستخدم logged out
@@ -47,7 +52,10 @@ struct PlayerProfileView: View {
                 case .profile:
                     if session.isGuest {
                         NavigationStack {
-                            GuestProfileGateView()
+                            GuestProfileGateView(
+                                showSignIn: $showGuestSignIn,
+                                showSignUp: $showGuestSignUp
+                            )
                         }
                     } else if session.role == "coach" {
                         // If user is a coach, show the Coach Profile
@@ -77,6 +85,14 @@ struct PlayerProfileView: View {
         .ignoresSafeArea(.all, edges: .bottom)
         .fullScreenCover(isPresented: $showVideoUpload) {
             VideoUploadView()
+        }
+        // ⬅️ Anchored here so SignIn/SignUp survive when GuestProfileGateView
+        // leaves the hierarchy mid-signup (when session.isGuest becomes false).
+        .fullScreenCover(isPresented: $showGuestSignIn) {
+            NavigationStack { SignInView() }
+        }
+        .fullScreenCover(isPresented: $showGuestSignUp) {
+            NavigationStack { SignUpView() }
         }
         .navigationBarBackButtonHidden(true)
         .navigationBarHidden(true)
