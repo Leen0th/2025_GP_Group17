@@ -203,7 +203,7 @@ enum Tab {
     var title: String {
         switch self {
         case .discovery: return "Discovery"
-        case .teams: return "Academies"
+        case .teams: return "Opportunities"
         case .action: return ""
         case .challenge: return "Challenge"
         case .profile: return "Profile"
@@ -553,3 +553,4 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
     }
 }
+

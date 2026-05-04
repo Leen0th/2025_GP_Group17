@@ -259,6 +259,8 @@ fileprivate struct TabButton: View {
               
                 Text(tab.title)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .foregroundColor(selectedTab == tab ? accentColor : BrandColors.darkGray.opacity(0.6))
             .frame(maxWidth: .infinity)
@@ -266,3 +268,4 @@ fileprivate struct TabButton: View {
         }
     }
 }
+

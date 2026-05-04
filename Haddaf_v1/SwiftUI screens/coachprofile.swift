@@ -106,7 +106,6 @@ class CoachProfileViewModel: ObservableObject {
 struct CoachProfileContentView: View {
     @EnvironmentObject var session: AppSession
     @StateObject private var viewModel: CoachProfileViewModel
-    @State private var selectedContent: ContentType = .currentAcademy
     @State private var goToSettings = false
     @State private var showNotificationsList = false
     @State private var showLeaveAcademyConfirm = false
@@ -124,11 +123,6 @@ struct CoachProfileContentView: View {
     var isAdminViewing: Bool
     var onAdminApprove: (() -> Void)?
     var onAdminReject: (() -> Void)?
-
-    enum ContentType: String, CaseIterable {
-        case currentAcademy = "Current Academy"
-        case matchSchedule = "Match Schedule"
-    }
 
     init() {
         _viewModel = StateObject(wrappedValue: CoachProfileViewModel(userID: nil))
@@ -173,10 +167,18 @@ struct CoachProfileContentView: View {
                             )
                             ProfileHeaderViewCoach(coachProfile: viewModel.coachProfile)
                             InfoGridViewCoach(coachProfile: viewModel.coachProfile)
-                            ContentTabViewCoach(selectedContent: $selectedContent)
-                            switch selectedContent {
-                            case .currentAcademy:
-                                CurrentAcademyView(
+
+                            // ── Current Academy title ──
+                            HStack {
+                                Text("Current Academy")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundColor(BrandColors.darkTeal)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+
+                            CurrentAcademyView(
                                     coachProfile: viewModel.coachProfile,
                                     isCurrentUser: isCurrentUser,
                                     showLeaveConfirm: $showLeaveAcademyConfirm,
@@ -186,13 +188,6 @@ struct CoachProfileContentView: View {
                                 )
                                 .padding(.horizontal, 20)
                                 .padding(.top, 10)
-                            case .matchSchedule:
-                                EmptyStateView(
-                                    imageName: "calendar",
-                                    message: "To be developed in the next sprint"
-                                )
-                                .padding(.top, 40)
-                            }
                         }
                         .padding(.bottom, 100)
                     }
@@ -510,40 +505,6 @@ struct InfoGridViewCoach: View {
                 .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
         )
         .padding(.horizontal)
-    }
-}
-
-// Content Tab for Coach
-struct ContentTabViewCoach: View {
-    @Binding var selectedContent: CoachProfileContentView.ContentType
-    @Namespace private var animation
-    let accentColor = BrandColors.darkTeal
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ContentTabButton(title: "Current Academy", type: .currentAcademy, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-            ContentTabButton(title: "Match Schedule", type: .matchSchedule, selectedContent: $selectedContent, accentColor: accentColor, animation: animation)
-        }
-        .font(.system(size: 16, weight: .medium, design: .rounded))
-    }
-}
-
-fileprivate struct ContentTabButton: View {
-    let title: String, type: CoachProfileContentView.ContentType
-    @Binding var selectedContent: CoachProfileContentView.ContentType
-    let accentColor: Color, animation: Namespace.ID
-
-    var body: some View {
-        Button(action: { withAnimation(.easeInOut) { selectedContent = type } }) {
-            VStack(spacing: 8) {
-                Text(title)
-                    .foregroundColor(selectedContent == type ? accentColor : .secondary)
-                if selectedContent == type {
-                    Rectangle().frame(height: 2).foregroundColor(accentColor)
-                        .matchedGeometryEffect(id: "underline", in: animation)
-                } else { Color.clear.frame(height: 2) }
-            }
-        }.frame(maxWidth: .infinity)
     }
 }
 

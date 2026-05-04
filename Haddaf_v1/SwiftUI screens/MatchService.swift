@@ -212,4 +212,46 @@ final class MatchService {
             position: request.requestedPosition
         )
     }
+
+    func cancelMatch(_ match: MatchOpportunity) async throws {
+        let matchRef = db.collection("matches").document(match.id)
+
+        // 1. Mark match as cancelled
+        try await matchRef.updateData([
+            "status":    MatchStatus.cancelled.rawValue,
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+
+        // 2. Get all accepted/pending requests for this match
+        let requestsSnap = try await db.collection("match_requests")
+            .whereField("matchId", isEqualTo: match.id)
+            .whereField("status", in: [
+                MatchRequestStatus.approved.rawValue,
+                MatchRequestStatus.pending.rawValue
+            ])
+            .getDocuments()
+
+        // 3. Cancel all requests in a batch
+        let batch = db.batch()
+        for doc in requestsSnap.documents {
+            batch.updateData([
+                "status":    MatchRequestStatus.cancelled.rawValue,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], forDocument: doc.reference)
+        }
+        try await batch.commit()
+
+        // 4. Send cancellation notification to each affected player
+        for doc in requestsSnap.documents {
+            if let playerId = doc.data()["playerId"] as? String {
+                await NotificationService.sendMatchCancelledNotification(
+                    userId:        playerId,
+                    organizerName: match.createdByName,
+                    matchId:       match.id,
+                    locationName:  match.locationName,
+                    dateTime:      match.dateTime
+                )
+            }
+        }
+    }
 }
