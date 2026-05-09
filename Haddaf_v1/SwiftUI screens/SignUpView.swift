@@ -30,16 +30,22 @@ struct SignUpView: View {
     @State private var coachLocationSearch = ""
     @State private var coachPhoneLocal = ""
     @State private var coachPhoneNonDigitError = false
-    
+
     // Academy Fields
     @State private var isInAcademy: Bool? = nil // nil = not answered, true/false
     @State private var selectedAcademy = ""
     @State private var showAcademyPicker = false
     @State private var academySearch = ""
-    
+
     // Coach Document
     @State private var fileSizeError: String? = nil
     private let maxFileSizeBytes: Int64 = 10 * 1024 * 1024 // File size limit: 10MB
+
+    // Coach CV (optional)
+    @State private var coachCVFile: URL? = nil
+    @State private var coachCVFileName: String = ""
+    @State private var showCVFileImporter = false
+    @State private var cvFileSizeError: String? = nil
     
     // Coach Profile Picture
     @State private var coachProfileItem: PhotosPickerItem? = nil
@@ -712,6 +718,8 @@ struct SignUpView: View {
             }
             
             var finalVerificationURL = ""
+            var finalCVURL = ""
+            var finalCVFileName = ""
             var profilePicURL: String? = nil
             
             if role == .coach {
@@ -723,10 +731,22 @@ struct SignUpView: View {
                 }
             }
 
-            // If it is a coach, upload the file now
+            // If it is a coach, upload the verification file now
             if role == .coach, let localFileURL = verificationFile {
-                // Call the helper we added above
                 finalVerificationURL = try await uploadVerificationToStorage(userId: uid, fileURL: localFileURL)
+            }
+
+            // Upload optional CV if provided
+            if role == .coach, let cvFileURL = coachCVFile {
+                let accessing = cvFileURL.startAccessingSecurityScopedResource()
+                defer { if accessing { cvFileURL.stopAccessingSecurityScopedResource() } }
+                let cvData = try Data(contentsOf: cvFileURL)
+                let ext = cvFileURL.pathExtension.isEmpty ? "pdf" : cvFileURL.pathExtension
+                let cvRef = Storage.storage().reference().child("coach_cvs/\(uid)/cv_\(UUID().uuidString).\(ext)")
+                _ = try await cvRef.putDataAsync(cvData)
+                let cvDownloadURL = try await cvRef.downloadURL()
+                finalCVURL = cvDownloadURL.absoluteString
+                finalCVFileName = cvFileURL.lastPathComponent
             }
             
             // 3) Store draft
@@ -753,6 +773,8 @@ struct SignUpView: View {
                 draftData["location"] = coachLocation
                 draftData["verificationFile"] = finalVerificationURL
                 draftData["profilePic"] = profilePicURL
+                draftData["cvURL"] = finalCVURL
+                draftData["cvFileName"] = finalCVFileName
                 draftData["isInAcademy"] = isInAcademy ?? false
                 if isInAcademy == true {
                     draftData["academy"] = selectedAcademy
@@ -855,6 +877,9 @@ struct SignUpView: View {
                 data["location"] = draft["location"] as? String ?? ""
                 data["verificationFile"] = draft["verificationFile"] as? String ?? ""
                 data["profilePic"] = draft["profilePic"] as? String ?? ""
+                data["cvURL"] = draft["cvURL"] as? String ?? ""
+                data["cvFileName"] = draft["cvFileName"] as? String ?? ""
+                data["isCVVisible"] = false  // default hidden until coach chooses to show it
                 data["isInAcademy"] = draft["isInAcademy"] as? Bool ?? false
                 if let academy = draft["academy"] as? String {
                     data["pendingAcademy"] = academy
@@ -1515,6 +1540,84 @@ struct SignUpView: View {
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.red)
                         .padding(.top, 4)
+                }
+            }
+
+            // CV Upload (Optional)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    Text("CV / Resume")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(primary.opacity(0.75))
+                    Text("(Optional)")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.top, -2)
+                }
+
+                buttonLikeField(action: { showCVFileImporter = true }) {
+                    HStack {
+                        Image(systemName: coachCVFile == nil ? "doc.badge.plus" : "doc.fill")
+                            .foregroundColor(primary)
+                        Text(coachCVFileName.isEmpty ? "Upload CV (PDF, Max 10 MB)" : coachCVFileName)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(coachCVFile == nil ? .gray : primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        if coachCVFile != nil {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(BrandColors.actionGreen)
+                        } else {
+                            Image(systemName: "arrow.up.doc")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+                .fileImporter(
+                    isPresented: $showCVFileImporter,
+                    allowedContentTypes: [.pdf],
+                    allowsMultipleSelection: false
+                ) { result in
+                    switch result {
+                    case .success(let urls):
+                        guard let url = urls.first else { return }
+                        do {
+                            let accessing = url.startAccessingSecurityScopedResource()
+                            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                            let size = attrs[.size] as? Int64 ?? 0
+                            if size > maxFileSizeBytes {
+                                cvFileSizeError = "File exceeds 10 MB limit."
+                                coachCVFile = nil; coachCVFileName = ""
+                            } else {
+                                coachCVFile = url
+                                coachCVFileName = url.lastPathComponent
+                                cvFileSizeError = nil
+                            }
+                        } catch {
+                            cvFileSizeError = "Unable to read file."
+                        }
+                    case .failure:
+                        cvFileSizeError = "Failed to import file."
+                    }
+                }
+
+                if let cvErr = cvFileSizeError {
+                    Text(cvErr)
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.red)
+                        .padding(.top, 4)
+                }
+
+                if coachCVFile != nil {
+                    Button(role: .destructive) {
+                        coachCVFile = nil; coachCVFileName = ""; cvFileSizeError = nil
+                    } label: {
+                        Label("Remove CV", systemImage: "trash")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.red)
+                    }
                 }
             }
             

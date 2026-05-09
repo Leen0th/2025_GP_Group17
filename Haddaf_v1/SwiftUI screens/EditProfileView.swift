@@ -251,6 +251,10 @@ struct EditProfileView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showPositionPicker) {
+            PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
+                .presentationDetents([.height(300)]).presentationBackground(BrandColors.background).presentationCornerRadius(28)
+        }
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
                 if let data = try? await newItem?.loadTransferable(type: Data.self),
@@ -357,10 +361,6 @@ struct EditProfileView: View {
                     Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
                 }
             } onTap: { showPositionPicker = true }
-            .sheet(isPresented: $showPositionPicker) {
-                PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
-                    .presentationDetents([.height(300)]).presentationBackground(BrandColors.background).presentationCornerRadius(28)
-            }
             
             // MARK: - Height Field
             fieldLabel("Height (cm)")

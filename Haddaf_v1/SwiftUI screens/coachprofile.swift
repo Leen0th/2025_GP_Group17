@@ -22,6 +22,10 @@ class CoachProfile: ObservableObject {
     @Published var pendingAcademy: String = ""
     // DOB / Age
     @Published var dob: Date? = nil
+    // CV
+    @Published var cvURL: String = ""
+    @Published var cvFileName: String = ""
+    @Published var isCVVisible: Bool = false
 
     init() {}
 
@@ -72,6 +76,9 @@ class CoachProfileViewModel: ObservableObject {
                 if let dobTS = data["dob"] as? Timestamp {
                     self.coachProfile.dob = dobTS.dateValue()
                 }
+                self.coachProfile.cvURL = data["cvURL"] as? String ?? ""
+                self.coachProfile.cvFileName = data["cvFileName"] as? String ?? ""
+                self.coachProfile.isCVVisible = data["isCVVisible"] as? Bool ?? false
 
                 // 2. Handle Profile Picture asynchronously
                 if let urlString = data["profilePic"] as? String,
@@ -167,6 +174,13 @@ struct CoachProfileContentView: View {
                             )
                             ProfileHeaderViewCoach(coachProfile: viewModel.coachProfile)
                             InfoGridViewCoach(coachProfile: viewModel.coachProfile)
+
+                            // ── Coach CV ──
+                            if viewModel.coachProfile.isCVVisible && !viewModel.coachProfile.cvURL.isEmpty {
+                                CoachCVSectionView(coachProfile: viewModel.coachProfile)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 4)
+                            }
 
                             // ── Current Academy title ──
                             HStack {
@@ -508,6 +522,59 @@ struct InfoGridViewCoach: View {
     }
 }
 
+// MARK: - Coach CV Section View
+struct CoachCVSectionView: View {
+    @ObservedObject var coachProfile: CoachProfile
+    private let accent = BrandColors.darkTeal
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("CV / Resume")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(accent)
+                Spacer()
+            }
+
+            if let url = URL(string: coachProfile.cvURL), !coachProfile.cvURL.isEmpty {
+                Link(destination: url) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(accent.opacity(0.1))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "doc.text.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(accent)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(coachProfile.cvFileName.isEmpty ? "View CV" : coachProfile.cvFileName)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text("Tap to open")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(accent.opacity(0.6))
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(BrandColors.background)
+                            .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
 // MARK: - Edit Coach Profile View
 struct EditCoachProfileView: View {
     @Environment(\.dismiss) private var dismiss
@@ -557,6 +624,16 @@ struct EditCoachProfileView: View {
     @State private var overlayMessage = ""
     @State private var overlayIsError = false
 
+    // CV State
+    @State private var cvURL: String
+    @State private var cvFileName: String
+    @State private var isCVVisible: Bool
+    @State private var newCVFile: URL? = nil
+    @State private var newCVFileName: String = ""
+    @State private var showCVFileImporter = false
+    @State private var cvFileSizeError: String? = nil
+    private let maxCVFileSizeBytes: Int64 = 10 * 1024 * 1024
+
     private let primary = BrandColors.darkTeal
     private let db = Firestore.firestore()
 
@@ -596,6 +673,11 @@ struct EditCoachProfileView: View {
         let localPart = storedPhone.hasPrefix("+966") ? String(storedPhone.dropFirst(4)) : storedPhone
         _phone = State(initialValue: localPart)
         _isPhoneNumberVisible = State(initialValue: coachProfile.isPhoneNumberVisible)
+
+        // Initialize CV fields
+        _cvURL = State(initialValue: coachProfile.cvURL)
+        _cvFileName = State(initialValue: coachProfile.cvFileName)
+        _isCVVisible = State(initialValue: coachProfile.isCVVisible)
     }
 
     private func confirmEmailUpdateWithPassword() {
@@ -636,6 +718,7 @@ struct EditCoachProfileView: View {
                     profilePictureSection
                     Divider()
                     formFields
+                    cvSection
                     togglesSection
                     updateButton
                         .padding(.top, 20)
@@ -703,6 +786,30 @@ struct EditCoachProfileView: View {
                 self.profileImage = image
             }
             .ignoresSafeArea()
+        }
+        .fileImporter(isPresented: $showCVFileImporter, allowedContentTypes: [.pdf], allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                do {
+                    let accessing = url.startAccessingSecurityScopedResource()
+                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                    let size = attrs[.size] as? Int64 ?? 0
+                    if size > maxCVFileSizeBytes {
+                        cvFileSizeError = "File exceeds 10 MB limit."
+                        newCVFile = nil; newCVFileName = ""
+                    } else {
+                        newCVFile = url
+                        newCVFileName = url.lastPathComponent
+                        cvFileSizeError = nil
+                    }
+                } catch {
+                    cvFileSizeError = "Unable to read file."
+                }
+            case .failure:
+                cvFileSizeError = "Failed to import file."
+            }
         }
         .onDisappear {
             verifyTask?.cancel()
@@ -898,6 +1005,87 @@ struct EditCoachProfileView: View {
     private var isPhoneValid: Bool {
         isValidPhone(code: selectedDialCode, local: phone)
     }
+    
+    // CV Section
+    private var cvSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CV / Resume")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(primary)
+                .padding(.top, 6)
+
+            // Current CV or new file picker
+            Button { showCVFileImporter = true } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(primary.opacity(0.1))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: (newCVFile != nil || !cvURL.isEmpty) ? "doc.fill" : "doc.badge.plus")
+                            .font(.system(size: 18))
+                            .foregroundColor(primary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        let displayName: String = {
+                            if !newCVFileName.isEmpty { return newCVFileName }
+                            if !cvFileName.isEmpty { return cvFileName }
+                            if !cvURL.isEmpty { return "CV uploaded" }
+                            return "Upload CV (PDF, Max 10 MB)"
+                        }()
+                        Text(displayName)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor((newCVFile != nil || !cvURL.isEmpty) ? primary : .gray)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(newCVFile != nil ? "New file selected – will upload on save" : (cvURL.isEmpty ? "Optional" : "Tap to replace"))
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    if newCVFile != nil || !cvURL.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(BrandColors.actionGreen)
+                    } else {
+                        Image(systemName: "arrow.up.doc")
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(BrandColors.background)
+                        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1))
+                )
+            }
+            .buttonStyle(.plain)
+
+            if let err = cvFileSizeError {
+                Text(err)
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.red)
+            }
+
+            // Remove CV button if one exists
+            if newCVFile != nil || !cvURL.isEmpty {
+                Button(role: .destructive) {
+                    withAnimation {
+                        newCVFile = nil
+                        newCVFileName = ""
+                        cvURL = ""
+                        cvFileName = ""
+                        cvFileSizeError = nil
+                    }
+                } label: {
+                    Label("Remove CV", systemImage: "trash")
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .padding(.top, 10)
+    }
 
     // Toggles Section
     private var togglesSection: some View {
@@ -921,9 +1109,21 @@ struct EditCoachProfileView: View {
                     .labelsHidden()
                     .tint(primary)
             }
+            
+            HStack {
+                Text("Make my CV visible publicly")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundColor(BrandColors.darkGray)
+                Spacer()
+                Toggle("", isOn: $isCVVisible)
+                    .labelsHidden()
+                    .tint(primary)
+            }
         }
         .padding(.top, 10)
     }
+
+    
 
     // Update Button
     private var updateButton: some View {
@@ -1015,6 +1215,7 @@ struct EditCoachProfileView: View {
                 "phone": fullPhone,
                 "isEmailVisible": isEmailVisible,
                 "isPhoneNumberVisible": isPhoneNumberVisible,
+                "isCVVisible": isCVVisible,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
 
@@ -1036,6 +1237,23 @@ struct EditCoachProfileView: View {
                 userUpdates["profilePic"] = ""
             }
 
+            // Upload CV if a new file was selected
+            if let cvFile = newCVFile {
+                let accessing = cvFile.startAccessingSecurityScopedResource()
+                defer { if accessing { cvFile.stopAccessingSecurityScopedResource() } }
+                let cvData = try Data(contentsOf: cvFile)
+                let ext = cvFile.pathExtension.isEmpty ? "pdf" : cvFile.pathExtension
+                let cvRef = Storage.storage().reference().child("coach_cvs/\(uid)/cv_\(UUID().uuidString).\(ext)")
+                _ = try await cvRef.putDataAsync(cvData)
+                let cvDownloadURL = try await cvRef.downloadURL()
+                userUpdates["cvURL"] = cvDownloadURL.absoluteString
+                userUpdates["cvFileName"] = cvFile.lastPathComponent
+            } else if cvURL.isEmpty {
+                // CV was removed
+                userUpdates["cvURL"] = ""
+                userUpdates["cvFileName"] = ""
+            }
+
             try await db.collection("users").document(uid).setData(userUpdates, merge: true)
 
             // Update local model
@@ -1044,6 +1262,13 @@ struct EditCoachProfileView: View {
                 coachProfile.location = location
                 if updateEmailInDB { coachProfile.email = email }
                 coachProfile.isEmailVisible = isEmailVisible
+                coachProfile.isCVVisible = isCVVisible
+                if let resolvedURL = userUpdates["cvURL"] as? String {
+                    coachProfile.cvURL = resolvedURL
+                }
+                if let resolvedName = userUpdates["cvFileName"] as? String {
+                    coachProfile.cvFileName = resolvedName
+                }
                 NotificationCenter.default.post(name: .profileUpdated, object: nil)
             }
 
@@ -1235,7 +1460,6 @@ struct SettingsViewCoach: View {
     @State private var showLogoutPopup = false
     @State private var isSigningOut = false
     @State private var signOutError: String?
-    @State private var showEditProfile = false
 
     var body: some View {
         ZStack {
@@ -1265,8 +1489,8 @@ struct SettingsViewCoach: View {
 
                 // MARK: - Settings List
                 VStack(spacing: 0) {
-                    Button {
-                        showEditProfile = true
+                    NavigationLink {
+                        EditCoachProfileView(coachProfile: coachProfile)
                     } label: {
                         settingsRow(icon: "person", title: "Edit Profile",
                                     iconColor: primary, showChevron: true, showDivider: true)
@@ -1372,9 +1596,6 @@ struct SettingsViewCoach: View {
         }
         .animation(.easeInOut, value: showLogoutPopup)
         .navigationBarBackButtonHidden(true)
-        .navigationDestination(isPresented: $showEditProfile) {
-            EditCoachProfileView(coachProfile: coachProfile)
-        }
     }
 
     // MARK: - Logout Logic

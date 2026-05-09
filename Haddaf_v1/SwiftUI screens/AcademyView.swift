@@ -24,6 +24,7 @@ struct AcademyPlayerItem: Identifiable {
     let position: String?
     let status: String  // "accepted" | "pending"
     let coachUID: String
+    var score: Double? = nil  // player's average performance score
 }
 
 // MARK: - ViewModel
@@ -1139,6 +1140,19 @@ struct CategoryPlayersView: View {
 
             Spacer()
 
+            // Score Badge
+            if let score = p.score, score > 0 {
+                VStack(spacing: 1) {
+                    Text(String(format: "%.0f", score))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.gold)
+                    Text("Score")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 40)
+            }
+
             if isPending {
                 Text("Pending").font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(BrandColors.gold).padding(.horizontal, 8).padding(.vertical, 3)
@@ -1213,10 +1227,26 @@ class CategoryPlayersViewModel: ObservableObject {
                 if !coachUID.isEmpty { activeCoachUIDs.insert(coachUID) }
                 if let ud = try? await db.collection("users").document(uid).getDocument(), let d = ud.data() {
                     let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+                    let position = d["position"] as? String
+
+                    // Fetch player's performance score from positionStats sub-collection
+                    var playerScore: Double? = nil
+                    if let pos = position, !pos.isEmpty,
+                       let statsSnap = try? await db.collection("users").document(uid)
+                            .collection("player").document("profile").getDocument(),
+                       let statsData = statsSnap.data(),
+                       let positionStatsMap = statsData["positionStats"] as? [String: Any],
+                       let statEntry = positionStatsMap[pos] as? [String: Any] {
+                        let total = statEntry["totalScore"] as? Double ?? 0.0
+                        let count = statEntry["postCount"] as? Int ?? 0
+                        if count > 0 { playerScore = total / Double(count) }
+                    }
+
                     list.append(AcademyPlayerItem(id: uid, name: name,
                         profilePicURL: d["profilePic"] as? String,
-                        position: d["position"] as? String,
-                        status: status, coachUID: coachUID))
+                        position: position,
+                        status: status, coachUID: coachUID,
+                        score: playerScore))
                 }
             }
 
