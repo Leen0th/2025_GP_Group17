@@ -255,6 +255,18 @@ struct EditProfileView: View {
             PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
                 .presentationDetents([.height(300)]).presentationBackground(BrandColors.background).presentationCornerRadius(28)
         }
+        .sheet(isPresented: $showDOBPicker) {
+            // Restrict range: 100 years ago ... 7 years ago
+            DateWheelPickerSheet(
+                selection: $dob,
+                tempSelection: $tempDOB,
+                showSheet: $showDOBPicker,
+                in: maxAgeDate...minAgeDate
+            )
+            .presentationDetents([.height(300)])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
+        }
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
                 if let data = try? await newItem?.loadTransferable(type: Data.self),
@@ -425,18 +437,6 @@ struct EditProfileView: View {
                 } onTap: {
                     tempDOB = dob ?? minAgeDate
                     showDOBPicker = true
-                }
-                .sheet(isPresented: $showDOBPicker) {
-                    // Restrict range: 100 years ago ... 7 years ago
-                    DateWheelPickerSheet(
-                        selection: $dob,
-                        tempSelection: $tempDOB,
-                        showSheet: $showDOBPicker,
-                        in: maxAgeDate...minAgeDate
-                    )
-                    .presentationDetents([.height(300)])
-                    .presentationBackground(BrandColors.background)
-                    .presentationCornerRadius(28)
                 }
                 .onChange(of: dob) { _, newDOB in
                     guard let newDOB = newDOB else {
@@ -948,6 +948,7 @@ struct EditProfileView: View {
                 .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 14).fill(BrandColors.background).shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.gray.opacity(0.1), lineWidth: 1)))
         }
+        .buttonStyle(.plain)
     }
     
     private func formatDate(_ date: Date) -> String {

@@ -1140,15 +1140,15 @@ struct CategoryPlayersView: View {
 
             Spacer()
 
-            // Score Badge
-            if let score = p.score, score > 0 {
+            // Score Badge — shown for all players who have a position (even if score is 0)
+            if let score = p.score {
                 VStack(spacing: 1) {
-                    Text(String(format: "%.0f", score))
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(BrandColors.gold)
                     Text("Score")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundColor(.secondary)
+                    Text(String(format: "%.0f", score))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(BrandColors.gold)
                 }
                 .frame(minWidth: 40)
             }
@@ -1227,19 +1227,25 @@ class CategoryPlayersViewModel: ObservableObject {
                 if !coachUID.isEmpty { activeCoachUIDs.insert(coachUID) }
                 if let ud = try? await db.collection("users").document(uid).getDocument(), let d = ud.data() {
                     let name = "\(d["firstName"] as? String ?? "") \(d["lastName"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
-                    let position = d["position"] as? String
 
-                    // Fetch player's performance score from positionStats sub-collection
+                    // Position is stored in users/{uid}/player/profile — not in the root user doc
+                    let playerProfileSnap = try? await db.collection("users").document(uid)
+                        .collection("player").document("profile").getDocument()
+                    let playerProfileData = playerProfileSnap?.data()
+                    let position = playerProfileData?["position"] as? String
+
+                    // Fetch player's current-position score from positionStats in player/profile
                     var playerScore: Double? = nil
                     if let pos = position, !pos.isEmpty,
-                       let statsSnap = try? await db.collection("users").document(uid)
-                            .collection("player").document("profile").getDocument(),
-                       let statsData = statsSnap.data(),
-                       let positionStatsMap = statsData["positionStats"] as? [String: Any],
+                       let positionStatsMap = playerProfileData?["positionStats"] as? [String: Any],
                        let statEntry = positionStatsMap[pos] as? [String: Any] {
                         let total = statEntry["totalScore"] as? Double ?? 0.0
                         let count = statEntry["postCount"] as? Int ?? 0
-                        if count > 0 { playerScore = total / Double(count) }
+                        // Always show score (even 0) once we have valid stats data
+                        playerScore = count > 0 ? (total / Double(count)) : 0.0
+                    } else if position != nil {
+                        // Position exists but no stats yet — show 0
+                        playerScore = 0.0
                     }
 
                     list.append(AcademyPlayerItem(id: uid, name: name,
