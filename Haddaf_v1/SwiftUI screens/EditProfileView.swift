@@ -249,24 +249,88 @@ struct EditProfileView: View {
                 .transition(.scale)
                 .zIndex(3)
             }
+
+            // MARK: - Position Picker Overlay (avoids NavigationStack pop bug caused by .sheet)
+            if showPositionPicker {
+                Color.black.opacity(0.4).ignoresSafeArea()
+                    .onTapGesture { showPositionPicker = false }
+                    .zIndex(10)
+
+                VStack {
+                    Spacer()
+                    VStack(spacing: 0) {
+                        // Drag indicator
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.4))
+                            .frame(width: 40, height: 5)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+
+                        PositionWheelPickerSheet(
+                            positions: positions,
+                            selection: $position,
+                            showSheet: $showPositionPicker
+                        )
+                    }
+                    .background(BrandColors.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 20, y: -5)
+                }
+                .ignoresSafeArea(edges: .bottom)
+                .transition(.move(edge: .bottom))
+                .zIndex(11)
+            }
+
+            // MARK: - DOB Picker Overlay (avoids NavigationStack pop bug caused by .sheet)
+            if showDOBPicker {
+                Color.black.opacity(0.4).ignoresSafeArea()
+                    .onTapGesture { showDOBPicker = false }
+                    .zIndex(10)
+
+                VStack {
+                    Spacer()
+                    VStack(spacing: 0) {
+                        // Drag indicator
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.4))
+                            .frame(width: 40, height: 5)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+
+                        DateWheelPickerSheet(
+                            selection: $dob,
+                            tempSelection: $tempDOB,
+                            showSheet: $showDOBPicker,
+                            in: maxAgeDate...minAgeDate
+                        )
+                    }
+                    .background(BrandColors.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 20, y: -5)
+                }
+                .ignoresSafeArea(edges: .bottom)
+                .transition(.move(edge: .bottom))
+                .zIndex(11)
+            }
+
+            // MARK: - Location Picker Overlay (avoids NavigationStack pop bug caused by .sheet)
+            if showLocationPicker {
+                LocationPickerSheet(
+                    title: "Select your city",
+                    allCities: SAUDI_CITIES,
+                    selection: $location,
+                    searchText: $locationSearch,
+                    showSheet: $showLocationPicker,
+                    accent: primary
+                )
+                .transition(.move(edge: .bottom))
+                .zIndex(12)
+            }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showPositionPicker)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showDOBPicker)
+        .animation(.easeInOut(duration: 0.25), value: showLocationPicker)
         .navigationBarBackButtonHidden(true)
-        .sheet(isPresented: $showPositionPicker) {
-            PositionWheelPickerSheet(positions: positions, selection: $position, showSheet: $showPositionPicker)
-                .presentationDetents([.height(300)]).presentationBackground(BrandColors.background).presentationCornerRadius(28)
-        }
-        .sheet(isPresented: $showDOBPicker) {
-            // Restrict range: 100 years ago ... 7 years ago
-            DateWheelPickerSheet(
-                selection: $dob,
-                tempSelection: $tempDOB,
-                showSheet: $showDOBPicker,
-                in: maxAgeDate...minAgeDate
-            )
-            .presentationDetents([.height(300)])
-            .presentationBackground(BrandColors.background)
-            .presentationCornerRadius(28)
-        }
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
                 if let data = try? await newItem?.loadTransferable(type: Data.self),
@@ -478,10 +542,6 @@ struct EditProfileView: View {
                     Image(systemName: "chevron.down").foregroundColor(primary.opacity(0.85))
                 }
             } onTap: { locationSearch = ""; showLocationPicker = true }
-            .sheet(isPresented: $showLocationPicker) {
-                LocationPickerSheet(title: "Select your city", allCities: SAUDI_CITIES, selection: $location, searchText: $locationSearch, showSheet: $showLocationPicker, accent: primary)
-                    .presentationDetents([.large]).presentationBackground(BrandColors.background).presentationCornerRadius(28)
-            }
             
             // MARK: - Email Field
             fieldLabel("Email")
