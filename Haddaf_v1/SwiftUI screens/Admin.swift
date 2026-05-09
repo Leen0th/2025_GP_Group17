@@ -3301,13 +3301,13 @@ struct AdminManageAccountsView: View {
             statusFiltered = roleFiltered.filter { !$0.isActive }
         }
         
-        // Then filter by search
+        // FIX #2: Search by name OR email (was searching email + role, now searches name + email)
         let searchFiltered: [UserRowItem]
         if s.isEmpty {
             searchFiltered = statusFiltered
         } else {
             searchFiltered = statusFiltered.filter {
-                $0.email.lowercased().contains(s) || $0.role.lowercased().contains(s)
+                $0.name.lowercased().contains(s) || $0.email.lowercased().contains(s)
             }
         }
         

@@ -601,6 +601,7 @@ struct SetSkillsSheet: View {
     @State private var selected: Set<String> = []
     @State private var customSkills: [String] = [""]
     @State private var showCustomSection: Bool = false
+    @State private var letterOnlyErrors: [Int: Bool] = [:]   // tracks per-field invalid-char attempt
     private let maxLength: Int = 30
 
     var body: some View {
@@ -769,35 +770,53 @@ struct SetSkillsSheet: View {
                     ForEach(customSkills.indices, id: \.self) { index in
                         let atMax: Bool = customSkills[index].count >= maxLength
                         let counterColor: Color = atMax ? Color.red : Color.secondary
-                        HStack(spacing: 8) {
-                            TextField("e.g. Free Kicks", text: Binding(
-                                get: { customSkills[index] },
-                                set: { customSkills[index] = String($0.prefix(maxLength)) }
-                            ))
-                            .font(.system(size: 15, design: .rounded))
-                            .tint(accent)
-                            Text("\(customSkills[index].count)/\(maxLength)")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundColor(counterColor)
-                                .frame(width: 40)
-                            if customSkills.count > 1 {
-                                Button {
-                                    withAnimation { _ = customSkills.remove(at: index as Int) }
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(Color.red.opacity(0.7))
-                                        .font(.system(size: 18))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                TextField("e.g. Free Kicks", text: Binding(
+                                    get: { customSkills[index] },
+                                    set: { newVal in
+                                        let filtered = newVal.filter { $0.isLetter || $0.isWhitespace }
+                                        // Show red error only when user tried to type an invalid char
+                                        letterOnlyErrors[index] = newVal != filtered && !newVal.isEmpty
+                                        customSkills[index] = String(filtered.prefix(maxLength))
+                                    }
+                                ))
+                                .font(.system(size: 15, design: .rounded))
+                                .tint(accent)
+                                Text("\(customSkills[index].count)/\(maxLength)")
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundColor(counterColor)
+                                    .frame(width: 40)
+                                if customSkills.count > 1 {
+                                    Button {
+                                        withAnimation { _ = customSkills.remove(at: index as Int) }
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .foregroundColor(Color.red.opacity(0.7))
+                                            .font(.system(size: 18))
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(BrandColors.background)
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(
+                                        letterOnlyErrors[index] == true ? Color.red.opacity(0.5) : BrandColors.lightGray,
+                                        lineWidth: 1
+                                    )
+                            )
+
+                            if letterOnlyErrors[index] == true {
+                                Text("Only letters and spaces are allowed")
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.red)
+                                    .padding(.horizontal, 4)
+                                    .transition(.opacity)
+                            }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(BrandColors.background)
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(BrandColors.lightGray, lineWidth: 1)
-                        )
                     }
                     Button {
                         withAnimation { customSkills.append("") }

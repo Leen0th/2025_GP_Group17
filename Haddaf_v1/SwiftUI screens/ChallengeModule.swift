@@ -898,6 +898,9 @@ private struct ChallengeMainFilterSheet: View {
 struct ChallengeView: View {
     private let accent = BrandColors.darkTeal
     @StateObject private var service = ChallengeService()
+    // FIX #7c: need session to detect guest users
+    @EnvironmentObject private var session: AppSession
+
     private var isFilterActive: Bool {
         statusFilter != .all || selectedYear != nil || selectedMonth != nil
     }
@@ -931,6 +934,24 @@ struct ChallengeView: View {
 
                         .padding(.horizontal, 16)
                         .padding(.top, 2)
+
+                        // FIX #7c: guest info banner — shown on challenge list page
+                        if session.isGuest {
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundColor(accent)
+                                    .font(.system(size: 14))
+                                Text("Sign in or create an account to participate in challenges.")
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(accent.opacity(0.07))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal, 16)
+                        }
 
                         if service.loading {
                             ProgressView().tint(accent).padding(.top, 30)

@@ -558,12 +558,23 @@ private struct MultiMetricRow: View {
                                 .font(.system(size: 26))
                                 .foregroundColor(entry.target > 0 ? primary : BrandColors.lightGray)
                         }
-                        Text("\(entry.target)")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundColor(primary)
-                            .frame(minWidth: 28, alignment: .center)
-                            .contentTransition(.numericText())
-                            .animation(.spring(response: 0.25), value: entry.target)
+                        VStack(spacing: 2) {
+                            Text("\(entry.target)")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .foregroundColor(primary)
+                                .frame(minWidth: 28, alignment: .center)
+                                .contentTransition(.numericText())
+                                .animation(.spring(response: 0.25), value: entry.target)
+
+                            // FIX #5: max value indicator
+                            if entry.target == 5 {
+                                Text("Max")
+                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.orange)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: entry.target)
                         Button {
                             if entry.target < 5 { entry.target += 1 }
                         } label: {
@@ -619,12 +630,23 @@ private struct SingleMetricEditor: View {
                             .font(.system(size: 32))
                             .foregroundColor(entry.target > 0 ? primary : BrandColors.lightGray)
                     }
-                    Text("\(entry.target)")
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
-                        .foregroundColor(primary)
-                        .frame(minWidth: 60, alignment: .center)
-                        .contentTransition(.numericText())
-                        .animation(.spring(response: 0.3), value: entry.target)
+                    VStack(spacing: 4) {
+                        Text("\(entry.target)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(primary)
+                            .frame(minWidth: 60, alignment: .center)
+                            .contentTransition(.numericText())
+                            .animation(.spring(response: 0.3), value: entry.target)
+
+                        // FIX #5: max value indicator
+                        if entry.target == 5 {
+                            Text("Maximum value reached")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.orange)
+                                .transition(.opacity.combined(with: .scale))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: entry.target)
                     Button {
                         if entry.target < 5 { entry.target += 1 }
                     } label: {

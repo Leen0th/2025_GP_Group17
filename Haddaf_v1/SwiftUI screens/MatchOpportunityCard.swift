@@ -19,6 +19,8 @@ struct MatchOpportunityCard: View {
     @State private var showCancelMatchConfirm = false
     @State private var creatorProfilePicURL: String? = nil
     @State private var navigateToProfile: String? = nil
+    // FIX #7b: guest join alert
+    @State private var showGuestJoinAlert = false
 
     private let accent = BrandColors.darkTeal
     private let headerGray = Color(red: 0.953, green: 0.953, blue: 0.953)
@@ -118,7 +120,37 @@ struct MatchOpportunityCard: View {
 
                         if isOrganizer {
                             organizerActions
-                        } else if !session.isVerifiedCoach {
+                        } else if session.isGuest {
+                            // Guests see an informational message instead of the join button
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                                Text("Sign in or create an account to request to join.")
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.gray.opacity(0.07))
+                            .clipShape(Capsule())
+                        } else if session.role == "coach" {
+                            // FIX #6: coaches are not allowed to join matches
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                                Text("You are a coach and cannot join a match.")
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.gray.opacity(0.07))
+                            .clipShape(Capsule())
+                        } else {
                             playerActionArea
                         }
                     }
@@ -194,6 +226,12 @@ struct MatchOpportunityCard: View {
             Button("No", role: .cancel) {}
         } message: {
             Text("This will cancel the match and notify all players.")
+        }
+        // FIX #7b: guest cannot join match alert
+        .alert("Sign In Required", isPresented: $showGuestJoinAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You need to sign in or create an account to join a match.")
         }
         .confirmationDialog(
             "Leave Match?",
@@ -393,6 +431,12 @@ struct MatchOpportunityCard: View {
     // MARK: - Request Button
     private func requestButton(title: String) -> some View {
         Button {
+            // FIX #7b: guests cannot join a match
+            if session.isGuest {
+                showGuestJoinAlert = true
+                return
+            }
+
             guard let uid = session.user?.uid,
                   let selectedPosition,
                   let fullName = currentDisplayName()

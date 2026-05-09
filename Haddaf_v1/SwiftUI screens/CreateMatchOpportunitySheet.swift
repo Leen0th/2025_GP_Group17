@@ -50,6 +50,14 @@ struct CreateMatchOpportunitySheet: View {
                         Text("\(matchTitle.count)/\(titleLimit)")
                             .font(.system(size: 11))
                             .foregroundColor(matchTitle.count >= titleLimit ? .red : .secondary)
+
+                        // FIX #4: show validation error when title contains no letters
+                        if let titleError = matchTitleError {
+                            Text(titleError)
+                                .font(.system(size: 11))
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     Text("Date and time")
@@ -186,9 +194,20 @@ struct CreateMatchOpportunitySheet: View {
         }
     }
 
-    // ✅ شرط تفعيل الزر
+    // FIX #4: Match title must contain at least one letter (no purely numeric/special-char titles)
     private var isPostDisabled: Bool {
-        totalPositions == 0 || locationSearch.isEmpty || matchTitle.trimmingCharacters(in: .whitespaces).isEmpty
+        let trimmed = matchTitle.trimmingCharacters(in: .whitespaces)
+        let hasLetter = trimmed.contains { $0.isLetter }
+        return totalPositions == 0 || locationSearch.isEmpty || trimmed.isEmpty || !hasLetter
+    }
+
+    private var matchTitleError: String? {
+        let trimmed = matchTitle.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if !trimmed.contains(where: { $0.isLetter }) {
+            return "Match title must contain at least one letter."
+        }
+        return nil
     }
 
     private func saveMatch() async {
