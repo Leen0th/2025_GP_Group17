@@ -595,7 +595,9 @@ struct SetSkillsSheet: View {
     private let presetSkills: [(name: String, icon: String)] = [
         ("Dribble", "figure.run"),
         ("Pass",    "arrow.up.right"),
-        ("Shoot",   "scope")
+        ("Shoot",   "scope"),
+        ("Header",  "figure.basketball"),
+        ("Tackle",  "figure.martial.arts")
     ]
 
     @State private var selected: Set<String> = []

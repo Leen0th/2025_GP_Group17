@@ -29,6 +29,10 @@ struct PFStatBarView: View {
             self.gradient = LinearGradient(colors: [BrandColors.teal.opacity(0.7), BrandColors.teal], startPoint: .leading, endPoint: .trailing)
         case "shoot":
             self.gradient = LinearGradient(colors: [BrandColors.actionGreen.opacity(0.7), BrandColors.actionGreen], startPoint: .leading, endPoint: .trailing)
+        case "header":
+            self.gradient = LinearGradient(colors: [Color.purple.opacity(0.7), Color.purple], startPoint: .leading, endPoint: .trailing)
+        case "tackle":
+            self.gradient = LinearGradient(colors: [Color.orange.opacity(0.7), Color.orange], startPoint: .leading, endPoint: .trailing)
         default:
             self.gradient = LinearGradient(colors: [BrandColors.darkTeal.opacity(0.7), BrandColors.darkTeal], startPoint: .leading, endPoint: .trailing)
         }
@@ -568,3 +572,4 @@ struct PerformanceFeedbackView: View {
         NotificationCenter.default.post(name: Notification.Name("cancelUploadFlow"), object: nil)
     }
 }
+

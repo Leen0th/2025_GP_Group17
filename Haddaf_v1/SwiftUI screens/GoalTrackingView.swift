@@ -185,6 +185,10 @@ private struct GoalCard: View {
             return LinearGradient(colors: [BrandColors.teal.opacity(0.7), BrandColors.teal], startPoint: .leading, endPoint: .trailing)
         case .shoot:
             return LinearGradient(colors: [BrandColors.actionGreen.opacity(0.7), BrandColors.actionGreen], startPoint: .leading, endPoint: .trailing)
+        case .header:
+            return LinearGradient(colors: [Color.purple.opacity(0.7), Color.purple], startPoint: .leading, endPoint: .trailing)
+        case .tackle:
+            return LinearGradient(colors: [Color.orange.opacity(0.7), Color.orange], startPoint: .leading, endPoint: .trailing)
         }
     }
 

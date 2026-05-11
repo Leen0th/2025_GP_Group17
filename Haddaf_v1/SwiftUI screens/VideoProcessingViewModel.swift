@@ -37,7 +37,7 @@ class VideoProcessingViewModel: ObservableObject {
     let storage = Storage.storage()
     
     //  Railway API URL
-    private let apiURL = "https://footballanalysis-production.up.railway.app/analyze"
+    private let apiURL = "https://web-production-5ddb0.up.railway.app/analyze"
     
     // Helper to store the user's current position for the default selection
     static var sharedUserPosition: String?
@@ -99,7 +99,9 @@ class VideoProcessingViewModel: ObservableObject {
             self.performanceStats = [
                 PFPostStat(label: "DRIBBLE", value: actionCounts["dribble"] ?? 0, maxValue: 20),
                 PFPostStat(label: "PASS", value: actionCounts["pass"] ?? 0, maxValue: 50),
-                PFPostStat(label: "SHOOT", value: actionCounts["shoot"] ?? 0, maxValue: 15)
+                PFPostStat(label: "SHOOT", value: actionCounts["shoot"] ?? 0, maxValue: 15),
+                PFPostStat(label: "HEADER", value: actionCounts["header"] ?? 0, maxValue: 10),
+                PFPostStat(label: "TACKLE", value: actionCounts["tackle"] ?? 0, maxValue: 10)
             ]
             // Keep spinner visible for smooth UX
             let elapsed = Date().timeIntervalSince(start)
@@ -459,7 +461,9 @@ class VideoProcessingViewModel: ObservableObject {
         let dribbles = self.performanceStats.first(where: { $0.label.lowercased() == "dribble" })?.value ?? 0
         let passes   = self.performanceStats.first(where: { $0.label.lowercased() == "pass"    })?.value ?? 0
         let shoots   = self.performanceStats.first(where: { $0.label.lowercased() == "shoot"   })?.value ?? 0
-        await GoalService.checkGoalsAfterPost(userId: uid, postId: postID, dribble: dribbles, pass: passes, shoot: shoots)
+        let headers  = self.performanceStats.first(where: { $0.label.lowercased() == "header"  })?.value ?? 0
+        let tackles  = self.performanceStats.first(where: { $0.label.lowercased() == "tackle"  })?.value ?? 0
+        await GoalService.checkGoalsAfterPost(userId: uid, postId: postID, dribble: dribbles, pass: passes, shoot: shoots, header: headers, tackle: tackles)
         
         await MainActor.run {
             self.uploadProgress = 1.0
@@ -475,19 +479,23 @@ class VideoProcessingViewModel: ObservableObject {
         let passWeight: Double
         let dribbleWeight: Double
         let shootWeight: Double
+        let tackleWeight: Double
+        let headerWeight: Double
         
         switch position {
-        case "Attacker":   (passWeight, dribbleWeight, shootWeight) = (1, 5, 10)
-        case "Midfielder": (passWeight, dribbleWeight, shootWeight) = (10, 5, 1)
-        case "Defender":   (passWeight, dribbleWeight, shootWeight) = (5, 10, 1)
-        default:           (passWeight, dribbleWeight, shootWeight) = (1, 1, 1) // Fallback
+        case "Attacker":   (passWeight, dribbleWeight, shootWeight, tackleWeight, headerWeight) = (1, 5, 10, 1, 5)
+        case "Midfielder": (passWeight, dribbleWeight, shootWeight, tackleWeight, headerWeight) = (10, 5, 1, 5, 5)
+        case "Defender":   (passWeight, dribbleWeight, shootWeight, tackleWeight, headerWeight) = (5, 10, 1, 10, 10)
+        default:           (passWeight, dribbleWeight, shootWeight, tackleWeight, headerWeight) = (1, 1, 1, 1, 1)
         }
         
         for stat in stats {
             switch stat.label.lowercased() {
-            case "pass": total += Double(stat.value) * passWeight
+            case "pass":    total += Double(stat.value) * passWeight
             case "dribble": total += Double(stat.value) * dribbleWeight
-            case "shoot": total += Double(stat.value) * shootWeight
+            case "shoot":   total += Double(stat.value) * shootWeight
+            case "tackle":  total += Double(stat.value) * tackleWeight
+            case "header":  total += Double(stat.value) * headerWeight
             default: break
             }
         }

@@ -52,7 +52,7 @@ class GoalService: ObservableObject {
 
     // MARK: - Check goals after a new post
     /// Call this after a post is saved. Pass the detected stats from the video.
-    static func checkGoalsAfterPost(userId: String, postId: String, dribble: Int, pass: Int, shoot: Int) async {
+    static func checkGoalsAfterPost(userId: String, postId: String, dribble: Int, pass: Int, shoot: Int, header: Int = 0, tackle: Int = 0) async {
         let db = Firestore.firestore()
         let snap = try? await db.collection("playerGoals")
             .whereField("userId", isEqualTo: userId)
@@ -68,6 +68,8 @@ class GoalService: ObservableObject {
             case .dribble: achieved = dribble >= goal.targetCount
             case .pass:    achieved = pass    >= goal.targetCount
             case .shoot:   achieved = shoot   >= goal.targetCount
+            case .header:  achieved = header  >= goal.targetCount
+            case .tackle:  achieved = tackle  >= goal.targetCount
             }
             guard achieved else { continue }
 

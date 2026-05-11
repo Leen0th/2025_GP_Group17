@@ -1,3 +1,4 @@
+
 import SwiftUI
 import AVKit
 import Combine
@@ -173,21 +174,35 @@ struct PinpointPlayerView: View {
         .padding(.bottom, 20)
     }
     
+    // Stores the tap location in VIEW coordinates (for the indicator dot)
+    @State private var selectedPointInView: CGPoint?
+
     private var videoPlayerWithOverlay: some View {
         ZStack {
             VideoPlayer(player: viewModel.player)
                 .disabled(true)
                 .aspectRatio(9/16, contentMode: .fit)
                 .allowsHitTesting(false)
-            
+
             GeometryReader { geometry in
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { location in
-                        selectedPoint = location
+                        // Save view-space point for the indicator
+                        selectedPointInView = location
+
+                        // Convert view coordinates → video coordinates
+                        // The view uses aspectRatio(9/16) so we scale by the
+                        // ratio of actual video size to view size.
+                        let scaleX = frameWidth  / geometry.size.width
+                        let scaleY = frameHeight / geometry.size.height
+                        selectedPoint = CGPoint(
+                            x: location.x * scaleX,
+                            y: location.y * scaleY
+                        )
                     }
-                
-                if let point = selectedPoint {
+
+                if let point = selectedPointInView {
                     Image(systemName: "hand.point.up.left.fill")
                         .font(.title2)
                         .foregroundColor(.white)

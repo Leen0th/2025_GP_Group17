@@ -12,14 +12,18 @@ enum MetricType: String, Codable, CaseIterable, Identifiable {
     case dribble = "Dribble"
     case pass = "Pass"
     case shoot = "Shoot"
+    case header = "Header"
+    case tackle = "Tackle"
 
     var id: String { rawValue }
 
     var iconName: String {
         switch self {
-        case .dribble: return "figure.soccer"        // dribbling player
-        case .pass:    return "arrow.up.forward"     // forward pass direction
-        case .shoot:   return "circle.circle.fill"   // ball / shot on goal
+        case .dribble: return "figure.soccer"
+        case .pass:    return "arrow.up.forward"
+        case .shoot:   return "circle.circle.fill"
+        case .header:  return "figure.basketball"
+        case .tackle:  return "figure.martial.arts"
         }
     }
 }

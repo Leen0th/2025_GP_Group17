@@ -595,11 +595,11 @@ struct ScoreInfoPopupView: View {
                 Text("""
                 1. Weights assigned by position:
                 
-                  Pos.   Pass   Drib   Shoot
-                  -------------------------
-                  ATK     1      5      10
-                  MID     10     5       1
-                  DEF     5     10       1
+                  Pos.  Pass  Drib  Shoot  Tackl  Head
+                  ------------------------------------
+                  ATK    1     5     10      1      5
+                  MID    10    5      1      5      5
+                  DEF    5    10      1     10     10
                 
                 2. Score calculated for each post.
                 

@@ -35,7 +35,9 @@ struct ProgressTabView: View {
     let averagePerformance: [ProgressStat] = [
         .init(label: "DRIBBLE", value: 2, maxValue: 10),
         .init(label: "PASS", value: 9, maxValue: 15),
-        .init(label: "SHOOT", value: 3, maxValue: 10)
+        .init(label: "SHOOT", value: 3, maxValue: 10),
+        .init(label: "HEADER", value: 1, maxValue: 5),
+        .init(label: "TACKLE", value: 2, maxValue: 5)
     ]
 
     let trendDataSets: [TrendDataSet] = [
@@ -52,7 +54,15 @@ struct ProgressTabView: View {
         .init(metricName: "SHOOT", dataPoints: [
             .init(month: "Jan", score: 15), .init(month: "Feb", score: 22), .init(month: "Mar", score: 12),
             .init(month: "Apr", score: 20), .init(month: "May", score: 22), .init(month: "Jun", score: 15)
-        ], color: BrandColors.actionGreen) // Removed gradient
+        ], color: BrandColors.actionGreen),
+        .init(metricName: "HEADER", dataPoints: [
+            .init(month: "Jan", score: 5), .init(month: "Feb", score: 8), .init(month: "Mar", score: 6),
+            .init(month: "Apr", score: 10), .init(month: "May", score: 7), .init(month: "Jun", score: 9)
+        ], color: Color.purple),
+        .init(metricName: "TACKLE", dataPoints: [
+            .init(month: "Jan", score: 8), .init(month: "Feb", score: 12), .init(month: "Mar", score: 9),
+            .init(month: "Apr", score: 15), .init(month: "May", score: 11), .init(month: "Jun", score: 13)
+        ], color: Color.orange)
     ]
     // --- End Dummy Data ---
     
