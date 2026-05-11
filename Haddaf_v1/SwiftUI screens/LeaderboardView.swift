@@ -38,6 +38,7 @@ enum PositionFilter: String, CaseIterable, Identifiable {
 // Manages the state and logic for the leaderboard.
 @MainActor
 final class LeaderboardViewModel: ObservableObject {
+    private typealias RawPlayer = (id: String, name: String, photo: String?, position: String, score: Double, firstPostAt: Date?)
     // The final list of top players (at most 10) to be displayed by the view.
     @Published private(set) var topTen: [LBPlayer] = []
     // True if data is currently being fetched from Firestore.
@@ -51,7 +52,7 @@ final class LeaderboardViewModel: ObservableObject {
     private var loadedOnce = false
     // The complete, unsorted, and unfiltered list of all players fetched from the database.
     // This serves as the "source of truth" cache.
-    private var allPlayersRaw: [(id: String, name: String, photo: String?, position: String, score: Double, firstPostAt: Date?)] = []
+    private var allPlayersRaw: [RawPlayer] = []
     // A wrapper function to ensure `loadLeaderboard` is only called once.
     func loadLeaderboardIfNeeded() {
         guard !loadedOnce else { return }
@@ -66,8 +67,8 @@ final class LeaderboardViewModel: ObservableObject {
             let userSnap = try await db.collection("users")
                 .whereField("role", isEqualTo: "player")
                 .getDocuments()
-            var basic: [(id: String, name: String, photo: String?, position: String, score: Double, firstPostAt: Date?)] = []
-            try await withThrowingTaskGroup(of: (String, String, String?, String, Double, Date?)?.self) { group in
+            var basic: [RawPlayer] = []
+            try await withThrowingTaskGroup(of: RawPlayer?.self) { group in
                 for doc in userSnap.documents {
                     group.addTask { [db] in
                         do {
@@ -81,14 +82,8 @@ final class LeaderboardViewModel: ObservableObject {
                             let pDoc = try await db.collection("users").document(uid)
                                 .collection("player").document("profile").getDocument()
                             let p = pDoc.data() ?? [:]
-                            // Handle score potentially being Double, Int, or String
-                            let score: Double = {
-                                if let d = p["cumulativeScore"] as? Double { return d }
-                                if let i = p["cumulativeScore"] as? Int { return Double(i) }
-                                if let s = p["cumulativeScore"] as? String, let d = Double(s) { return d }
-                                return 0.0
-                            }()
                             let position = (p["position"] as? String) ?? ""
+                            let score = Self.leaderboardScore(from: p, position: position)
                             // 2. Fetch earliest post for tie-breaking
                             var earliest: Date? = nil
                             // First, try querying by authorRef (newer data structure)
@@ -131,10 +126,64 @@ final class LeaderboardViewModel: ObservableObject {
             self.topTen = []
         }
     }
+
+    nonisolated private static func leaderboardScore(from profile: [String: Any], position: String) -> Double {
+        if let statsMap = profile["positionStats"] as? [String: Any],
+           let score = averageScore(in: statsMap, for: position) {
+            return score
+        }
+
+        // Backward compatibility for older data written before positionStats existed.
+        return numberValue(profile["cumulativeScore"]) ?? 0.0
+    }
+
+    nonisolated private static func averageScore(in statsMap: [String: Any], for position: String) -> Double? {
+        let targetPosition = normalizedPosition(position)
+        guard !targetPosition.isEmpty else { return nil }
+
+        guard let currentEntry = statsMap.first(where: { normalizedPosition($0.key) == targetPosition })?.value else {
+            return nil
+        }
+
+        return averageScore(from: currentEntry)
+    }
+
+    nonisolated private static func averageScore(from statEntry: Any) -> Double? {
+        guard let stat = statEntry as? [String: Any],
+              let total = numberValue(stat["totalScore"]),
+              let count = numberValue(stat["postCount"]),
+              count > 0
+        else {
+            return nil
+        }
+
+        return total / count
+    }
+
+    nonisolated private static func numberValue(_ value: Any?) -> Double? {
+        switch value {
+        case let double as Double:
+            return double
+        case let int as Int:
+            return Double(int)
+        case let int64 as Int64:
+            return Double(int64)
+        case let number as NSNumber:
+            return number.doubleValue
+        case let string as String:
+            return Double(string)
+        default:
+            return nil
+        }
+    }
+
+    nonisolated private static func normalizedPosition(_ position: String) -> String {
+        position.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     // Applies the current `selectedFilter` and sorting rules to the `allPlayersRaw` data.
     private func applyFilter() {
         var filtered = allPlayersRaw
-            .filter { $0.score > 0 } // Only show players who have a score
             .filter { selectedFilter.matches($0.position) } // Apply position filter
         // Sort the filtered list
         filtered.sort { a, b in
