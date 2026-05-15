@@ -677,6 +677,9 @@ struct GroupDetailPage: View {
                     Task { await vm.deleteContent(group: group, reason: reason); dismiss() }
                 }
             )
+            .presentationDetents([.height(450)])
+            .presentationBackground(BrandColors.background)
+            .presentationCornerRadius(28)
         }
         .sheet(isPresented: $showWarnCompose, onDismiss: {
             if warnSent { dismiss() }
