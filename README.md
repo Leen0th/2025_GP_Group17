@@ -16,7 +16,18 @@ By applying computer vision and machine learning techniques, Haddaf automaticall
 - **Python** – used to build and run the AI models for player detection, tracking, action recognition, and performance analysis.
 
 ## Repository Structure
-TBD
+```text
+Haddaf/
+├── Haddaf_v1.xcodeproj/            # Xcode project configuration files
+│
+├── Haddaf_v1/                      # iOS application source code
+│
+├── Performance-Analysis-Model/     # Python AI models and scripts
+│
+├── pics/                           # Images used in the README
+│
+└── AUTHORS.md                      # List of developers and supervisor
+```
 
 ## Launching Instructions
 1. **Clone the repository**  
