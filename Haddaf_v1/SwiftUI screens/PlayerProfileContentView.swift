@@ -577,53 +577,142 @@ struct PlayerProfileContentView: View {
 
 // MARK: - Score Info Popup
 // A popup view that explains how the "Performance Score" is calculated
+// MARK: - Score Info Popup
+// MARK: - Score Info Popup
 struct ScoreInfoPopupView: View {
-    // To control the visibility of the popup
     @Binding var isPresented: Bool
-    
+
+    private let primary   = BrandColors.darkTeal
+    private let gold      = BrandColors.gold
+
+    // Weight table data
+    private struct PositionRow {
+        let name: String
+        let pass: Int
+        let drib: Int
+        let shoot: Int
+        let tackl: Int
+        let head: Int
+    }
+
+    private let rows: [PositionRow] = [
+        PositionRow(name: "ATK", pass: 1,  drib: 5,  shoot: 10, tackl: 1,  head: 5),
+        PositionRow(name: "MID", pass: 10, drib: 5,  shoot: 1,  tackl: 5,  head: 5),
+        PositionRow(name: "DEF", pass: 5,  drib: 10, shoot: 1,  tackl: 10, head: 10),
+    ]
+
+    private let columns = ["Pass", "Drib", "Shoot", "Tackl", "Head"]
+
     var body: some View {
         ZStack {
-            Color.black.opacity(0.4).ignoresSafeArea()
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
                 .onTapGesture { withAnimation { isPresented = false } }
                 .transition(.opacity)
 
-            // Popup content card
-            VStack(spacing: 20) {
-                Text("Score Calculation")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+            VStack(spacing: 0) {
 
-                Text("""
-                1. Weights assigned by position:
-                
-                  Pos.  Pass  Drib  Shoot  Tackl  Head
-                  ------------------------------------
-                  ATK    1     5     10      1      5
-                  MID    10    5      1      5      5
-                  DEF    5    10      1     10     10
-                
-                2. Score calculated for each post.
-                
-                3. Scores averaged & rounded.
-                """)
-                .font(.system(size: 13, design: .monospaced))
-                .multilineTextAlignment(.leading)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
+                // ── Header ──
+                VStack(spacing: 4) {
+                    Text("Score Calculation")
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(primary)
 
-                Button("OK") { withAnimation { isPresented = false } }
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(BrandColors.darkTeal)
-                    .cornerRadius(12)
-                    .padding(.top, 4)
+                    Text("Weights assigned by position")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 22)
+                .padding(.bottom, 16)
+
+                Divider()
+
+                // ── Table ──
+                VStack(spacing: 0) {
+
+                    // Column headers
+                    HStack(spacing: 0) {
+                        Text("Pos.")
+                            .frame(width: 46, alignment: .leading)
+                            .foregroundColor(.secondary)
+
+                        ForEach(columns, id: \.self) { col in
+                            Text(col)
+                                .frame(maxWidth: .infinity)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(UIColor.systemGray6))
+
+                    // Data rows
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        let vals = [row.pass, row.drib, row.shoot, row.tackl, row.head]
+
+                        HStack(spacing: 0) {
+                            // Position name
+                            Text(row.name)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(primary)
+                                .frame(width: 46, alignment: .leading)
+
+                            // Weight cells — all same color, no highlight
+                            ForEach(Array(vals.enumerated()), id: \.offset) { _, val in
+                                Text("\(val)")
+                                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                                    .foregroundColor(Color(UIColor.label))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .background(index % 2 == 0
+                                    ? BrandColors.background
+                                    : Color(UIColor.systemGray6).opacity(0.5))
+
+                        if index < rows.count - 1 {
+                            Divider().padding(.leading, 16)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color(UIColor.separator), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
+                // ── Note ──
+                Text("Score = weighted avg per post → averaged across all posts")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+
+                // ── OK button ──
+                Button {
+                    withAnimation { isPresented = false }
+                } label: {
+                    Text("OK")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(primary)
+                        .clipShape(Capsule())
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 20)
             }
-            .padding(EdgeInsets(top: 24, leading: 24, bottom: 20, trailing: 24))
             .frame(width: 320)
             .background(BrandColors.background)
             .cornerRadius(20)
-            .shadow(radius: 12)
+            .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 10)
             .transition(.scale)
         }
     }

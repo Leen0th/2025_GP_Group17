@@ -3958,11 +3958,15 @@ private struct AdminChallengeDetailsView: View {
     let challenge: AdminChallengeItem
     let primary: Color
     let onDelete: () -> Void
-    
+
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var currentChallenge: AdminChallengeItem
-    
+    // ── Delete popup (local — stays on this screen) ──
+    @State private var showDeletePopup = false
+    @State private var isDeleting = false
+    @State private var deleteError: String? = nil
+
     init(challenge: AdminChallengeItem, primary: Color, onDelete: @escaping () -> Void) {
         self.challenge = challenge
         self.primary = primary
@@ -3970,28 +3974,27 @@ private struct AdminChallengeDetailsView: View {
         _currentChallenge = State(initialValue: challenge)
     }
 
-    // ✨ NEW: 3 states
+    // ── 3 states ──
     private var challengeStatus: String {
         let now = Date()
         guard let start = currentChallenge.startAt, let end = currentChallenge.endAt else {
             return "Unknown"
         }
-        
         if now < start { return "Upcoming" }
         if now >= start && now < end { return "Current" }
         return "Past"
     }
-    
+
     private var statusColor: Color {
         switch challengeStatus {
         case "Upcoming": return .orange
-        case "Current": return primary
-        case "Past": return .gray
-        default: return .gray
+        case "Current":  return primary
+        case "Past":     return .gray
+        default:         return .gray
         }
     }
-    
-    // ✨ NEW: Can only edit Upcoming
+
+    // Only Upcoming challenges can be edited / deleted
     private var canEdit: Bool {
         let now = Date()
         guard let start = currentChallenge.startAt else { return false }
@@ -4004,6 +4007,8 @@ private struct AdminChallengeDetailsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+
+                    // ── Title + status badge ──
                     HStack {
                         Text(currentChallenge.title.isEmpty ? "Challenge" : currentChallenge.title)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
@@ -4011,7 +4016,6 @@ private struct AdminChallengeDetailsView: View {
 
                         Spacer()
 
-                        // ✨ Updated badge
                         Text(challengeStatus)
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
@@ -4021,7 +4025,9 @@ private struct AdminChallengeDetailsView: View {
                             .clipShape(Capsule())
                     }
 
-                    if let url = URL(string: currentChallenge.imageURL), !currentChallenge.imageURL.isEmpty {
+                    // ── Challenge image ──
+                    if let url = URL(string: currentChallenge.imageURL),
+                       !currentChallenge.imageURL.isEmpty {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .empty:
@@ -4044,28 +4050,27 @@ private struct AdminChallengeDetailsView: View {
                         }
                     }
 
+                    // ── Description ──
                     sectionTitle("Description")
                     Text(currentChallenge.description.isEmpty ? "-" : currentChallenge.description)
                         .font(.system(size: 15, design: .rounded))
                         .foregroundColor(.secondary)
 
+                    // ── Criteria ──
                     sectionTitle("Criteria")
                     if currentChallenge.criteria.isEmpty {
                         Text("-")
                             .font(.system(size: 15, design: .rounded))
                             .foregroundColor(.secondary)
                     } else {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 12) {
-                            ForEach(Array(currentChallenge.criteria.enumerated()), id: \.offset) { index, c in
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                                  spacing: 12) {
+                            ForEach(Array(currentChallenge.criteria.enumerated()), id: \.offset) { _, c in
                                 HStack(alignment: .top, spacing: 6) {
                                     Circle()
                                         .fill(primary.opacity(0.8))
                                         .frame(width: 6, height: 6)
                                         .padding(.top, 6)
-                                    
                                     Text(c)
                                         .font(.system(size: 14, design: .rounded))
                                         .foregroundColor(.secondary)
@@ -4073,14 +4078,12 @@ private struct AdminChallengeDetailsView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .padding(12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(BrandColors.background)
-                                )
+                                .background(RoundedRectangle(cornerRadius: 12).fill(BrandColors.background))
                             }
                         }
                     }
 
+                    // ── Dates ──
                     if let start = currentChallenge.startAt, let end = currentChallenge.endAt {
                         sectionTitle("Start / End")
                         Text("\(formattedDate(start))  →  \(formattedDate(end))")
@@ -4088,14 +4091,12 @@ private struct AdminChallengeDetailsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // ✨ NEW: Conditional buttons
+                    // ── Action buttons ──
                     if canEdit {
                         HStack(spacing: 14) {
+                            // Delete opens local popup (no dismiss first)
                             Button {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    onDelete()
-                                }
+                                withAnimation { showDeletePopup = true }
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "trash")
@@ -4110,7 +4111,13 @@ private struct AdminChallengeDetailsView: View {
                             }
                             .buttonStyle(.plain)
 
-                            NavigationLink(destination: AdminEditMonthlyChallengeSheet(primary: primary, challenge: currentChallenge, onDone: {})) {
+                            NavigationLink(destination:
+                                AdminEditMonthlyChallengeSheet(
+                                    primary: primary,
+                                    challenge: currentChallenge,
+                                    onDone: {}
+                                )
+                            ) {
                                 Text("Edit")
                                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                                     .foregroundColor(.white)
@@ -4133,11 +4140,8 @@ private struct AdminChallengeDetailsView: View {
                             .foregroundColor(.secondary)
                             .padding(.vertical, 12)
                             .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(Color(UIColor.systemGray6))
-                            )
-                            
+                            .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemGray6)))
+
                             Text("Active and past challenges are locked to preserve data integrity")
                                 .font(.system(size: 12, design: .rounded))
                                 .foregroundColor(.secondary)
@@ -4151,44 +4155,99 @@ private struct AdminChallengeDetailsView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 6)
             }
+
+            // ── Delete confirmation popup (stays on this screen) ──
+            if showDeletePopup {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+
+                AdminConfirmPopup(
+                    title: "Delete challenge?",
+                    message: "This will permanently delete the challenge and all its submissions and ratings. This action cannot be undone.",
+                    primary: primary,
+                    isLoading: isDeleting,
+                    errorText: deleteError,
+                    cancelTitle: "No",
+                    confirmTitle: "Yes",
+                    confirmColor: .red,
+                    onCancel: {
+                        withAnimation { showDeletePopup = false }
+                        deleteError = nil
+                    },
+                    onConfirm: {
+                        Task { await deleteCurrentChallenge() }
+                    }
+                )
+                .transition(.scale)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            Task {
-                await reloadChallenge()
-            }
+            Task { await reloadChallenge() }
+        }
+    }
+
+    // ── Delete this challenge (cascade) ──
+    private func deleteCurrentChallenge() async {
+        await MainActor.run {
+            isDeleting = true
+            deleteError = nil
         }
 
+        do {
+            let db = Firestore.firestore()
+            let challengeRef = db.collection("challenges").document(currentChallenge.id)
+
+            let submissionsSnap = try await challengeRef.collection("submissions").getDocuments()
+            for subDoc in submissionsSnap.documents {
+                let storagePath = subDoc.data()["storagePath"] as? String ?? ""
+                let ratingsSnap = try await subDoc.reference.collection("ratings").getDocuments()
+                for ratingDoc in ratingsSnap.documents {
+                    try await ratingDoc.reference.delete()
+                }
+                if !storagePath.isEmpty {
+                    try? await Storage.storage().reference().child(storagePath).delete()
+                }
+                try await subDoc.reference.delete()
+            }
+
+            try await challengeRef.delete()
+
+            await MainActor.run {
+                isDeleting = false
+                showDeletePopup = false
+                dismiss()           // ← نرجع للقائمة بعد نجاح الحذف
+            }
+        } catch {
+            await MainActor.run {
+                isDeleting = false
+                deleteError = "Failed to delete: \(error.localizedDescription)"
+            }
+        }
     }
-    
+
+    // ── Reload latest data from Firestore ──
     private func reloadChallenge() async {
         do {
             let doc = try await Firestore.firestore()
                 .collection("challenges")
                 .document(challenge.id)
                 .getDocument()
-            
+
             guard let data = doc.data() else { return }
-            
-            let startAt = (data["startAt"] as? Timestamp)?.dateValue()
-            let endAt = (data["endAt"] as? Timestamp)?.dateValue()
-            let criteriaArr = data["criteria"] as? [String] ?? []
-            let ym = data["yearMonth"] as? String ?? ""
-            
+
             let updated = AdminChallengeItem(
                 id: doc.documentID,
                 title: data["title"] as? String ?? "",
                 description: data["description"] as? String ?? "",
-                criteria: criteriaArr,
-                startAt: startAt,
-                endAt: endAt,
+                criteria: data["criteria"] as? [String] ?? [],
+                startAt: (data["startAt"] as? Timestamp)?.dateValue(),
+                endAt: (data["endAt"] as? Timestamp)?.dateValue(),
                 imageURL: data["imageURL"] as? String ?? "",
-                yearMonth: ym
+                yearMonth: data["yearMonth"] as? String ?? ""
             )
-            
-            await MainActor.run {
-                currentChallenge = updated
-            }
+
+            await MainActor.run { currentChallenge = updated }
         } catch {
             print("Error reloading challenge: \(error)")
         }
@@ -5621,7 +5680,7 @@ struct AdminProfileView: View {
             .animation(.easeInOut, value: showLogoutPopup)
 
             .fullScreenCover(isPresented: $showNotifications) {
-                NotificationsView()
+                NotificationsView(isAdmin: true)
                     .environmentObject(session)
             }
             .onAppear {
@@ -5630,6 +5689,11 @@ struct AdminProfileView: View {
                 // Start listening to notifications
                 if let adminId = Auth.auth().currentUser?.uid {
                     NotificationService.shared.startListening(for: adminId)
+                }
+                
+                // Schedule the monthly challenge reminder for the 25th of each month
+                Task {
+                    await ClientNotificationScheduler.shared.scheduleAdminLocalReminder()
                 }
             }
             .onChange(of: refreshTrigger) { _ in

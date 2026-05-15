@@ -2,13 +2,15 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-// MARK: - Notifications View (Full Page with NavigationStack)
+// MARK: - Notifications View
 struct NotificationsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var notificationService = NotificationService.shared
     @EnvironmentObject var session: AppSession
 
+    // Role flags
     var isCoach: Bool = false
+    var isAdmin: Bool = false
 
     @State private var showDeleteConfirm = false
     @State private var notificationToDelete: HaddafNotification?
@@ -22,6 +24,7 @@ struct NotificationsView: View {
 
     private let accentColor = BrandColors.darkTeal
 
+    // MARK: - Filter enum
     enum NotificationFilter: String, CaseIterable {
         case all        = "All"
         case unread     = "Unread"
@@ -32,7 +35,7 @@ struct NotificationsView: View {
 
         func matches(_ n: HaddafNotification) -> Bool {
             switch self {
-            case .all: return true
+            case .all:    return true
             case .unread: return !n.isRead
             case .challenges:
                 return [.adminMonthlyReminder, .playerChallengeSubmitted,
@@ -41,7 +44,8 @@ struct NotificationsView: View {
                 return [.goalAchieved].contains(n.type)
             case .matches:
                 return [.matchJoinRequested, .matchJoinApproved,
-                        .matchJoinRejected, .matchCancelled, .upcomingMatchReminder].contains(n.type)
+                        .matchJoinRejected, .matchCancelled,
+                        .upcomingMatchReminder].contains(n.type)
             case .academies:
                 return [.academyInvitation, .invitationAccepted,
                         .invitationDeclined, .removedFromTeam,
@@ -50,17 +54,36 @@ struct NotificationsView: View {
         }
     }
 
+    // Admin: only the monthly challenge reminder
+    private let adminAllowedTypes: Set<NotificationType> = [
+        .adminMonthlyReminder
+    ]
+
+    // Coach: matches + academy-related only
     private let coachAllowedTypes: Set<NotificationType> = [
         .matchJoinRequested, .matchJoinApproved, .matchJoinRejected,
         .matchCancelled, .upcomingMatchReminder,
         .invitationAccepted, .invitationDeclined, .removedFromTeam,
-        .academyInvitation, .adminMonthlyReminder
+        .academyInvitation
     ]
 
+    // Visible filter tabs per role
+    private var visibleFilters: [NotificationFilter] {
+        if isAdmin { return [] }
+        if isCoach { return [.all, .matches, .academies] }
+        return NotificationFilter.allCases
+    }
+
     private var filteredNotifications: [HaddafNotification] {
-        let base = isCoach
-            ? notificationService.notifications.filter { coachAllowedTypes.contains($0.type) }
-            : notificationService.notifications
+        let base: [HaddafNotification]
+        if isAdmin {
+            base = notificationService.notifications.filter { adminAllowedTypes.contains($0.type) }
+        } else if isCoach {
+            base = notificationService.notifications.filter { coachAllowedTypes.contains($0.type) }
+        } else {
+            base = notificationService.notifications
+        }
+        if isAdmin { return base }
         return base.filter { selectedFilter.matches($0) }
     }
 
@@ -70,6 +93,7 @@ struct NotificationsView: View {
 
             VStack(spacing: 0) {
 
+                // Navigation bar
                 ZStack {
                     Text("Notifications")
                         .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -88,51 +112,72 @@ struct NotificationsView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-                // ── Filter Bar + Clear All ──────────────────────────────
-                let visibleFilters: [NotificationFilter] = isCoach
-                    ? [.all, .matches, .academies]
-                    : NotificationFilter.allCases
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(visibleFilters, id: \.self) { filter in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { selectedFilter = filter }
-                            } label: {
-                                Text(filter.rawValue)
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                    .foregroundColor(selectedFilter == filter ? .white : accentColor)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 7)
-                                    .background(
-                                        Capsule().fill(selectedFilter == filter ? accentColor : accentColor.opacity(0.1))
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        if !notificationService.notifications.isEmpty {
-                            Divider().frame(height: 20)
-                            Button {
-                                Task {
-                                    guard let userId = session.user?.uid else { return }
-                                    await notificationService.markAllAsRead(userId: userId)
+                // Filter bar
+                if !visibleFilters.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(visibleFilters, id: \.self) { filter in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) { selectedFilter = filter }
+                                } label: {
+                                    Text(filter.rawValue)
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(selectedFilter == filter ? .white : accentColor)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 7)
+                                        .background(
+                                            Capsule().fill(selectedFilter == filter ? accentColor : accentColor.opacity(0.1))
+                                        )
                                 }
-                            } label: {
-                                Text("Clear All")
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                    .foregroundColor(accentColor)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 7)
-                                    .background(Capsule().fill(accentColor.opacity(0.1)))
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+
+                            if !notificationService.notifications.isEmpty {
+                                Divider().frame(height: 20)
+                                Button {
+                                    Task {
+                                        guard let userId = session.user?.uid else { return }
+                                        await notificationService.markAllAsRead(userId: userId)
+                                    }
+                                } label: {
+                                    Text("Clear All")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(accentColor)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 7)
+                                        .background(Capsule().fill(accentColor.opacity(0.1)))
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.top, 10)
+
+                } else if isAdmin && !notificationService.notifications.isEmpty {
+                    // Admin: no tabs, only Clear All
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task {
+                                guard let userId = session.user?.uid else { return }
+                                await notificationService.markAllAsRead(userId: userId)
+                            }
+                        } label: {
+                            Text("Clear All")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundColor(accentColor)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Capsule().fill(accentColor.opacity(0.1)))
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
+                    .padding(.top, 10)
                 }
-                .padding(.top, 10)
 
+                // Content
                 if notificationService.isLoading {
                     Spacer()
                     ProgressView().tint(accentColor)
@@ -166,7 +211,7 @@ struct NotificationsView: View {
                 }
             }
 
-            // Academy invitation popup — inside ZStack to cover full screen including footer
+            // Academy invitation popup
             if showAcademyInvitePopup, let notif = selectedAcademyNotif {
                 AcademyInvitePopup(
                     notification: notif,
@@ -196,27 +241,26 @@ struct NotificationsView: View {
             guard let user = Auth.auth().currentUser, !user.isAnonymous else { return }
             if let userId = session.user?.uid {
                 notificationService.startListening(for: userId)
-                // Reset unread count immediately when user opens notifications
                 Task {
-                    await MainActor.run {
-                        notificationService.unreadCount = 0
-                    }
+                    await MainActor.run { notificationService.unreadCount = 0 }
                 }
             }
         }
     }
-}
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "bell.slash").font(.system(size: 60)).foregroundColor(.secondary.opacity(0.5))
+            Image(systemName: "bell.slash")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary.opacity(0.5))
             Text("No Notifications")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
-            Text("You're all caught up!")
-                .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary)
+            Text(isAdmin ? "No reminders at the moment." : "You're all caught up!")
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(.secondary)
         }
     }
-
+}
 
 // MARK: - Notification Card
 struct NotificationCard: View {
@@ -238,11 +282,15 @@ struct NotificationCard: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(notification.title)
-                    .font(.system(size: 16, weight: .bold, design: .rounded)).foregroundColor(.primary)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
                 Text(notification.message)
-                    .font(.system(size: 14, design: .rounded)).foregroundColor(.secondary).lineLimit(3)
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
                 Text(timeAgoText(from: notification.createdAt))
-                    .font(.system(size: 12, design: .rounded)).foregroundColor(.secondary.opacity(0.7))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary.opacity(0.7))
                 if notification.type == .academyInvitation && !notification.isRead {
                     Text("Tap to accept or decline →")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -273,83 +321,34 @@ struct NotificationCard: View {
 
     private var iconName: String {
         switch notification.type {
-
-        case .adminMonthlyReminder:
-            return "calendar.badge.plus"
-
-        case .playerChallengeSubmitted:
-            return "checkmark.circle.fill"
-
-        case .challengeEnded:
-            return "trophy.fill"
-
-        case .newChallengeAvailable:
-            return "star.circle.fill"
-
-        case .academyInvitation:
-            return "building.2.fill"
-
-        case .invitationAccepted:
-            return "person.badge.checkmark.fill"
-
-        case .invitationDeclined:
-            return "person.badge.minus"
-
-        case .removedFromTeam:
-            return "xmark.circle.fill"
-
-        case .goalAchieved:
-            return "target"
-
-        case .warning:
-            return "exclamationmark.triangle.fill"
-
-        case .contentDeleted:
-            return "trash.fill"
-
-        case .matchJoinRequested:
-            return "person.crop.circle.badge.plus"
-
-        case .matchJoinApproved:
-            return "checkmark.seal.fill"
-
-        case .matchJoinRejected:
-            return "xmark.seal.fill"
-
-        // 🔥🔥🔥 اللي ناقصين
-        case .matchCancelled:
-            return "xmark.octagon.fill"
-
-        case .upcomingMatchReminder:
-            return "clock.badge.checkmark.fill"
+        case .adminMonthlyReminder:     return "calendar.badge.plus"
+        case .playerChallengeSubmitted: return "checkmark.circle.fill"
+        case .challengeEnded:           return "trophy.fill"
+        case .newChallengeAvailable:    return "star.circle.fill"
+        case .academyInvitation:        return "building.2.fill"
+        case .invitationAccepted:       return "person.badge.checkmark.fill"
+        case .invitationDeclined:       return "person.badge.minus"
+        case .removedFromTeam:          return "xmark.circle.fill"
+        case .goalAchieved:             return "target"
+        case .warning:                  return "exclamationmark.triangle.fill"
+        case .contentDeleted:           return "trash.fill"
+        case .matchJoinRequested:       return "person.crop.circle.badge.plus"
+        case .matchJoinApproved:        return "checkmark.seal.fill"
+        case .matchJoinRejected:        return "xmark.seal.fill"
+        case .matchCancelled:           return "xmark.octagon.fill"
+        case .upcomingMatchReminder:    return "clock.badge.checkmark.fill"
         }
     }
 
     private var iconColor: Color {
         switch notification.type {
-
-        case .invitationAccepted:
+        case .invitationAccepted, .matchJoinApproved:
             return .green
-
-        case .invitationDeclined,
-             .removedFromTeam,
-             .matchJoinRejected,
-             .matchCancelled:
+        case .invitationDeclined, .removedFromTeam,
+             .matchJoinRejected, .matchCancelled, .contentDeleted:
             return .red
-
         case .warning:
             return .orange
-
-        case .contentDeleted:
-            return .red
-
-        case .matchJoinApproved:
-            return .green
-
-        case .matchJoinRequested,
-             .upcomingMatchReminder:
-            return BrandColors.darkTeal
-
         default:
             return BrandColors.darkTeal
         }
@@ -357,10 +356,10 @@ struct NotificationCard: View {
 
     private func timeAgoText(from date: Date) -> String {
         let c = Calendar.current.dateComponents([.minute, .hour, .day, .weekOfYear], from: date, to: Date())
-        if let w = c.weekOfYear, w > 0 { return w == 1 ? "1 week ago" : "\(w) weeks ago" }
-        if let d = c.day, d > 0 { return d == 1 ? "1 day ago" : "\(d) days ago" }
-        if let h = c.hour, h > 0 { return h == 1 ? "1 hour ago" : "\(h) hours ago" }
-        if let m = c.minute, m > 0 { return m == 1 ? "1 minute ago" : "\(m) minutes ago" }
+        if let w = c.weekOfYear, w > 0 { return w == 1 ? "1 week ago"   : "\(w) weeks ago"   }
+        if let d = c.day,       d > 0 { return d == 1 ? "1 day ago"    : "\(d) days ago"    }
+        if let h = c.hour,      h > 0 { return h == 1 ? "1 hour ago"   : "\(h) hours ago"   }
+        if let m = c.minute,    m > 0 { return m == 1 ? "1 minute ago" : "\(m) minutes ago" }
         return "Just now"
     }
 }
@@ -388,7 +387,6 @@ struct AcademyInvitePopup: View {
             Color.black.opacity(0.45).ignoresSafeArea()
                 .onTapGesture { if !isProcessing && !isDone { onDismiss() } }
 
-            // Centered popup
             VStack(spacing: 0) {
                 if isDone {
                     VStack(spacing: 16) {
@@ -408,15 +406,12 @@ struct AcademyInvitePopup: View {
                     }.padding(28)
                 } else {
                     VStack(spacing: 12) {
-                        // Academy logo
                         AcademyLogoView(logoURL: logoURL, size: 72)
 
-                        // Academy name
                         Text(academyName.isEmpty ? "Academy Invitation" : academyName)
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(accent).multilineTextAlignment(.center)
 
-                        // Category badge
                         if let cat = notification.category {
                             Text(cat).font(.system(size: 13, weight: .bold, design: .rounded))
                                 .foregroundColor(.white).padding(.horizontal, 14).padding(.vertical, 6)
@@ -425,7 +420,6 @@ struct AcademyInvitePopup: View {
 
                         Divider().padding(.horizontal, 8)
 
-                        // Coach name — tappable to view profile
                         if !coachName.isEmpty {
                             HStack(spacing: 6) {
                                 Image(systemName: "person.fill").foregroundColor(.secondary).font(.system(size: 12))
@@ -447,7 +441,6 @@ struct AcademyInvitePopup: View {
                     Divider().padding(.top, 8)
 
                     HStack(spacing: 12) {
-                        // Decline — confirmation first
                         Button { showDeclineConfirm = true } label: {
                             Text("Decline")
                                 .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundColor(.red)
@@ -472,7 +465,6 @@ struct AcademyInvitePopup: View {
             .padding(.horizontal, 32)
             .shadow(color: .black.opacity(0.2), radius: 20, y: 8)
 
-            // Decline confirmation popup
             if showDeclineConfirm {
                 Color.black.opacity(0.35).ignoresSafeArea()
                     .onTapGesture { showDeclineConfirm = false }
@@ -536,7 +528,6 @@ struct AcademyInvitePopup: View {
         }
 
         guard let academyId = notification.academyId, !academyId.isEmpty else {
-            // No academyId — load coach name only
             if let uid = resolvedCoachUID,
                let userDoc = try? await db.collection("users").document(uid).getDocument(),
                let d = userDoc.data() {
@@ -557,7 +548,7 @@ struct AcademyInvitePopup: View {
             }
         }
 
-        // Step 4: if academy name still empty, get from coach's users doc currentAcademy
+        // Step 4: if academy name still empty, get from coach's currentAcademy
         if (academyName.isEmpty || academyName == "Academy Invitation"),
            let uid = resolvedCoachUID,
            let cDoc = try? await db.collection("users").document(uid).getDocument(),
@@ -565,7 +556,7 @@ struct AcademyInvitePopup: View {
             await MainActor.run { academyName = n }
         }
 
-        // Step 5: also try category coaches array if invitation not found
+        // Step 5: try category coaches array if invitation not found
         if resolvedCoachUID == nil,
            let cat = notification.category,
            let catDoc = try? await db.collection("academies").document(academyId)
@@ -586,16 +577,14 @@ struct AcademyInvitePopup: View {
 
     private func respond(accept: Bool) async {
         guard let academyId = notification.academyId,
-              let category = notification.category else { onDismiss(); return }
+              let category  = notification.category else { onDismiss(); return }
         isProcessing = true
 
-        // Fetch coach UID and player name once — needed in both branches
-        let coachUID = await fetchCoachUID(academyId: academyId, category: category)
+        let coachUID   = await fetchCoachUID(academyId: academyId, category: category)
         let playerName = await fetchPlayerName()
 
         if accept {
-            // 1. Update player status ONLY in the specific category from this notification
-            // First verify the player doc actually exists in this category
+            // Update player status in the specific category
             let playerRef = db.collection("academies").document(academyId)
                 .collection("categories").document(category)
                 .collection("players").document(playerUID)
@@ -607,11 +596,7 @@ struct AcademyInvitePopup: View {
                 ])
             }
 
-            // 2. Resolve academy name using multiple fallback sources:
-            //    a) Already loaded in the popup UI (academyName state)
-            //    b) notification.teamName field
-            //    c) Firestore academy doc "name" field
-            //    d) Coach's users doc "currentAcademy" field (most reliable for old accounts)
+            // Resolve academy name using multiple fallback sources
             var nameToSave = academyName.isEmpty || academyName == "Academy Invitation" ? "" : academyName
             if nameToSave.isEmpty, let tn = notification.teamName, !tn.isEmpty { nameToSave = tn }
             if nameToSave.isEmpty {
@@ -620,7 +605,6 @@ struct AcademyInvitePopup: View {
                     nameToSave = n
                 }
             }
-            // Last resort: get from coach's users doc currentAcademy
             if nameToSave.isEmpty, let cUID = coachUID,
                let cDoc = try? await db.collection("users").document(cUID).getDocument(),
                let n = cDoc.data()?["currentAcademy"] as? String, !n.isEmpty {
@@ -628,7 +612,7 @@ struct AcademyInvitePopup: View {
             }
             if !nameToSave.isEmpty { await MainActor.run { academyName = nameToSave } }
 
-            // 3. Write to player's users doc
+            // Write to player's users doc
             var playerUpdate: [String: Any] = [
                 "academyId": academyId,
                 "isInAcademy": true,
@@ -637,26 +621,26 @@ struct AcademyInvitePopup: View {
             if !nameToSave.isEmpty { playerUpdate["currentAcademy"] = nameToSave }
             try? await db.collection("users").document(playerUID).updateData(playerUpdate)
 
-            // 4. Update invitation
+            // Update invitation status
             if let invId = notification.invitationId, !invId.isEmpty {
                 try? await db.collection("invitations").document(invId).updateData(["status": "accepted"])
             }
 
-            // 6. Notify coach with full player name and academy name
+            // Notify coach
             if let uid = coachUID {
                 let displayAcademy = nameToSave.isEmpty ? "the academy" : nameToSave
                 let notif: [String: Any] = [
-                    "userId": uid,
-                    "title": "✅ Invitation Accepted",
-                    "message": "\(playerName) accepted your invitation to join \(displayAcademy) — \(category).",
-                    "type": "invitation_accepted",
-                    "isRead": false,
+                    "userId":    uid,
+                    "title":     "✅ Invitation Accepted",
+                    "message":   "\(playerName) accepted your invitation to join \(displayAcademy) — \(category).",
+                    "type":      "invitation_accepted",
+                    "isRead":    false,
                     "createdAt": FieldValue.serverTimestamp()
                 ]
                 try? await db.collection("notifications").addDocument(data: notif)
             }
         } else {
-            // 1. Delete player from academy subcollection
+            // Delete player from academy subcollection
             do {
                 try await db.collection("academies").document(academyId)
                     .collection("categories").document(category)
@@ -665,24 +649,27 @@ struct AcademyInvitePopup: View {
             } catch {
                 print("❌ Failed to delete player: \(error.localizedDescription)")
             }
-            // 2. Update invitation status
+
+            // Update invitation status
             if let invId = notification.invitationId, !invId.isEmpty {
                 try? await db.collection("invitations").document(invId).updateData(["status": "declined"])
             }
-            // 3. Set currentAcademy to "Unassigned"
+
+            // Set currentAcademy to Unassigned
             try? await db.collection("users").document(playerUID).updateData([
                 "currentAcademy": "Unassigned",
                 "updatedAt": FieldValue.serverTimestamp()
             ])
-            // 4. Notify coach
+
+            // Notify coach
             if let uid = coachUID {
                 print("✅ Sending decline notification to coach: \(uid)")
                 let notif: [String: Any] = [
-                    "userId": uid,
-                    "title": "❌ Invitation Declined",
-                    "message": "\(playerName) declined your invitation to join \(category) — \(academyName).",
-                    "type": "invitation_declined",
-                    "isRead": false,
+                    "userId":    uid,
+                    "title":     "❌ Invitation Declined",
+                    "message":   "\(playerName) declined your invitation to join \(category) — \(academyName).",
+                    "type":      "invitation_declined",
+                    "isRead":    false,
                     "createdAt": FieldValue.serverTimestamp()
                 ]
                 do {
@@ -695,7 +682,7 @@ struct AcademyInvitePopup: View {
                 print("❌ coachUID is nil — notification not sent")
             }
         }
-        // Delete the notification doc after action
+
         try? await db.collection("notifications").document(notification.id).delete()
         await MainActor.run { isProcessing = false; result = accept; isDone = true }
     }
