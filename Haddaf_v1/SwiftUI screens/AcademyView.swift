@@ -736,7 +736,7 @@ struct AcademyDetailView: View {
                                                             .overlay(Image(systemName: "person.fill").foregroundColor(accent))
                                                     }
                                                 }
-                                                Text(name).font(.system(size: 11, design: .rounded)).foregroundColor(.secondary).lineLimit(1).frame(width: 60)
+                                                Text(name).font(.system(size: 11, design: .rounded)).foregroundColor(.secondary).lineLimit(2).multilineTextAlignment(.center).frame(width: 80)
                                             }
                                         }
                                         .buttonStyle(.plain)
