@@ -1297,11 +1297,13 @@ class CategoryPlayersViewModel: ObservableObject {
                 try? await doc.reference.delete()
             }
         } else {
-            // 2. Set currentAcademy to "Unassigned"
-            // Only update fields the coach is allowed to write per Firestore rules:
-            // ['teamId', 'teamName', 'academyName', 'currentAcademy']
+            // 2. Clear all academy-related fields from the player's profile
+            // Fields allowed for coach writes per Firestore rules:
+            // ['teamId', 'teamName', 'academyName', 'currentAcademy', 'isInAcademy', 'academyId']
             try? await db.collection("users").document(playerUID).updateData([
-                "currentAcademy": "Unassigned"
+                "currentAcademy": "Unassigned",
+                "isInAcademy": false,
+                "academyId": FieldValue.delete()
             ])
             // 3. Send notification to player
             let notif: [String: Any] = [
