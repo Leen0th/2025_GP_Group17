@@ -1,0 +1,38 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+temp_*/
+target_crops/
+output_videos/
+input_videos/
+stubs/*.pkl
+
+# Environment
+.env
+.env.localOSL-ActionSpotting/
+*.pt
+*.avi
+runs/
+*.pt
+runs/detect/
+*.pt
+runs/detect/
+debug_output/ 
+models/ 
