@@ -19,7 +19,6 @@ struct MatchOpportunityCard: View {
     @State private var showCancelMatchConfirm = false
     @State private var creatorProfilePicURL: String? = nil
     @State private var navigateToProfile: String? = nil
-    // FIX #7b: guest join alert
     @State private var showGuestJoinAlert = false
 
     private let accent = BrandColors.darkTeal
@@ -51,7 +50,6 @@ struct MatchOpportunityCard: View {
                 .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // ✅ اسم المنشئ
                     Button {
                         navigateToProfile = match.createdBy
                     } label: {
@@ -61,7 +59,6 @@ struct MatchOpportunityCard: View {
                     }
                     .buttonStyle(.plain)
 
-                    // ✅ التايتل — يظهر فقط لو مش فارغ
                     if !match.title.isEmpty {
                         Text(match.title)
                             .font(.system(size: 12, weight: .medium))
@@ -121,7 +118,6 @@ struct MatchOpportunityCard: View {
                         if isOrganizer {
                             organizerActions
                         } else if session.isGuest {
-                            // Guests see an informational message instead of the join button
                             HStack(spacing: 8) {
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 13))
@@ -136,7 +132,6 @@ struct MatchOpportunityCard: View {
                             .background(Color.gray.opacity(0.07))
                             .clipShape(Capsule())
                         } else if session.role == "coach" {
-                            // FIX #6: coaches are not allowed to join matches
                             HStack(spacing: 8) {
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 13))
@@ -157,7 +152,6 @@ struct MatchOpportunityCard: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                // ✅ سهم يوضح إن الكارد قابل للفتح/الغلق
                 HStack {
                     Spacer()
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -192,11 +186,15 @@ struct MatchOpportunityCard: View {
                 }
             })
         }
+        // ✅ FIXED: يفرّق بين بروفايل الكوتش والبلاير حسب createdByRole
         .background(
             NavigationLink(
                 destination: Group {
                     if let userId = navigateToProfile {
-                        NavigationStack {
+                        if match.createdByRole == "coach" {
+                            CoachProfileContentView(userID: userId)
+                                .environmentObject(session)
+                        } else {
                             PlayerProfileContentView(userID: userId)
                                 .environmentObject(session)
                         }
@@ -431,7 +429,6 @@ struct MatchOpportunityCard: View {
     // MARK: - Request Button
     private func requestButton(title: String) -> some View {
         Button {
-            // FIX #7b: guests cannot join a match
             if session.isGuest {
                 showGuestJoinAlert = true
                 return
