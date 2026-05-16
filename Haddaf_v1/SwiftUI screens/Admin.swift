@@ -4838,19 +4838,21 @@ private struct AdminCreateMonthlyChallengeSheet: View {
     }
 
     private func firstDayOfMonth(year: Int, month: Int) -> Date {
+        let greg = Calendar(identifier: .gregorian)
         var c = DateComponents()
         c.year = year
         c.month = month
         c.day = 1
-        return Calendar.current.date(from: c) ?? Date()
+        return greg.date(from: c) ?? Date()
     }
 
     private func lastDayOfMonth(year: Int, month: Int) -> Date {
+        let greg = Calendar(identifier: .gregorian)
         let start = firstDayOfMonth(year: year, month: month)
-        let range = Calendar.current.range(of: .day, in: .month, for: start) ?? 1..<29
-        var c = Calendar.current.dateComponents([.year, .month], from: start)
+        let range = greg.range(of: .day, in: .month, for: start) ?? 1..<29
+        var c = greg.dateComponents([.year, .month], from: start)
         c.day = range.count
-        return Calendar.current.date(from: c) ?? start
+        return greg.date(from: c) ?? start
     }
 }
 
@@ -5285,19 +5287,21 @@ private struct AdminEditMonthlyChallengeSheet: View {
     }
 
     private func firstDayOfMonth(year: Int, month: Int) -> Date {
+        let greg = Calendar(identifier: .gregorian)
         var c = DateComponents()
         c.year = year
         c.month = month
         c.day = 1
-        return Calendar.current.date(from: c) ?? Date()
+        return greg.date(from: c) ?? Date()
     }
 
     private func lastDayOfMonth(year: Int, month: Int) -> Date {
+        let greg = Calendar(identifier: .gregorian)
         let start = firstDayOfMonth(year: year, month: month)
-        let range = Calendar.current.range(of: .day, in: .month, for: start) ?? 1..<29
-        var c = Calendar.current.dateComponents([.year, .month], from: start)
+        let range = greg.range(of: .day, in: .month, for: start) ?? 1..<29
+        var c = greg.dateComponents([.year, .month], from: start)
         c.day = range.count
-        return Calendar.current.date(from: c) ?? start
+        return greg.date(from: c) ?? start
     }
 }
 

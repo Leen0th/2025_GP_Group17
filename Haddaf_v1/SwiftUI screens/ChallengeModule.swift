@@ -1252,8 +1252,11 @@ struct NewChallengePage: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 4)
 
-                    SubmissionFilterPills(selected: $submissionFilter)
-                        .padding(.top, 2)
+                    // Hide "All Submissions / My Submission" filter from coaches
+                    if !roleResolver.isCoach {
+                        SubmissionFilterPills(selected: $submissionFilter)
+                            .padding(.top, 2)
+                    }
 
                     if let err = uploader.errorText {
                         Text(err)
