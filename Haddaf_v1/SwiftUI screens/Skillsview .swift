@@ -117,8 +117,6 @@ struct SkillsTabView: View {
     @StateObject private var vm: SkillsViewModel
     @State private var showSetSkillsSheet = false
 
-    // ⭐ NEW
-    @State private var showDeletePopup = false
     @State private var selectedSkill: PlayerSkill? = nil
 
     init(profileUserID: String, isCurrentUser: Bool) {
@@ -142,72 +140,26 @@ struct SkillsTabView: View {
                 }
             }
 
-            // ⭐ DELETE POPUP (الحل النهائي)
-            if let skill = selectedSkill {
-                ZStack {
-                    // الخلفية
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
+        }
+                .task { await vm.fetchSkills() }
+                .onDisappear { vm.stopListening() }
 
-                    // البوب اب
-                    VStack {
-                        Spacer()
-
-                        VStack(spacing: 20) {
-
-                            Text("Delete \(skill.name) Skill?")
-                                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .multilineTextAlignment(.center)
-
-                            Text("Your \(skill.name) skill will be permanently deleted. You can add it again anytime.")
-                                .font(.system(size: 14, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-
-                            HStack(spacing: 16) {
-
-                                Button("No") {
-                                    selectedSkill = nil
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(BrandColors.lightGray)
-                                .cornerRadius(12)
-
-                                Button("Yes") {
-                                    Task { await vm.removeSkill(skill) }
-                                    selectedSkill = nil
-                                }
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.red)
-                                .cornerRadius(12)
-                            }
-                        }
-                        .padding(24)
-                        .frame(width: 320)
-                        .background(BrandColors.background)
-                        .cornerRadius(20)
-                        .shadow(radius: 12)
-
-                        Spacer()
+                // add skills sheet
+                .sheet(isPresented: $showSetSkillsSheet) {
+                    SetSkillsSheet(existingSkills: vm.skills.map { $0.name }) { newNames in
+                        Task { await vm.addSkills(newNames) }
                     }
                 }
-                .zIndex(1000)
+                // ⭐ DELETE POPUP — full-screen so the dim covers the entire app
+                .fullScreenCover(item: $selectedSkill) { skill in
+                    DeleteSkillConfirmationView(skill: skill) {
+                        Task { await vm.removeSkill(skill) }
+                        selectedSkill = nil
+                    } onCancel: {
+                        selectedSkill = nil
+                    }
+                }
             }
-        }
-        .task { await vm.fetchSkills() }
-        .onDisappear { vm.stopListening() }
-
-        // add skills sheet
-        .sheet(isPresented: $showSetSkillsSheet) {
-            SetSkillsSheet(existingSkills: vm.skills.map { $0.name }) { newNames in
-                Task { await vm.addSkills(newNames) }
-            }
-        }
-    }
 
     // MARK: Empty State
     private var emptyState: some View {
@@ -258,14 +210,8 @@ struct SkillsTabView: View {
                 ForEach(vm.skills) { skill in
 
                     let deleteAction: (() -> Void)? = isCurrentUser
-                        ? {
-                            selectedSkill = skill
-
-                            DispatchQueue.main.async {
-                                showDeletePopup = true
-                            }
-                        }
-                        : nil
+                                            ? { selectedSkill = skill }
+                                            : nil
 
                     SkillRowView(
                         skill: skill,
@@ -853,7 +799,57 @@ struct SetSkillsSheet: View {
 }
 
 // MARK: - Helpers
+// MARK: - Delete Skill Confirmation (Full-Screen)
 
+struct DeleteSkillConfirmationView: View {
+    let skill: PlayerSkill
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            // Dim the entire screen behind the card
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { onCancel() }
+
+            VStack(spacing: 20) {
+                Text("Delete \(skill.name) Skill?")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                Text("Your \(skill.name) skill will be permanently deleted. You can add it again anytime.")
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                HStack(spacing: 16) {
+                    Button("No") { onCancel() }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(BrandColors.lightGray)
+                        .cornerRadius(12)
+
+                    Button("Yes") { onConfirm() }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red)
+                        .cornerRadius(12)
+                }
+            }
+            .padding(24)
+            .frame(width: 320)
+            .background(BrandColors.background)
+            .cornerRadius(20)
+            .shadow(radius: 12)
+        }
+        .presentationBackground(.clear)   // transparent sheet background (iOS 16.4+)
+    }
+}
+
+// MARK: - Helpers
 extension View {
     func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
         clipShape(RoundedCornerShape(radius: radius, corners: corners))
