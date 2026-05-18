@@ -355,7 +355,7 @@ enum RatingError: LocalizedError {
 
 // Returns (updatedTotalStars, updatedRatingCount)
 func rateSubmissionOnce(challengeId: String, submissionId: String, stars: Int) async throws -> (Int, Int) {
-    guard (1...5).contains(stars) else { throw NSError(domain: "rating", code: 0) }
+    guard (1...4).contains(stars) else { throw NSError(domain: "rating", code: 0) }
     guard let raterUid = Auth.auth().currentUser?.uid else { throw NSError(domain: "auth", code: 401) }
 
     let db = Firestore.firestore()
@@ -513,19 +513,26 @@ final class VideoThumbnailCache: ObservableObject {
 
         guard let url = URL(string: urlString) else { return nil }
 
-        do {
+        return await withCheckedContinuation { continuation in
             let asset = AVAsset(url: url)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 900, height: 900)
+            generator.maximumSize = CGSize(width: 640, height: 640)
+            generator.requestedTimeToleranceBefore = CMTime(seconds: 2, preferredTimescale: 600)
+            generator.requestedTimeToleranceAfter  = CMTime(seconds: 2, preferredTimescale: 600)
 
-            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            let ui = UIImage(cgImage: cgImage)
-            cache[urlString] = ui
-            return ui
-        } catch {
-            return nil
+            let time = CMTime(seconds: 1, preferredTimescale: 600)
+            generator.generateCGImageAsynchronously(for: time) { [weak self] cgImage, _, _ in
+                guard let self, let cgImage else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let ui = UIImage(cgImage: cgImage)
+                Task { @MainActor in
+                    self.cache[urlString] = ui
+                }
+                continuation.resume(returning: ui)
+            }
         }
     }
 }
@@ -1200,11 +1207,11 @@ struct NewChallengePage: View {
     let challenge: AppChallenge
     private let accent = BrandColors.darkTeal
 
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
 
     @StateObject private var subService = SubmissionService()
     @StateObject private var uploader = ChallengeUploader()
-    @StateObject private var roleResolver = RoleResolver()
 
     @State private var pickedItem: PhotosPickerItem?
     @State private var showPicker = false
@@ -1217,6 +1224,10 @@ struct NewChallengePage: View {
 
     @State private var submissionFilter: SubmissionFilter = .all
 
+    // Derived directly from session — no Firestore needed
+    private var isPlayer: Bool { session.role?.lowercased() == "player" }
+    private var isCoach: Bool  { session.role?.lowercased() == "coach" }
+
     var body: some View {
         ZStack {
             BrandColors.backgroundGradientEnd.ignoresSafeArea()
@@ -1228,12 +1239,11 @@ struct NewChallengePage: View {
                         .foregroundColor(accent)
                         .padding(.top, 8)
 
-                    // ✨ NEW: Only show upload if challenge is Current AND user is player
                     let canShowUpload = (
                         !session.isGuest &&
-                        roleResolver.isPlayer &&
-                        !roleResolver.isCoach &&
-                        challenge.isCurrent  // ✨ Must be Current, not Upcoming
+                        isPlayer &&
+                        !isCoach &&
+                        challenge.isCurrent
                     )
 
                     ChallengeInfoCard(
@@ -1252,8 +1262,8 @@ struct NewChallengePage: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 4)
 
-                    // Hide "All Submissions / My Submission" filter from coaches
-                    if !roleResolver.isCoach {
+                    // Hide "All Submissions / My Submission" filter from coaches and guests
+                    if !isCoach && !session.isGuest {
                         SubmissionFilterPills(selected: $submissionFilter)
                             .padding(.top, 2)
                     }
@@ -1294,8 +1304,9 @@ struct NewChallengePage: View {
                                         challengeId: challenge.id,
                                         submission: sub,
                                         pinnedRank: pinnedRankFor(subId: sub.id, top3: subService.top3),
-                                        isPlayer: roleResolver.isPlayer,
-                                        isCoach: roleResolver.isCoach,
+                                        isPlayer: isPlayer,
+                                        isCoach: isCoach,
+                                        roleLoaded: true,
                                         onActionNotAllowed: { msg in
                                             presentActionPopup(msg)
                                         }
@@ -1324,7 +1335,6 @@ struct NewChallengePage: View {
         .onAppear {
             subService.listenAll(challengeId: challenge.id)
             subService.listenTop3(challengeId: challenge.id)
-            Task { await roleResolver.loadRoleIfPossible() }
         }
         .onDisappear { subService.stop() }
 
@@ -1348,6 +1358,19 @@ struct NewChallengePage: View {
         }
 
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func presentActionPopup(_ message: String) {
@@ -1356,7 +1379,7 @@ struct NewChallengePage: View {
     }
 
     private func handleUploadTap() {
-        if session.isGuest || roleResolver.isCoach || !roleResolver.isPlayer {
+        if session.isGuest || isCoach || !isPlayer {
             presentActionPopup("You must be signed in and be a player to perform this action.")
             return
         }
@@ -1393,13 +1416,16 @@ struct PastChallengePage: View {
     let challenge: AppChallenge
     private let accent = BrandColors.darkTeal
 
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
 
     @StateObject private var subService = SubmissionService()
-    @StateObject private var roleResolver = RoleResolver()
 
     @State private var showActionPopup = false
     @State private var actionPopupMessage = ""
+
+    private var isPlayer: Bool { session.role?.lowercased() == "player" }
+    private var isCoach: Bool  { session.role?.lowercased() == "coach" }
 
     var body: some View {
         ZStack {
@@ -1439,9 +1465,10 @@ struct PastChallengePage: View {
                                     challengeId: challenge.id,
                                     submission: submission,
                                     pinnedRank: index + 1,
-                                    isPlayer: roleResolver.isPlayer,
-                                    isCoach: roleResolver.isCoach,
+                                    isPlayer: isPlayer,
+                                    isCoach: isCoach,
                                     isChallengePast: true,
+                                    roleLoaded: true,
                                     onActionNotAllowed: { msg in
                                         presentActionPopup(msg)
                                     }
@@ -1468,10 +1495,22 @@ struct PastChallengePage: View {
         }
         .onAppear {
             subService.listenTop3(challengeId: challenge.id)
-            Task { await roleResolver.loadRoleIfPossible() }
         }
         .onDisappear { subService.stop() }
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func presentActionPopup(_ message: String) {
@@ -1705,6 +1744,7 @@ private struct SubmissionCard: View {
     let isPlayer: Bool
     let isCoach: Bool
     var isChallengePast: Bool = false
+    var roleLoaded: Bool = true   // ← NEW: default true for backward compat
 
     let onActionNotAllowed: (String) -> Void
 
@@ -1813,11 +1853,12 @@ private struct SubmissionCard: View {
                 VideoThumbnailView(urlString: submission.videoURL)
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle().size(CGSize(width: UIScreen.main.bounds.width, height: 210)))
             .sheet(isPresented: $showPlayer) {
                 VideoSheet(urlString: submission.videoURL)
             }
 
-            if isChallengePast || !canEvaluate || isEvaluated {
+            if isChallengePast || isEvaluated || !canEvaluate {
                 HStack(spacing: 8) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 16, weight: .bold))
@@ -1832,7 +1873,7 @@ private struct SubmissionCard: View {
                     StarPicker(
                         selected: $selectedStars,
                         locked: busy,
-                        canInteract: canEvaluate,
+                        canInteract: true,
                         onBlockedTap: { onActionNotAllowed("You must be signed in and be a player to perform this action.") }
                     )
                     Spacer()
@@ -1889,6 +1930,7 @@ private struct SubmissionCard: View {
     }
 
     private var canDelete: Bool {
+        guard roleLoaded else { return false }
         guard !session.isGuest else { return false }
         guard isPlayer, !isCoach else { return false }
         guard let currentUid = Auth.auth().currentUser?.uid else { return false }
@@ -1896,9 +1938,11 @@ private struct SubmissionCard: View {
     }
 
     private var canEvaluate: Bool {
-        if session.isGuest { return false }
-        if isCoach { return false }
-        if !isPlayer { return false }
+        guard !session.isGuest else { return false }
+        guard let currentUid = Auth.auth().currentUser?.uid else { return false }
+        if roleLoaded {
+            guard isPlayer, !isCoach else { return false }
+        }
         return true
     }
 
@@ -2013,18 +2057,18 @@ private struct StarPicker: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(1...5, id: \.self) { i in
-                Button {
-                    guard !locked else { return }
-                    guard canInteract else { onBlockedTap(); return }
-                    selected = i
-                } label: {
-                    Image(systemName: i <= selected ? "star.fill" : "star")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(i <= selected ? .yellow : .gray.opacity(0.55))
-                        .opacity(locked ? 0.7 : 1)
-                }
-                .buttonStyle(.plain)
+            ForEach(1...4, id: \.self) { i in
+                Image(systemName: i <= selected ? "star.fill" : "star")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(i <= selected ? .yellow : .gray.opacity(0.55))
+                    .opacity(locked ? 0.7 : 1)
+                    .frame(width: 36, height: 36)   // larger tap target
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !locked else { return }
+                        guard canInteract else { onBlockedTap(); return }
+                        selected = i
+                    }
             }
         }
     }
