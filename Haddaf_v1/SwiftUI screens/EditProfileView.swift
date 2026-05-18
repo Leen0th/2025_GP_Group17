@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
@@ -34,7 +33,8 @@ struct EditProfileView: View {
     @State private var showPositionPicker = false
     @State private var showLocationPicker = false
     @State private var locationSearch = ""
-    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showUIImagePicker = false
+    @State private var imagePickerSource: UIImagePickerController.SourceType = .photoLibrary
     
     // MARK: - Age Warning State
     @State private var ageWarning: String? = nil
@@ -331,13 +331,11 @@ struct EditProfileView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showDOBPicker)
         .animation(.easeInOut(duration: 0.25), value: showLocationPicker)
         .navigationBarBackButtonHidden(true)
-        .onChange(of: selectedPhotoItem) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let newImage = UIImage(data: data) {
-                    await MainActor.run { self.profileImage = newImage }
-                }
+        .fullScreenCover(isPresented: $showUIImagePicker) {
+            UIImagePickerWrapper(sourceType: imagePickerSource) { image in
+                self.profileImage = image
             }
+            .ignoresSafeArea()
         }
         .onDisappear {
             verifyTask?.cancel()
@@ -379,7 +377,10 @@ struct EditProfileView: View {
                 .foregroundColor(.gray.opacity(0.5))
             
             HStack(spacing: 20) {
-                PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                Button {
+                    imagePickerSource = .photoLibrary
+                    showUIImagePicker = true
+                } label: {
                     Text("Change Picture")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(primary)
@@ -387,7 +388,7 @@ struct EditProfileView: View {
                 
                 if profileImage != nil {
                     Button(role: .destructive) {
-                        withAnimation { self.profileImage = nil; self.selectedPhotoItem = nil }
+                        withAnimation { self.profileImage = nil }
                     } label: {
                         Text("Remove Picture")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
