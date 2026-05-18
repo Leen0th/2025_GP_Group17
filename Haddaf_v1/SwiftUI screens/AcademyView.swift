@@ -592,7 +592,11 @@ struct AcademyGridCard: View {
             AcademyLogoView(logoURL: academy.logoURL, size: 60)
             Text(academy.name)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(accent).lineLimit(2).multilineTextAlignment(.center)
+                .foregroundColor(accent)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
+            Spacer(minLength: 0)
             if !academy.city.isEmpty {
                 HStack(spacing: 3) {
                     Image(systemName: "mappin.circle.fill")
@@ -610,7 +614,8 @@ struct AcademyGridCard: View {
                 }
             }
         }
-        .padding(14).frame(maxWidth: .infinity)
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 160)
         .background(RoundedRectangle(cornerRadius: 18).fill(BrandColors.background)
             .shadow(color: .black.opacity(0.07), radius: 8, y: 4))
     }
