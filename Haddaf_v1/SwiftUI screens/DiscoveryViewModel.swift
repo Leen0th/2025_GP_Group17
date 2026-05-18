@@ -58,59 +58,11 @@ final class DiscoveryViewModel: ObservableObject {
                 guard let self = self else { return }
 
                 Task {
-                    // Asynchronously map each Firestore document to a `Post` model
+                    // Use the shared canonical factory so Discovery and Profile
+                    // always map identical fields — including postScore and positionAtUpload.
+                    let uid = Auth.auth().currentUser?.uid ?? ""
                     let mappedPosts: [Post] = docs.compactMap { doc in
-                        let d = doc.data()
-                        var postStats: [PostStat] = []
-                        // A helper to safely convert Firestore's `Any` (which could be `Int` or `Double`) to `Double`
-                        func toDouble(_ val: Any?) -> Double? {
-                            return val as? Double ?? (val as? Int).map(Double.init)
-                        }
-                        
-                        if let feedbackMap = d["performanceFeedback"] as? [String: Any] {
-                            postStats = feedbackMap.compactMap { (key, anyValue) in
-                                guard let value = toDouble(anyValue) else { return nil }
-                                return PostStat(
-                                    label: key.uppercased(),
-                                    value: value,
-                                    maxValue: 10.0
-                                )
-                            }.sorted { $0.label < $1.label }
-                        } else if let feedbackArray = d["performanceFeedback"] as? [[String: Any]] {
-                            postStats = feedbackArray.compactMap { dict in
-                                guard let label = dict["label"] as? String,
-                                      let value = toDouble(dict["value"]) else { return nil }
-                                let maxValue = toDouble(dict["maxValue"]) ?? 10.0
-                                return PostStat(label: label, value: value, maxValue: maxValue)
-                            }
-                        }
-
-                        let likedBy = (d["likedBy"] as? [String]) ?? []
-                        let uid = Auth.auth().currentUser?.uid ?? ""
-                        let matchDateTimestamp = d["matchDate"] as? Timestamp
-                        let matchDate: Date? = matchDateTimestamp?.dateValue()
-                        
-                        // Extracts the author's UID from the `DocumentReference`
-                        let authorIdRef = d["authorId"] as? DocumentReference
-                        let authorUid = authorIdRef?.documentID ?? ""
-
-                        return Post(
-                            authorUid: authorUid,
-                            id: doc.documentID,
-                            imageName: (d["thumbnailURL"] as? String) ?? "",
-                            videoURL: (d["url"] as? String) ?? "",
-                            caption: (d["caption"] as? String) ?? "",
-                            timestamp: self.df.string(from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()),
-                            isPrivate: !((d["visibility"] as? Bool) ?? true),
-                            authorName: (d["authorUsername"] as? String) ?? "",
-                            authorImageName: (d["profilePic"] as? String) ?? "",
-                            likeCount: (d["likeCount"] as? Int) ?? 0,
-                            commentCount: (d["commentCount"] as? Int) ?? 0,
-                            likedBy: likedBy,
-                            isLikedByUser: likedBy.contains(uid), // Check if current user liked it
-                            stats: postStats,
-                            matchDate: matchDate
-                        )
+                        Post.from(document: doc, currentUserUID: uid, dateFormatter: self.df)
                     }
                     
                     // Gathers all unique author UIDs from the newly fetched posts
@@ -264,10 +216,16 @@ final class DiscoveryViewModel: ObservableObject {
             try await db.collection("videoPosts").document(postId).updateData([
                 "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
             ])
-            // 3. Sync State: Notify other parts of the app
-            var userInfo: [String: Any] = ["postId": postId]
+            // 3. Sync State: Notify other parts of the app.
+            // NOTE: Use two separate typed keys instead of a tuple — Swift tuples
+            // stored as Any in [String: Any] cannot be reliably cast back at runtime,
+            // which silently drops the isLikedByUser update in other screens.
             let newLikeCount = post.likeCount + Int(delta)
-            userInfo["likeUpdate"] = (isLiking, newLikeCount)
+            let userInfo: [String: Any] = [
+                "postId": postId,
+                "likeIsLiked": isLiking,
+                "likeCount": newLikeCount
+            ]
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
 
         } catch {
@@ -300,8 +258,9 @@ final class DiscoveryViewModel: ObservableObject {
             return // This post isn't in our list
         }
         
-        // Check for like updates
-        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+        // Check for like updates — read the two separate typed keys
+        if let isLiked = userInfo["likeIsLiked"] as? Bool,
+           let likeCount = userInfo["likeCount"] as? Int {
             self.posts[index].isLikedByUser = isLiked
             self.posts[index].likeCount = likeCount
         }

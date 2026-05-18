@@ -199,7 +199,8 @@ struct PostDetailView: View {
             if userInfo["commentDeleted"] as? Bool == true {
                 post.commentCount = max(0, post.commentCount - 1)
             }
-            if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+            if let isLiked = userInfo["likeIsLiked"] as? Bool,
+               let likeCount = userInfo["likeCount"] as? Int {
                 post.isLikedByUser = isLiked
                 post.likeCount = likeCount
             }
@@ -715,8 +716,13 @@ struct PostDetailView: View {
                 "likeCount": FieldValue.increment(delta), "likedBy": firestoreAction
             ])
             // Build a userInfo dictionary to broadcast the new like state.
-            var userInfo: [String: Any] = ["postId": postId]
-            userInfo["likeUpdate"] = (isLiking, post.likeCount)
+            // NOTE: Use two separate typed keys — Swift tuples stored as Any
+            // in [String: Any] cannot be reliably cast back at runtime.
+            let userInfo: [String: Any] = [
+                "postId": postId,
+                "likeIsLiked": isLiking,
+                "likeCount": post.likeCount
+            ]
             // Post a notification so other views can update their UI.
             NotificationCenter.default.post(name: .postDataUpdated, object: nil, userInfo: userInfo)
         } catch {

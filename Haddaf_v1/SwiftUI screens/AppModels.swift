@@ -168,6 +168,80 @@ struct Post: Identifiable, Equatable {
     var positionAtUpload: String = ""
 }
 
+// MARK: - Firestore → Post Mapping (Single Source of Truth)
+//
+// Every ViewModel that reads `videoPosts` must use this factory.
+// Adding or renaming a Firestore field only requires a change here —
+// all screens automatically get the same data.
+extension Post {
+
+    /// Maps a Firestore `QueryDocumentSnapshot` to a `Post`.
+    /// - Parameters:
+    ///   - doc: The Firestore document to map.
+    ///   - uid: The currently logged-in user's UID, used to compute `isLikedByUser`.
+    ///   - df: A pre-configured `DateFormatter` (format: "dd/MM/yyyy HH:mm").
+    /// - Returns: A fully populated `Post`, or `nil` if the document is malformed.
+    static func from(
+        document doc: QueryDocumentSnapshot,
+        currentUserUID uid: String,
+        dateFormatter df: DateFormatter
+    ) -> Post? {
+        let d = doc.data()
+
+        // Helper: Firestore may store numeric values as Int or Double
+        func toDouble(_ val: Any?) -> Double? {
+            return val as? Double ?? (val as? Int).map(Double.init)
+        }
+
+        // Map performanceFeedback — supports both map and array formats
+        var postStats: [PostStat] = []
+        if let feedbackMap = d["performanceFeedback"] as? [String: Any] {
+            postStats = feedbackMap.compactMap { key, anyValue in
+                guard let value = toDouble(anyValue) else { return nil }
+                return PostStat(label: key.uppercased(), value: value, maxValue: 10.0)
+            }.sorted { $0.label < $1.label }
+        } else if let feedbackArray = d["performanceFeedback"] as? [[String: Any]] {
+            postStats = feedbackArray.compactMap { dict in
+                guard let label = dict["label"] as? String,
+                      let value = toDouble(dict["value"]) else { return nil }
+                let maxValue = toDouble(dict["maxValue"]) ?? 10.0
+                return PostStat(label: label, value: value, maxValue: maxValue)
+            }
+        }
+
+        let likedBy   = (d["likedBy"] as? [String]) ?? []
+        let authorUid = (d["authorId"] as? DocumentReference)?.documentID ?? ""
+
+        return Post(
+            authorUid:        authorUid,
+            id:               doc.documentID,
+            imageName:        (d["thumbnailURL"]     as? String)    ?? "",
+            videoURL:         (d["url"]              as? String)    ?? "",
+            caption:          (d["caption"]          as? String)    ?? "",
+            timestamp:        df.string(from: (d["uploadDateTime"] as? Timestamp)?.dateValue() ?? Date()),
+            isPrivate:       !((d["visibility"]      as? Bool)      ?? true),
+            authorName:       (d["authorUsername"]   as? String)    ?? "",
+            authorImageName:  (d["profilePic"]       as? String)    ?? "",
+            likeCount:        (d["likeCount"]        as? Int)       ?? 0,
+            commentCount:     (d["commentCount"]     as? Int)       ?? 0,
+            likedBy:          likedBy,
+            isLikedByUser:    likedBy.contains(uid),
+            stats:            postStats,
+            matchDate:        (d["matchDate"]        as? Timestamp)?.dateValue(),
+            postScore:        toDouble(d["postScore"])               ?? 0.0,
+            positionAtUpload: (d["positionAtUpload"] as? String)    ?? ""
+        )
+    }
+}
+
+// MARK: - Identifiable wrapper for selected post ID
+// Used by PlayerProfileContentView's fullScreenCover(item:) to avoid
+// passing a value-type Post snapshot. String doesn't conform to Identifiable
+// in SwiftUI's fullScreenCover, so we wrap it.
+struct SelectedPostID: Identifiable {
+    let id: String
+}
+
 // MARK: - Enums
 
 // Represents the different tabs that can be displayed on a user's profile
@@ -553,4 +627,3 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
     }
 }
-

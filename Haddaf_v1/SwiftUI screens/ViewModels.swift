@@ -305,9 +305,12 @@ final class PlayerProfileViewModel: ObservableObject {
                       
 
                         let likedBy = (d["likedBy"] as? [String]) ?? []
-                        
-                      
-                        let currentUserID = self.uidToFetch ?? ""
+
+                        // FIXED: Always use the logged-in viewer's UID — NOT uidToFetch.
+                        // uidToFetch is the profile owner's UID, so when viewing someone
+                        // else's profile it would check if *they* liked their own post,
+                        // making isLikedByUser always wrong for the actual viewer.
+                        let currentUserID = Auth.auth().currentUser?.uid ?? ""
                         
                         let matchDateTimestamp = d["matchDate"] as? Timestamp
                         let matchDate: Date? = matchDateTimestamp?.dateValue()
@@ -370,8 +373,10 @@ final class PlayerProfileViewModel: ObservableObject {
             self.posts[index].commentCount = max(0, self.posts[index].commentCount - 1)
         }
         
-        // Check for like updates
-        if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+        // Check for like updates — read two separate typed keys (tuples stored as
+        // Any in [String: Any] cannot be reliably cast back at runtime)
+        if let isLiked = userInfo["likeIsLiked"] as? Bool,
+           let likeCount = userInfo["likeCount"] as? Int {
             self.posts[index].isLikedByUser = isLiked
             self.posts[index].likeCount = likeCount
         }

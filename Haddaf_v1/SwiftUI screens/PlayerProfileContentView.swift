@@ -40,8 +40,11 @@ struct PlayerProfileContentView: View {
     @State private var showDeleteAlert = false
     // Stores the post that is pending deletion
     @State private var postToDelete: Post? = nil
-    // Stores the post that was tapped, triggering the `PostDetailView` full-screen cover
-    @State private var selectedPost: Post? = nil
+    // Stores the ID of the tapped post.
+    // We store only the ID (not the Post struct) so that the fullScreenCover
+    // always resolves against the LIVE viewModel.posts array at presentation time,
+    // preventing a stale like/comment state from being passed to PostDetailView.
+    @State private var selectedPostID: SelectedPostID? = nil
     // Controls the presentation of the `SettingsView` full-screen cover
     @State private var goToSettings = false
     // Controls the presentation of the `ProfileNotificationsListView` full-screen cover
@@ -344,8 +347,9 @@ struct PlayerProfileContentView: View {
                       let postId = userInfo["postId"] as? String else { return }
 
                 if let index = viewModel.posts.firstIndex(where: { $0.id == postId }) {
-                    // Sync like state
-                    if let (isLiked, likeCount) = userInfo["likeUpdate"] as? (Bool, Int) {
+                    // Sync like state — read the two separate typed keys
+                    if let isLiked = userInfo["likeIsLiked"] as? Bool,
+                       let likeCount = userInfo["likeCount"] as? Int {
                         withAnimation {
                             viewModel.posts[index].isLikedByUser = isLiked
                             viewModel.posts[index].likeCount = likeCount
@@ -417,10 +421,19 @@ struct PlayerProfileContentView: View {
                 .presentationBackground(BrandColors.background)
             }
             // --- Open Post Detail view ---
-            .fullScreenCover(item: $selectedPost) { post in
-                NavigationStack {
-                    PostDetailView(post: post, showAuthSheet: $showAuthSheet, isAdminViewing: session.isAdmin)
-                        .environmentObject(session)
+            // We resolve the post from the live viewModel.posts array (by ID) at
+            // presentation time rather than passing a captured value-type snapshot.
+            // This guarantees PostDetailView always opens with the current like state
+            // and all fields (postScore, positionAtUpload, etc.) regardless of any
+            // updates that occurred between the last feed refresh and the tap.
+            .fullScreenCover(item: $selectedPostID) { selected in
+                // Look up the most up-to-date copy from the live array.
+                if let livePost = viewModel.posts.first(where: { $0.id == selected.id })
+                    ?? filteredAndSortedPosts.first(where: { $0.id == selected.id }) {
+                    NavigationStack {
+                        PostDetailView(post: livePost, showAuthSheet: $showAuthSheet, isAdminViewing: session.isAdmin)
+                            .environmentObject(session)
+                    }
                 }
             }
             // Open Report view
@@ -533,7 +546,7 @@ struct PlayerProfileContentView: View {
     private var postsGrid: some View {
         LazyVGrid(columns: postColumns, spacing: 2) {
             ForEach(filteredAndSortedPosts) { post in
-                Button { selectedPost = post } label: {
+                Button { selectedPostID = post.id.map { SelectedPostID(id: $0) } } label: {
                     ZStack(alignment: .bottomLeading) {
                         // Thumbnail image
                         AsyncImage(url: URL(string: post.imageName)) { $0.resizable().aspectRatio(1, contentMode: .fill) }
