@@ -14,6 +14,13 @@ final class MatchOpportunitiesViewModel: ObservableObject {
     @Published var searchLocation = ""
     @Published var selectedPositionFilter: MatchPosition? = nil
     @Published var selectedDate: Date? = nil
+    @Published var selectedJoinFilter: MatchJoinFilter? = nil   // nil = All
+
+    enum MatchJoinFilter: String, CaseIterable, Identifiable {
+        case joined      = "Joined"
+        case organized   = "Organized"
+        var id: String { rawValue }
+    }
 
     private let db = Firestore.firestore()
     private var matchListener: ListenerRegistration?
@@ -112,7 +119,7 @@ final class MatchOpportunitiesViewModel: ObservableObject {
         approvedRequests[matchId] ?? []
     }
 
-    var filteredMatches: [MatchOpportunity] {
+    func filteredMatches(currentUserId: String) -> [MatchOpportunity] {
         var result = matches.filter { $0.status != .cancelled }
 
         let trimmedLocation = searchLocation.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,6 +141,20 @@ final class MatchOpportunitiesViewModel: ObservableObject {
             }
         }
 
+        switch selectedJoinFilter {
+        case .joined:
+            result = result.filter { myRequests[$0.id]?.status == .approved }
+        case .organized:
+            result = result.filter { $0.createdBy == currentUserId }
+        case .none:
+            break
+        }
+
         return result
+    }
+
+    // Keep old var for backward compat — calls new func with empty string (no join filter applied)
+    var filteredMatches: [MatchOpportunity] {
+        filteredMatches(currentUserId: "")
     }
 }

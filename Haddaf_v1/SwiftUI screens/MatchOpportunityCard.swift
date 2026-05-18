@@ -305,18 +305,19 @@ struct MatchOpportunityCard: View {
 
     // MARK: - Positions Grid
     private var positionsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+        let isNonPlayer = session.isGuest || session.role == "coach"
+        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
             ForEach(MatchPosition.allCases) { position in
                 PositionCell(
                     position: position,
                     open: match.availableCount(for: position),
                     total: match.totalCount(for: position),
                     isSelected: selectedPosition == position,
-                    isOrganizer: isOrganizer,
+                    isOrganizer: isOrganizer || isNonPlayer,
                     isPendingOrApproved: myRequest?.status == .pending || myRequest?.status == .approved,
                     accent: accent
                 ) {
-                    guard !isOrganizer, match.availableCount(for: position) > 0 else { return }
+                    guard !isOrganizer, !isNonPlayer, match.availableCount(for: position) > 0 else { return }
                     selectedPosition = position
                 }
             }

@@ -489,30 +489,32 @@ struct AcademyView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
 
-                    // ── Add Match Button (أول عنصر في القائمة) ──
-                    Button { showCreateMatchSheet = true } label: {
-                        HStack(spacing: 10) {
-                            Text("Add Match")
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .semibold))
+                    // ── Add Match Button (مخفي للـ guest) ──
+                    if !session.isGuest {
+                        Button { showCreateMatchSheet = true } label: {
+                            HStack(spacing: 10) {
+                                Text("Add Match")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                Image(systemName: "plus")
+                                    .font(.system(size: 16, weight: .semibold))
+                            }
+                            .foregroundColor(accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 18)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .fill(Color.white)
+                                    .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .stroke(accent.opacity(0.12), lineWidth: 1)
+                                    )
+                            )
                         }
-                        .foregroundColor(accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18)
-                                .fill(Color.white)
-                                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18)
-                                        .stroke(accent.opacity(0.12), lineWidth: 1)
-                                )
-                        )
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
 
                     if matchVM.isLoading {
                         ProgressView().tint(accent).padding(.top, 40)
@@ -556,7 +558,9 @@ struct AcademyView: View {
                 selectedPosition: $matchVM.selectedPositionFilter,
                 selectedDate: $matchVM.selectedDate,
                 selectedMatchFilter: $selectedMatchFilter,
-                accent: accent
+                accent: accent,
+                userRole: session.role ?? "player",
+                isGuest: session.isGuest
             )
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
@@ -1993,9 +1997,25 @@ struct MatchFilterSheet: View {
     @Binding var selectedDate: Date?
     @Binding var selectedMatchFilter: MatchFilter
     let accent: Color
+    var userRole: String = "player"
+    var isGuest: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var showDatePicker = false
+
+    private var availableStatusFilters: [MatchFilter] {
+        if isGuest {
+            return [.all, .open, .closed]
+        } else if userRole == "coach" {
+            return [.all, .open, .closed, .myMatches]
+        } else {
+            return MatchFilter.allCases
+        }
+    }
+
+    private var showPositionSection: Bool {
+        !isGuest && userRole != "coach"
+    }
 
     var body: some View {
         NavigationStack {
@@ -2010,7 +2030,7 @@ struct MatchFilterSheet: View {
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(MatchFilter.allCases) { filter in
+                            ForEach(availableStatusFilters) { filter in
                                 Button {
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         selectedMatchFilter = filter
@@ -2032,20 +2052,22 @@ struct MatchFilterSheet: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Position")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
+                if showPositionSection {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Position")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            positionChip(label: "Any", isSelected: selectedPosition == nil) {
-                                selectedPosition = nil
-                            }
-                            ForEach(MatchPosition.allCases) { pos in
-                                positionChip(label: pos.title, isSelected: selectedPosition == pos) {
-                                    selectedPosition = pos
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                positionChip(label: "Any", isSelected: selectedPosition == nil) {
+                                    selectedPosition = nil
+                                }
+                                ForEach(MatchPosition.allCases) { pos in
+                                    positionChip(label: pos.title, isSelected: selectedPosition == pos) {
+                                        selectedPosition = pos
+                                    }
                                 }
                             }
                         }

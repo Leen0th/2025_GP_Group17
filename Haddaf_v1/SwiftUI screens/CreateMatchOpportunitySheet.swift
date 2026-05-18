@@ -33,8 +33,13 @@ struct CreateMatchOpportunitySheet: View {
                 VStack(alignment: .leading, spacing: 20) {
 
                     // ✅ Match Title
-                    Text("Match Title")
-                        .font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 3) {
+                        Text("Match Title")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("*")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.red)
+                    }
 
                     VStack(alignment: .trailing, spacing: 4) {
                         TextField("e.g. Friday Evening 5-a-side", text: $matchTitle)
