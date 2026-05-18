@@ -4673,11 +4673,27 @@ private struct AdminCreateMonthlyChallengeSheet: View {
             let startAt = firstDayOfMonth(year: selectedYear, month: selectedMonth)
             let endAt = lastDayOfMonth(year: selectedYear, month: selectedMonth)
 
+            // ✅ Prevent adding a challenge in a past month
+            let now = Date()
+            let cal = Calendar.current
+            let currentYear = cal.component(.year, from: now)
+            let currentMonth = cal.component(.month, from: now)
+            let isPast = (selectedYear < currentYear) ||
+                         (selectedYear == currentYear && selectedMonth < currentMonth)
+            if isPast {
+                await MainActor.run {
+                    uploading = false
+                    alertMsg = "You can't add a challenge for a past month. Please select the current month or a future month."
+                    showAlert = true
+                }
+                return
+            }
+
             let exists = try await monthAlreadyHasChallenge(yearMonth: ym, excludeId: nil)
             if exists {
                 await MainActor.run {
                     uploading = false
-                    alertMsg = "Only one monthly challenge is allowed per month. This month already has a challenge."
+                    alertMsg = "You can't add two challenges in the same month. This month already has a challenge."
                     showAlert = true
                 }
                 return
@@ -4701,11 +4717,9 @@ private struct AdminCreateMonthlyChallengeSheet: View {
                 .collection("challenges")
                 .addDocument(data: data)
 
-            // ✨ Send notification ONLY if challenge is Current
             // ✨ Send notification ONLY if challenge is Current (not Upcoming, not Past)
             let challengeId = docRef.documentID
             let challengeMonth = startAt.formatted(.dateTime.month(.wide))
-            let now = Date()
 
             // Check if challenge is Current: started AND not ended
             let isCurrent = now >= startAt && now < endAt
@@ -4756,13 +4770,31 @@ private struct AdminCreateMonthlyChallengeSheet: View {
 
     private func monthAlreadyHasChallenge(yearMonth: String, excludeId: String?) async throws -> Bool {
         let db = Firestore.firestore()
-        var q = db.collection("challenges").whereField("yearMonth", isEqualTo: yearMonth)
-        let snap = try await q.getDocuments()
-        if let excludeId {
-            return snap.documents.contains(where: { $0.documentID != excludeId })
-        } else {
-            return !snap.documents.isEmpty
-        }
+
+        // Primary check: query by yearMonth field
+        let snapYM = try await db.collection("challenges")
+            .whereField("yearMonth", isEqualTo: yearMonth)
+            .getDocuments()
+        let matchByYM = excludeId != nil
+            ? snapYM.documents.contains(where: { $0.documentID != excludeId })
+            : !snapYM.documents.isEmpty
+        if matchByYM { return true }
+
+        // Fallback check: by startAt date range (covers docs without yearMonth field)
+        let parts = yearMonth.split(separator: "-")
+        guard parts.count == 2,
+              let y = Int(parts[0]),
+              let m = Int(parts[1]) else { return false }
+        let monthStart = firstDayOfMonth(year: y, month: m)
+        let monthEnd   = lastDayOfMonth(year: y, month: m)
+
+        let snapDate = try await db.collection("challenges")
+            .whereField("startAt", isGreaterThanOrEqualTo: Timestamp(date: monthStart))
+            .whereField("startAt", isLessThanOrEqualTo: Timestamp(date: monthEnd))
+            .getDocuments()
+        return excludeId != nil
+            ? snapDate.documents.contains(where: { $0.documentID != excludeId })
+            : !snapDate.documents.isEmpty
     }
 
     private func uploadChallengeImage(_ image: UIImage) async throws -> String {
@@ -5165,11 +5197,27 @@ private struct AdminEditMonthlyChallengeSheet: View {
             let startAt = firstDayOfMonth(year: selectedYear, month: selectedMonth)
             let endAt = lastDayOfMonth(year: selectedYear, month: selectedMonth)
 
+            // ✅ Prevent editing a challenge to a past month
+            let nowEdit = Date()
+            let calEdit = Calendar.current
+            let curYearEdit = calEdit.component(.year, from: nowEdit)
+            let curMonthEdit = calEdit.component(.month, from: nowEdit)
+            let isPastEdit = (selectedYear < curYearEdit) ||
+                             (selectedYear == curYearEdit && selectedMonth < curMonthEdit)
+            if isPastEdit {
+                await MainActor.run {
+                    saving = false
+                    alertMsg = "You can't set a challenge to a past month. Please select the current month or a future month."
+                    showAlert = true
+                }
+                return
+            }
+
             let exists = try await monthAlreadyHasChallenge(yearMonth: ym, excludeId: challenge.id)
             if exists {
                 await MainActor.run {
                     saving = false
-                    alertMsg = "Only one monthly challenge is allowed per month. This month already has a challenge."
+                    alertMsg = "You can't add two challenges in the same month. This month already has a challenge."
                     showAlert = true
                 }
                 return
@@ -5210,15 +5258,31 @@ private struct AdminEditMonthlyChallengeSheet: View {
 
     private func monthAlreadyHasChallenge(yearMonth: String, excludeId: String?) async throws -> Bool {
         let db = Firestore.firestore()
-        let snap = try await db.collection("challenges")
+
+        // Primary check: query by yearMonth field
+        let snapYM = try await db.collection("challenges")
             .whereField("yearMonth", isEqualTo: yearMonth)
             .getDocuments()
+        let matchByYM = excludeId != nil
+            ? snapYM.documents.contains(where: { $0.documentID != excludeId })
+            : !snapYM.documents.isEmpty
+        if matchByYM { return true }
 
-        if let excludeId {
-            return snap.documents.contains(where: { $0.documentID != excludeId })
-        } else {
-            return !snap.documents.isEmpty
-        }
+        // Fallback check: by startAt date range (covers docs without yearMonth field)
+        let parts = yearMonth.split(separator: "-")
+        guard parts.count == 2,
+              let y = Int(parts[0]),
+              let m = Int(parts[1]) else { return false }
+        let monthStart = firstDayOfMonth(year: y, month: m)
+        let monthEnd   = lastDayOfMonth(year: y, month: m)
+
+        let snapDate = try await db.collection("challenges")
+            .whereField("startAt", isGreaterThanOrEqualTo: Timestamp(date: monthStart))
+            .whereField("startAt", isLessThanOrEqualTo: Timestamp(date: monthEnd))
+            .getDocuments()
+        return excludeId != nil
+            ? snapDate.documents.contains(where: { $0.documentID != excludeId })
+            : !snapDate.documents.isEmpty
     }
 
     private func uploadChallengeImage(_ image: UIImage) async throws -> String {
@@ -5342,6 +5406,18 @@ private struct AdminMonthYearPickerSheet: View {
     let maxYear: Int
     var onDone: () -> Void
 
+    private let now = Date()
+    private var currentYear: Int { Calendar.current.component(.year, from: now) }
+    private var currentMonth: Int { Calendar.current.component(.month, from: now) }
+
+    /// Returns true if the given month+year combination is in the past
+    private func isPast(y: Int, m: Int) -> Bool {
+        return y < currentYear || (y == currentYear && m < currentMonth)
+    }
+
+    /// The effective minimum year (never before today's year)
+    private var effectiveMinYear: Int { max(minYear, currentYear) }
+
     var body: some View {
         VStack(spacing: 20) {
             Text("Select Month & Year")
@@ -5350,25 +5426,38 @@ private struct AdminMonthYearPickerSheet: View {
                 .padding(.top, 20)
 
             HStack(spacing: 0) {
-                // Month Picker
+                // Month Picker – past months shown as disabled when in current year
                 Picker("Month", selection: $month) {
                     ForEach(1...12, id: \.self) { m in
                         Text(monthName(m))
+                            .foregroundColor(isPast(y: year, m: m) ? Color.gray.opacity(0.4) : .primary)
                             .tag(m)
                     }
                 }
                 .pickerStyle(.wheel)
                 .frame(maxWidth: .infinity)
+                .onChange(of: month) { _, newMonth in
+                    // If user scrolls to a past month, snap forward to current month
+                    if isPast(y: year, m: newMonth) {
+                        month = currentMonth
+                    }
+                }
 
-                // Year Picker
+                // Year Picker – only present or future years
                 Picker("Year", selection: $year) {
-                    ForEach(minYear...maxYear, id: \.self) { y in
+                    ForEach(effectiveMinYear...maxYear, id: \.self) { y in
                         Text(String(format: "%d", y))
                             .tag(y)
                     }
                 }
                 .pickerStyle(.wheel)
                 .frame(maxWidth: .infinity)
+                .onChange(of: year) { _, newYear in
+                    // If user switches to current year and selected month is past, snap to current month
+                    if isPast(y: newYear, m: month) {
+                        month = currentMonth
+                    }
+                }
             }
             .frame(height: 180)
 
