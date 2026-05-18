@@ -16,13 +16,28 @@ class NotificationService: ObservableObject {
     private init() {}
 
     // MARK: - Check User Notification Settings
+    static func shouldSendNotificationPublic(userId: String, type: NotificationType) async -> Bool {
+        return await shouldSendNotification(userId: userId, type: type)
+    }
+
     private static func shouldSendNotification(userId: String, type: NotificationType) async -> Bool {
         do {
             let userDoc = try await Firestore.firestore().collection("users").document(userId).getDocument()
             guard let data = userDoc.data() else { return true }
             switch type {
-            case .newChallengeAvailable: return data["notif_newChallenge"] as? Bool ?? true
-            case .challengeEnded: return data["notif_challengeEnded"] as? Bool ?? true
+            // Player settings
+            case .newChallengeAvailable:
+                return data["notif_newChallenge"] as? Bool ?? true
+            case .challengeEnded:
+                return data["notif_challengeEnded"] as? Bool ?? true
+            case .academyInvitation:
+                return data["notif_academyInvitations"] as? Bool ?? true
+            // Shared (player + coach)
+            case .upcomingMatchReminder:
+                return data["notif_upcomingMatch"] as? Bool ?? true
+            // Coach settings
+            case .invitationAccepted, .invitationDeclined, .removedFromTeam:
+                return data["notif_academies"] as? Bool ?? true
             default: return true
             }
         } catch { return true }
@@ -144,6 +159,7 @@ class NotificationService: ObservableObject {
 
     // MARK: - ✨ Send Team Invitation Notification (to player)
     static func sendInvitationNotification(playerUID: String, coachUID: String, teamName: String, invitationId: String) async {
+        guard await shouldSendNotification(userId: playerUID, type: .academyInvitation) else { return }
         // Fetch coach name
         var coachName = "A coach"
         if let doc = try? await Firestore.firestore().collection("users").document(coachUID).getDocument(),
@@ -166,6 +182,7 @@ class NotificationService: ObservableObject {
 
     // MARK: - ✨ Send Invitation Response Notification (to coach)
     static func sendInvitationResponseNotification(coachUID: String, playerUID: String, teamName: String, accepted: Bool) async {
+        guard await shouldSendNotification(userId: coachUID, type: accepted ? .invitationAccepted : .invitationDeclined) else { return }
         // Fetch player name
         var playerName = "A player"
         if let doc = try? await Firestore.firestore().collection("users").document(playerUID).getDocument(),
@@ -327,6 +344,7 @@ class NotificationService: ObservableObject {
         locationName: String,
         date: Date
     ) async {
+        guard await shouldSendNotification(userId: userId, type: .upcomingMatchReminder) else { return }
         let titleDate = date.formatted(date: .abbreviated, time: .shortened)
         let notif = HaddafNotification(
             userId: userId,

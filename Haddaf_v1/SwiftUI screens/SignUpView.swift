@@ -105,6 +105,7 @@ struct SignUpView: View {
     
     // Track if user attempted to submit
     @State private var attemptedSubmit = false
+    @State private var triggerScrollToAlert = false
     
     // Password criteria
     private var pHasLen: Bool { password.count >= 8 && password.count <= 30 }
@@ -189,7 +190,8 @@ struct SignUpView: View {
     var body: some View {
         ZStack {
             bg.ignoresSafeArea()
-            ScrollView {
+            ScrollViewReader { proxy in
+                ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Sign Up")
                         .font(.system(size: 34, weight: .medium, design: .rounded))
@@ -457,6 +459,7 @@ struct SignUpView: View {
                                     .padding(.leading, 24)
                                 }
                             }
+                            .id("missingFieldsAlert")
                             .padding(14)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
@@ -470,6 +473,8 @@ struct SignUpView: View {
                             attemptedSubmit = true
                             if isFormValid {
                                 Task { await handleSignUp() }
+                            } else {
+                                triggerScrollToAlert = true
                             }
                         } label: {
                             HStack(spacing: 10) {
@@ -532,6 +537,13 @@ struct SignUpView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
+            .onChange(of: triggerScrollToAlert) { _, triggered in
+                if triggered {
+                    withAnimation { proxy.scrollTo("missingFieldsAlert", anchor: .center) }
+                    triggerScrollToAlert = false
+                }
+            }
+            } // end ScrollViewReader
             
             // Overlay verify popup
             if showVerifyPrompt {
@@ -1644,6 +1656,7 @@ struct SignUpView: View {
                         .padding(.leading, 24)
                     }
                 }
+                .id("missingFieldsAlert")
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
@@ -1657,6 +1670,8 @@ struct SignUpView: View {
                 attemptedSubmit = true
                 if isFormValid {
                     Task { await handleSignUp() }
+                } else {
+                    triggerScrollToAlert = true
                 }
             } label: {
                 HStack(spacing: 10) {

@@ -1497,7 +1497,8 @@ struct SettingsViewCoach: View {
                     }
 
                     NavigationLink {
-                        NotificationsView()
+                        NotificationSettingsView()
+                            .environmentObject(session)
                     } label: {
                         settingsRow(icon: "bell", title: "Notifications",
                                     iconColor: primary, showChevron: true, showDivider: true)

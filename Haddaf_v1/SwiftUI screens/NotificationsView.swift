@@ -626,18 +626,21 @@ struct AcademyInvitePopup: View {
                 try? await db.collection("invitations").document(invId).updateData(["status": "accepted"])
             }
 
-            // Notify coach
+            // Notify coach (respect coach's academies notification setting)
             if let uid = coachUID {
-                let displayAcademy = nameToSave.isEmpty ? "the academy" : nameToSave
-                let notif: [String: Any] = [
-                    "userId":    uid,
-                    "title":     "✅ Invitation Accepted",
-                    "message":   "\(playerName) accepted your invitation to join \(displayAcademy) — \(category).",
-                    "type":      "invitation_accepted",
-                    "isRead":    false,
-                    "createdAt": FieldValue.serverTimestamp()
-                ]
-                try? await db.collection("notifications").addDocument(data: notif)
+                let shouldSend = await NotificationService.shouldSendNotificationPublic(userId: uid, type: .invitationAccepted)
+                if shouldSend {
+                    let displayAcademy = nameToSave.isEmpty ? "the academy" : nameToSave
+                    let notif: [String: Any] = [
+                        "userId":    uid,
+                        "title":     "✅ Invitation Accepted",
+                        "message":   "\(playerName) accepted your invitation to join \(displayAcademy) — \(category).",
+                        "type":      "invitation_accepted",
+                        "isRead":    false,
+                        "createdAt": FieldValue.serverTimestamp()
+                    ]
+                    try? await db.collection("notifications").addDocument(data: notif)
+                }
             }
         } else {
             // Delete player from academy subcollection
@@ -661,22 +664,25 @@ struct AcademyInvitePopup: View {
                 "updatedAt": FieldValue.serverTimestamp()
             ])
 
-            // Notify coach
+            // Notify coach (respect coach's academies notification setting)
             if let uid = coachUID {
                 print("✅ Sending decline notification to coach: \(uid)")
-                let notif: [String: Any] = [
-                    "userId":    uid,
-                    "title":     "❌ Invitation Declined",
-                    "message":   "\(playerName) declined your invitation to join \(category) — \(academyName).",
-                    "type":      "invitation_declined",
-                    "isRead":    false,
-                    "createdAt": FieldValue.serverTimestamp()
-                ]
-                do {
-                    try await db.collection("notifications").addDocument(data: notif)
-                    print("✅ Coach notification sent")
-                } catch {
-                    print("❌ Failed to send coach notification: \(error.localizedDescription)")
+                let shouldSend = await NotificationService.shouldSendNotificationPublic(userId: uid, type: .invitationDeclined)
+                if shouldSend {
+                    let notif: [String: Any] = [
+                        "userId":    uid,
+                        "title":     "❌ Invitation Declined",
+                        "message":   "\(playerName) declined your invitation to join \(category) — \(academyName).",
+                        "type":      "invitation_declined",
+                        "isRead":    false,
+                        "createdAt": FieldValue.serverTimestamp()
+                    ]
+                    do {
+                        try await db.collection("notifications").addDocument(data: notif)
+                        print("✅ Coach notification sent")
+                    } catch {
+                        print("❌ Failed to send coach notification: \(error.localizedDescription)")
+                    }
                 }
             } else {
                 print("❌ coachUID is nil — notification not sent")
