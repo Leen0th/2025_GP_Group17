@@ -616,8 +616,10 @@ struct SetSkillsSheet: View {
     }
 
     private var canSave: Bool {
-        !selected.isEmpty ||
-        customSkills.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+        let anyAtMax = customSkills.contains(where: { $0.count >= maxLength })
+        guard !anyAtMax else { return false }
+        let hasValidCustom = customSkills.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+        return !selected.isEmpty || hasValidCustom
     }
 
     // MARK: Preset row
@@ -826,17 +828,20 @@ struct DeleteSkillConfirmationView: View {
 
                 HStack(spacing: 16) {
                     Button("No") { onCancel() }
+                        .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(BrandColors.lightGray)
                         .cornerRadius(12)
 
+                    let isOverLimit = skill.name.count > 30
                     Button("Yes") { onConfirm() }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(Color.red)
+                        .background(isOverLimit ? Color.red.opacity(0.4) : Color.red)
                         .cornerRadius(12)
+                        .disabled(isOverLimit)
                 }
             }
             .padding(24)
