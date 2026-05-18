@@ -543,7 +543,7 @@ struct AdminCoachesApprovalView: View {
             item: item,
             primary: primary,
             onApprove: {
-                Task { await approve(uid: item.uid, requestId: item.id) }
+                await approve(uid: item.uid, requestId: item.id)
             },
             onReject: {
                 selectedCoachForRejection = item
@@ -557,7 +557,7 @@ struct AdminCoachesApprovalView: View {
         let primary: Color
         
         // Actions passed from parent
-        let onApprove: () -> Void
+        let onApprove: () async -> Void
         let onReject: () -> Void
         
         // Check if this is a resubmission (has responses or reuploads in timeline)
@@ -1028,7 +1028,7 @@ private func loadPending() async {
 }
 struct CoachRequestDetailView: View {
     let request: CoachRequestItem
-    let onApprove: () -> Void
+    let onApprove: () async -> Void
     let onReject: () -> Void
     let onUnderReview: () -> Void
     
@@ -1038,6 +1038,9 @@ struct CoachRequestDetailView: View {
     @State private var adminComment = ""
     @State private var isProcessing = false
     @State private var showRejectionSheet = false
+    @State private var isApproved = false
+    @State private var isProcessingApproval = false
+    @State private var localTimeline: [TimelineEntry]? = nil
     
     private let primary = BrandColors.darkTeal
     private let db = Firestore.firestore()
@@ -1135,7 +1138,7 @@ struct CoachRequestDetailView: View {
                             .foregroundColor(primary)
                             .padding(.horizontal)
                         
-                        ForEach(request.timeline) { entry in
+                        ForEach(localTimeline ?? request.timeline) { entry in
                             TimelineEntryView(entry: entry)
                         }
                     }
@@ -1147,7 +1150,7 @@ struct CoachRequestDetailView: View {
             }
             
             // Action Buttons (Fixed at bottom with proper padding)
-            if request.status == "pending" || request.status == "under_review" {
+            if (request.status == "pending" || request.status == "under_review") && !isApproved {
                 VStack {
                     Spacer()
                     
@@ -1182,14 +1185,22 @@ struct CoachRequestDetailView: View {
                                     await approveRequest()
                                 }
                             } label: {
-                                Text("Approve")
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(BrandColors.actionGreen)
-                                    .clipShape(Capsule())
+                                HStack(spacing: 6) {
+                                    if isProcessingApproval {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.8)
+                                    }
+                                    Text(isProcessingApproval ? "Approving..." : "Approve")
+                                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.white)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(BrandColors.actionGreen.opacity(isProcessingApproval ? 0.6 : 1.0))
+                                .clipShape(Capsule())
                             }
+                            .disabled(isProcessingApproval)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1242,9 +1253,23 @@ struct CoachRequestDetailView: View {
     
     
     private func approveRequest() async {
+        isProcessingApproval = true
+        await onApprove()
         await MainActor.run {
-            onApprove()
-            dismiss()
+            isProcessingApproval = false
+            isApproved = true
+            // Append an approved timeline entry so TimelineEntryView renders
+            // the exact same approved card as the Reviewed tab shows.
+            let approvedEntry = TimelineEntry(
+                id: UUID().uuidString,
+                timestamp: Date(),
+                type: .approved,
+                adminComment: nil,
+                coachResponse: nil,
+                documentURL: nil,
+                status: "approved"
+            )
+            localTimeline = request.timeline + [approvedEntry]
         }
     }
 
