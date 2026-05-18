@@ -231,12 +231,14 @@ struct MatchOpportunityCard: View {
         } message: {
             Text("You need to sign in or create an account to join a match.")
         }
-        .confirmationDialog(
-            "Leave Match?",
-            isPresented: $showLeaveConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Leave Match", role: .destructive) {
+
+        .fullScreenCover(isPresented: $showLeaveConfirm) {
+            StyledConfirmationOverlay(
+                isPresented: $showLeaveConfirm,
+                title: "Leave Match",
+                message: "Are you sure you want to leave this match?",
+                confirmButtonTitle: "Leave"
+            ) {
                 guard let req = myRequest else { return }
                 Task {
                     isProcessing = true
@@ -256,9 +258,7 @@ struct MatchOpportunityCard: View {
                     onRefresh()
                 }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to leave this match?")
+            .background(ClearBackground())
         }
     }
 
@@ -510,6 +510,18 @@ struct MatchOpportunityCard: View {
             creatorProfilePicURL = doc?.data()?["profilePic"] as? String
         }
     }
+}
+
+// MARK: - Clear Background (for fullScreenCover transparency)
+private struct ClearBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        DispatchQueue.main.async {
+            view.superview?.superview?.backgroundColor = .clear
+        }
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
 // MARK: - Position Cell
