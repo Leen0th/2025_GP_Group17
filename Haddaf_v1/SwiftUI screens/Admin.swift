@@ -925,11 +925,11 @@ private func loadPending() async {
             var userUpdate: [String: Any] = [
                 "role": "coach",
                 "coachStatus": "approved",
-                "updatedAt": FieldValue.serverTimestamp()
+                "updatedAt": FieldValue.serverTimestamp(),
+                "pendingAcademy": FieldValue.delete()
             ]
             if !requestedAcademy.isEmpty {
                 userUpdate["currentAcademy"] = requestedAcademy
-                userUpdate["pendingAcademy"] = FieldValue.delete()
 
                 // Find or create the academy document so it appears in Saudi Academies list.
                 let trimmedName = requestedAcademy.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -954,9 +954,18 @@ private func loadPending() async {
                     let catsSnap = try? await db.collection("academies").document(aID)
                         .collection("categories").getDocuments()
                     if let firstCat = catsSnap?.documents.first {
+                        // Add coach to existing first category
                         try? await db.collection("academies").document(aID)
                             .collection("categories").document(firstCat.documentID)
                             .updateData(["coaches": FieldValue.arrayUnion([uid])])
+                    } else {
+                        // No categories exist yet — create a default "general" category
+                        let defaultCatRef = db.collection("academies").document(aID)
+                            .collection("categories").document("general")
+                        try? await defaultCatRef.setData([
+                            "coaches": [uid],
+                            "createdAt": FieldValue.serverTimestamp()
+                        ])
                     }
                 }
             }

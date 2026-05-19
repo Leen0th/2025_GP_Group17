@@ -1999,6 +1999,7 @@ struct CurrentAcademyView: View {
             let requestData: [String: Any] = [
                 "uid": uid,
                 "email": email,
+                "coachName": coachProfile.name,
                 "status": "pending",
                 "requestType": requestType,
                 "requestedAcademy": newAcademy,
