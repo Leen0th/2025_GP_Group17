@@ -757,15 +757,21 @@ struct EditProfileView: View {
         let currentAuthEmail = user.email ?? ""
         
         if email != currentAuthEmail {
-            // Always ask for password first
-            showReauthPrompt = true
+            // Always ask for password first — stop spinner before showing prompt
+            await MainActor.run {
+                isSaving = false
+                showReauthPrompt = true
+            }
             return
         } else {
             await updateAuthDisplayNameIfNeeded()
             // Email matched, just update profile details
             await saveProfileToFirestore(updateEmailInDB: true)
             await MainActor.run {
-                overlayMessage = "Profile updated successfully"; overlayIsError = false; showInfoOverlay = true; isSaving = false
+                isSaving = false
+                overlayMessage = "Profile updated successfully! ✓"
+                overlayIsError = false
+                showInfoOverlay = true
             }
         }
     }
