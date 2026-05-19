@@ -183,8 +183,8 @@ struct CreateMatchOpportunitySheet: View {
                     .disabled(isSaving || isPostDisabled)
                 }
                 .padding(18)
-                .background(BrandColors.backgroundGradientEnd)
             }
+            .background(BrandColors.backgroundGradientEnd.ignoresSafeArea())
             .navigationTitle("Add New Match")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

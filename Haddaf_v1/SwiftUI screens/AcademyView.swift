@@ -147,6 +147,7 @@ class HaddafAcademyViewModel: ObservableObject {
 // MARK: - Main AcademyView
 
 struct AcademyView: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @EnvironmentObject var session: AppSession
     @StateObject private var vm = HaddafAcademyViewModel()
     @State private var searchText = ""
@@ -546,12 +547,15 @@ struct AcademyView: View {
                 .padding(.top, 4)
             }
         }
-        .sheet(isPresented: $showCreateMatchSheet) {
+        // iPhone
+        .sheet(isPresented: sizeClass == .compact ? $showCreateMatchSheet : .constant(false)) {
             CreateMatchOpportunitySheet()
-                .environmentObject(session)
                 .presentationDetents([.large])
                 .presentationCornerRadius(28)
-                .presentationBackground(BrandColors.background)
+        }
+        // iPad
+        .fullScreenCover(isPresented: sizeClass == .regular ? $showCreateMatchSheet : .constant(false)) {
+            CreateMatchOpportunitySheet()
         }
         .sheet(isPresented: $showMatchFilterSheet) {
             MatchFilterSheet(
