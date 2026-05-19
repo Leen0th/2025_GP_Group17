@@ -3708,7 +3708,7 @@ struct AdminChallengesView: View {
                         showFiltersSheet = false
                     }
                 )
-                .presentationDetents([.height(360)])
+                .presentationDetents([.height(460)])
                 .presentationCornerRadius(28)
                 .presentationBackground(BrandColors.background)
             }
@@ -4398,7 +4398,12 @@ private struct AdminChallengeFiltersSheet: View {
 
             Spacer(minLength: 4)
         }
-        .padding(.bottom, 10)
+        .padding(.bottom, 20)
+        .padding(.bottom, UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.windows.first }
+            .first?.safeAreaInsets.bottom ?? 0)
+        .padding(.top, 20)
+        .safeAreaPadding(.top)
     }
 
     private func filterRow(title: String, @ViewBuilder right: () -> some View) -> some View {
